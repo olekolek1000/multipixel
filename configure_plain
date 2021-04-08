@@ -1,0 +1,4 @@
+#!/bin/bash
+#CC=clang CXX=clang++ 
+#CC_LD=lld 
+CC=clang CXX=clang++ CC_LD=lld meson build --buildtype=plain
