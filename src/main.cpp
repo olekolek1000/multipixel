@@ -2,5 +2,7 @@
 
 int main() {
 	Server server;
-	server.run(59900);
+	u16 port = 59900;
+	printf("Hosting on port %u\n", port);
+	server.run(port);
 }
