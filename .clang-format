@@ -1,0 +1,20 @@
+---
+BasedOnStyle: LLVM
+
+Language: Cpp
+IndentWidth: 2
+TabWidth: 2
+UseTab: Always
+AlignTrailingComments: true
+AllowShortFunctionsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+NamespaceIndentation: All
+ColumnLimit: 0
+AlignConsecutiveMacros: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: true
+SpaceBeforeParens: false
+IndentCaseLabels: true
+IndentPPDirectives: AfterHash
+AllowShortLambdasOnASingleLine: true

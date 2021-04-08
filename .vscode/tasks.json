@@ -1,0 +1,21 @@
+{
+	"tasks": [
+		{
+			"label": "compile",
+			"type": "shell",
+			"command": "./compile",
+			"presentation": {
+				"reveal": "always"
+			}
+		},
+		{
+			"label": "run",
+			"type": "shell",
+			"command": "./run",
+			"presentation": {
+				"reveal": "always"
+			}
+		}
+	],
+	"version": "2.0.0"
+}
