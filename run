@@ -1,0 +1,2 @@
+#!/bin/bash
+time ninja -C build && ./build/multipixel_server
