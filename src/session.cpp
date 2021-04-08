@@ -251,7 +251,7 @@ void Session::updateCursor() {
 	if(iters == 0)
 		iters = 1;
 
-	if(iters > 5000) //Too much pixels at once
+	if(iters > 600) //Too much pixels at once
 		return;
 
 	auto *brush_shape_outline = server->getBrushShape(brush.size, false);
