@@ -190,6 +190,9 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 			parseCommandBrushColor(data);
 			break;
 		}
+		case ClientCmd::ping: {
+			break;
+		}
 		default: {
 			server->log("Got unknown command %d from IP %s (ID %u)", (int)cmd, connection->getIP(), getID());
 			kick("Got unknown packet");

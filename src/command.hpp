@@ -11,6 +11,7 @@
 enum struct ClientCmd : u16 {
 	message = 1,			//utf-8 text
 	announce = 2,			//utf-8 username
+	ping = 4,
 	cursor_pos = 100, //s32 x, s32 y
 	cursor_down = 101,
 	cursor_up = 102,
