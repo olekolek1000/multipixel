@@ -15,8 +15,9 @@ enum struct ClientCmd : u16 {
 	cursor_pos = 100, //s32 x, s32 y
 	cursor_down = 101,
 	cursor_up = 102,
-	brush_size = 103,	 //u8 size
-	brush_color = 104, //u8 red, u8 green, u8 blue
+	boundary = 103,
+	brush_size = 200,	 //u8 size
+	brush_color = 201, //u8 red, u8 green, u8 blue
 };
 
 enum struct ServerCmd : u16 {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "command.hpp"
+#include "util/event_queue.hpp"
 #include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
@@ -30,6 +31,11 @@ private:
 	bool cursor_down = false;
 	s32 cursorX, cursorY, cursorX_prev, cursorY_prev, cursorX_sent, cursorY_sent;
 
+	//Chunk visibility boundary
+	struct {
+		s32 start_x, start_y, end_x, end_y;
+	} boundary;
+
 	Timestep step_runner;
 	std::thread thr_runner;
 
@@ -42,6 +48,8 @@ private:
 
 	Mutex mtx_linked_chunks;
 	std::vector<Chunk *> linked_chunks;
+
+	EventQueue queue;
 
 	//Brush settings
 	struct {
@@ -73,6 +81,10 @@ public:
 private:
 	//Send packet with exception handler
 	void sendPacket(const Packet &packet);
+	void linkChunk_nolock(Chunk *chunk);
+	void unlinkChunk_nolock(Chunk *chunk);
+	bool isChunkLinked_nolock(Chunk *chunk);
+	bool isChunkLinked_nolock(Int2 chunk_pos);
 	void close();
 
 	void updateCursor();
@@ -94,6 +106,7 @@ private:
 	void parseCommandCursorUp(const std::string_view data);
 	void parseCommandBrushSize(const std::string_view data);
 	void parseCommandBrushColor(const std::string_view data);
+	void parseCommandBoundary(const std::string_view data);
 
 	void kick(const char *reason);
 	void kickInvalidPacket();

@@ -70,11 +70,9 @@ void Server::run(u16 port) {
 	while(!got_sigint) {
 		idle = true;
 
-		if(queue.process(10))
-			idle = false;
-
+		//stonks
 		if(idle)
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 }
 
@@ -156,6 +154,8 @@ void Server::removeSession_nolock(WsConnection *connection) {
 					session_to_remove->getNickname().c_str());
 
 			log("Triggering session_remove dispatchers");
+
+			log("Flushing queue");
 
 			//Trigger session remove dispatcher
 			dispatcher_session_remove.triggerAll(session_to_remove);
