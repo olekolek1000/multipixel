@@ -135,16 +135,12 @@ UInt2 ChunkSystem::globalPixelPosToLocalPixelPos(Int2 global_pixel_pos) {
 
 void ChunkSystem::announceChunkForSession(Session *session, Int2 chunk_pos) {
 	LockGuard lock(mtx_chunks);
-
 	auto *chunk = getChunk_nolock(chunk_pos);
-	chunk->linkSession(session);
 	session->linkChunk(chunk);
 }
 
 void ChunkSystem::deannounceChunkForSession(Session *session, Int2 chunk_pos) {
 	LockGuard lock(mtx_chunks);
-
 	auto *chunk = getChunk_nolock(chunk_pos);
-	chunk->unlinkSession(session);
 	session->unlinkChunk(chunk);
 }
