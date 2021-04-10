@@ -13,12 +13,14 @@ src = [
 	src_root + 'server.cpp',
 	src_root + 'session.cpp',
 	src_root + 'command.cpp',
+	src_root + 'database.cpp',
 ]
 
 deps = [
 	dependency('threads'),
 	dependency('websocketpp'),
-	dependency('liblz4')
+	dependency('liblz4'),
+	dependency('sqlite3')
 ]
 
 executable(
