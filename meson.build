@@ -13,6 +13,8 @@ src = [
 	src_root + 'server.cpp',
 	src_root + 'session.cpp',
 	src_root + 'command.cpp',
+	src_root + 'chunk.cpp',
+	src_root + 'chunk_system.cpp',
 ]
 
 deps = [

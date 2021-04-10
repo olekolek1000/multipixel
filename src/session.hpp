@@ -13,6 +13,7 @@
 
 struct Server;
 struct WsConnection;
+struct Chunk;
 struct WsMessage;
 
 struct Session {
@@ -39,6 +40,9 @@ private:
 	Mutex mtx_packet_queue;
 	std::queue<Packet> packet_queue;
 
+	Mutex mtx_linked_chunks;
+	std::vector<Chunk *> linked_chunks;
+
 	//Brush settings
 	struct {
 		u8 size;
@@ -60,6 +64,11 @@ public:
 	void pushPacket(const Packet &packet);
 
 	bool wantsBeRemoved();
+
+	void linkChunk(Chunk *chunk);
+	void unlinkChunk(Chunk *chunk);
+	bool isChunkLinked(Chunk *chunk);
+	bool isChunkLinked(Int2 chunk_pos);
 
 private:
 	//Send packet with exception handler

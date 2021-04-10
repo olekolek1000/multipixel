@@ -8,6 +8,7 @@
 #include <map>
 
 struct Session;
+struct ChunkSystem;
 
 u64 getMicros(); //Microseconds
 u64 getMillis(); //Milliseconds
@@ -15,11 +16,6 @@ u64 getMillis(); //Milliseconds
 struct BrushShape {
 	u8 size; //Width and height
 	uniqdata<u8> shape;
-};
-
-struct PixelCell {
-	s32 x, y;
-	u8 r, g, b;
 };
 
 struct Server {
@@ -51,17 +47,14 @@ public:
 	//Broadcast packet for everyone except one session (optional)
 	void broadcast(const Packet &packet, Session *except = nullptr);
 
-	//Send pixels to queue and broadcast it later
-	void setPixels(PixelCell *cells, size_t count);
-
 	//Returns monochrome brush bitmap
 	BrushShape *getBrushShape(u8 size, bool filled);
+
+	ChunkSystem *getChunkSystem();
 
 private:
 	void closeCallback(WsConnection *connection);
 	void messageCallback(std::shared_ptr<WsMessage> &ws_msg);
-
-	bool processPixelQueue();
 
 	//Non-locking methods
 	Session *createSession_nolock(WsConnection *connection);

@@ -1,4 +1,5 @@
 #include "server.hpp"
+#include "chunk_system.hpp"
 #include "command.hpp"
 #include "session.hpp"
 #include "util/buffer.hpp"
@@ -30,9 +31,7 @@ u64 getMillis() {
 typedef std::map<u8, uniqptr<BrushShape>> BrushShapeMap;
 
 struct Server::P {
-	Mutex mtx_pixel_queue;
-	std::atomic<bool> pixels_in_queue = false;
-	std::vector<PixelCell> pixel_queue;
+	uniqptr<ChunkSystem> chunk_system;
 
 	Mutex mtx_brush_shapes;
 	BrushShapeMap brush_shapes_circle_filled;
@@ -41,6 +40,7 @@ struct Server::P {
 
 Server::Server() {
 	p.create();
+	p->chunk_system.create(this);
 }
 
 Server::~Server() {
@@ -71,9 +71,6 @@ void Server::run(u16 port) {
 		idle = true;
 
 		if(queue.process(10))
-			idle = false;
-
-		if(processPixelQueue())
 			idle = false;
 
 		if(idle)
@@ -109,6 +106,17 @@ Session *Server::createSession_nolock(WsConnection *connection) {
 	session_map[connection] = ptr;
 
 	log("Created session with ID %u (IP: %s)", id, connection->getIP());
+
+	auto *chunk_system = getChunkSystem();
+	//Announce spawn chunks (temporary)
+	s32 countX = 5;
+	s32 countY = 10;
+	for(s32 y = -countY; y < countY; y++) {
+		for(s32 x = -countX; x < countX; x++) {
+			chunk_system->announceChunkForSession(ptr, {x, y});
+		}
+	}
+
 	return ptr;
 }
 
@@ -194,14 +202,6 @@ void Server::broadcast(const Packet &packet, Session *except) {
 	}
 }
 
-void Server::setPixels(PixelCell *cells, size_t count) {
-	LockGuard lock(p->mtx_pixel_queue);
-	auto prev_size = p->pixel_queue.size();
-	p->pixel_queue.resize(p->pixel_queue.size() + count);
-	memcpy(p->pixel_queue.data() + prev_size, cells, count * sizeof(PixelCell));
-	p->pixels_in_queue = true;
-}
-
 BrushShape *Server::getBrushShape(u8 size, bool filled) {
 	LockGuard lock(p->mtx_brush_shapes);
 
@@ -241,6 +241,11 @@ BrushShape *Server::getBrushShape(u8 size, bool filled) {
 	}
 }
 
+ChunkSystem *Server::getChunkSystem() {
+	return p->chunk_system.get();
+}
+
+/*
 bool Server::processPixelQueue() {
 	bool expect = true;
 	if(!p->pixels_in_queue.compare_exchange_weak(expect, false))
@@ -318,7 +323,7 @@ bool Server::processPixelQueue() {
 	broadcast(packet);
 
 	return true;
-}
+}*/
 
 void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 	auto *connection = ws_msg->connection;
