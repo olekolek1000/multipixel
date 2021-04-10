@@ -33,8 +33,6 @@ private:
 	std::vector<uniqptr<Session>> sessions;
 
 public:
-	EventQueue queue;
-
 	Server();
 	~Server();
 

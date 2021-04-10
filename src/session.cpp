@@ -52,6 +52,9 @@ void Session::runner() {
 		if(runner_tick())
 			idle = false;
 
+		if(queue.process(1))
+			idle = false;
+
 		if(idle)
 			std::this_thread::sleep_for(std::chrono::milliseconds(2));
 	}
@@ -138,23 +141,24 @@ bool Session::wantsBeRemoved() {
 	return remove;
 }
 
-void Session::linkChunk(Chunk *chunk) {
-	LockGuard lock(mtx_linked_chunks);
-
+void Session::linkChunk_nolock(Chunk *chunk) {
 	for(auto &cell : linked_chunks) {
 		if(cell == chunk)
 			return; //Already linked
 	}
 
+	pushPacket(preparePacketChunkCreate(chunk->getPosition()));
+
+	chunk->linkSession(this);
+
 	linked_chunks.push_back(chunk);
 }
 
-void Session::unlinkChunk(Chunk *chunk) {
-	LockGuard lock(mtx_linked_chunks);
-
+void Session::unlinkChunk_nolock(Chunk *chunk) {
 	for(auto it = linked_chunks.begin(); it != linked_chunks.end();) {
 		if(*it == chunk) {
 			//Remove linked chunk
+			chunk->unlinkSession(this);
 			pushPacket(preparePacketChunkRemove(chunk->getPosition()));
 			it = linked_chunks.erase(it);
 			return;
@@ -164,8 +168,27 @@ void Session::unlinkChunk(Chunk *chunk) {
 	}
 }
 
+void Session::linkChunk(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+	linkChunk_nolock(chunk);
+}
+
+void Session::unlinkChunk(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+	unlinkChunk_nolock(chunk);
+}
+
 bool Session::isChunkLinked(Chunk *chunk) {
 	LockGuard lock(mtx_linked_chunks);
+	return isChunkLinked_nolock(chunk);
+}
+
+bool Session::isChunkLinked(Int2 chunk_pos) {
+	LockGuard lock(mtx_linked_chunks);
+	return isChunkLinked_nolock(chunk_pos);
+}
+
+bool Session::isChunkLinked_nolock(Chunk *chunk) {
 	for(auto &cell : linked_chunks) {
 		if(cell == chunk)
 			return true;
@@ -173,8 +196,7 @@ bool Session::isChunkLinked(Chunk *chunk) {
 	return false;
 }
 
-bool Session::isChunkLinked(Int2 chunk_pos) {
-	LockGuard lock(mtx_linked_chunks);
+bool Session::isChunkLinked_nolock(Int2 chunk_pos) {
 	for(auto &cell : linked_chunks) {
 		if(cell->getPosition() == chunk_pos)
 			return true;
@@ -242,6 +264,10 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 		}
 		case ClientCmd::brush_color: {
 			parseCommandBrushColor(data);
+			break;
+		}
+		case ClientCmd::boundary: {
+			parseCommandBoundary(data);
 			break;
 		}
 		case ClientCmd::ping: {
@@ -429,6 +455,65 @@ void Session::parseCommandBrushColor(const std::string_view data) {
 	brush.r = rgb.r;
 	brush.g = rgb.g;
 	brush.b = rgb.b;
+}
+
+void Session::parseCommandBoundary(const std::string_view data) {
+	struct PACKED boundary_t {
+		s32 start_x, start_y, end_x, end_y;
+	};
+
+	auto *bnd = (boundary_t *)data.data();
+
+	if(data.size() != sizeof(boundary_t)) {
+		kickInvalidPacket();
+		return;
+	}
+
+	auto start_x = frombig32(bnd->start_x);
+	auto start_y = frombig32(bnd->start_y);
+	auto end_x = frombig32(bnd->end_x);
+	auto end_y = frombig32(bnd->end_y);
+
+	if(end_y < start_y)
+		end_y = start_y;
+
+	if(end_x < start_x)
+		end_x = start_x;
+
+	//Chunk limit
+	end_x = std::min(end_x, start_x + 100);
+	end_y = std::min(end_y, start_y + 100);
+
+	boundary.start_x = start_x;
+	boundary.start_y = start_y;
+	boundary.end_x = end_x;
+	boundary.end_y = end_y;
+
+	LockGuard lock(mtx_linked_chunks);
+
+	std::vector<Chunk *> marked_chunks;
+
+	//Perform loop
+	for(s32 y = boundary.start_y; y < boundary.end_y; y++) {
+		for(s32 x = boundary.start_x; x < boundary.end_x; x++) {
+			if(!isChunkLinked_nolock({x, y})) {
+				queue.push([this, x, y] {
+					server->getChunkSystem()->announceChunkForSession(this, {x, y});
+				});
+			}
+		}
+	}
+
+	//Check chunks outside
+	for(auto &chunk : linked_chunks) {
+		auto pos = chunk->getPosition();
+		if(pos.y < start_y || pos.y > end_y || pos.x < start_x || pos.y > end_x) {
+			//Remove chunk
+			queue.push([this, x = pos.x, y = pos.y] {
+				server->getChunkSystem()->deannounceChunkForSession(this, {x, y});
+			});
+		}
+	}
 }
 
 bool Session::isValid() {

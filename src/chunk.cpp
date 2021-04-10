@@ -67,8 +67,6 @@ void Chunk::linkSession(Session *session) {
 	LockGuard lock1(mtx_access);
 	LockGuard lock2(mtx_linked_sessions);
 
-	session->pushPacket(preparePacketChunkCreate(getPosition()));
-
 	//Check if session pointer already exists
 	for(auto &cell : linked_sessions) {
 		if(cell == session)
