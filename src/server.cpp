@@ -109,8 +109,8 @@ Session *Server::createSession_nolock(WsConnection *connection) {
 
 	auto *chunk_system = getChunkSystem();
 	//Announce spawn chunks (temporary)
-	s32 countX = 5;
-	s32 countY = 10;
+	s32 countX = 4;
+	s32 countY = 4;
 	for(s32 y = -countY; y < countY; y++) {
 		for(s32 x = -countX; x < countX; x++) {
 			chunk_system->announceChunkForSession(ptr, {x, y});
@@ -150,12 +150,21 @@ void Server::removeSession_nolock(WsConnection *connection) {
 				session->pushPacket(packet_remove_user);
 			}
 
-			log("Removing session with ID %u (IP %s, Nickname %s)", session_to_remove->getID(), session_to_remove->getConnection()->getIP(), session_to_remove->getNickname().c_str());
+			log("Removing session with ID %u (IP %s, Nickname %s)",
+					session_to_remove->getID(),
+					session_to_remove->getConnection()->getIP(),
+					session_to_remove->getNickname().c_str());
+
+			log("Triggering session_remove dispatchers");
+
+			//Trigger session remove dispatcher
+			dispatcher_session_remove.triggerAll(session_to_remove);
 
 			//Remove session completely
 			//This can hang if Session::runner thread
 			//is freezed somehow (~Session() joins Session::runner thread).
 			//Good luck debugging that
+			log("Deallocating session");
 			it = sessions.erase(it);
 
 			log("Removed session with ID %u", id);
@@ -244,86 +253,6 @@ BrushShape *Server::getBrushShape(u8 size, bool filled) {
 ChunkSystem *Server::getChunkSystem() {
 	return p->chunk_system.get();
 }
-
-/*
-bool Server::processPixelQueue() {
-	bool expect = true;
-	if(!p->pixels_in_queue.compare_exchange_weak(expect, false))
-		return false; //pixels_in_queue not set, return
-
-	Buffer buf_pixels;
-	size_t pixel_count = 0;
-
-	{
-		LockGuard lock(p->mtx_pixel_queue);
-		pixel_count = p->pixel_queue.size();
-
-		const size_t x_size = sizeof(s32), y_size = sizeof(s32),
-								 r_size = sizeof(u8), g_size = sizeof(u8), b_size = sizeof(u8);
-
-		const size_t pixel_size = x_size + y_size + r_size + g_size + b_size;
-		buf_pixels.reserve(pixel_count * pixel_size);
-
-		auto *data = p->pixel_queue.data();
-
-		//Write X
-		for(u32 i = 0; i < pixel_count; i++) {
-			s32 x_BE = tobig32(data[i].x);
-			buf_pixels.write(&x_BE, sizeof(s32));
-		}
-
-		//Write Y
-		for(u32 i = 0; i < pixel_count; i++) {
-			s32 y_BE = tobig32(data[i].y);
-			buf_pixels.write(&y_BE, sizeof(s32));
-		}
-
-		//Write R
-		for(u32 i = 0; i < pixel_count; i++) {
-			u8 red = data[i].r;
-			buf_pixels.write(&red, sizeof(u8));
-		}
-
-		//Write G
-		for(u32 i = 0; i < pixel_count; i++) {
-			u8 green = data[i].g;
-			buf_pixels.write(&green, sizeof(u8));
-		}
-
-		//Write B
-		for(u32 i = 0; i < pixel_count; i++) {
-			u8 blue = data[i].b;
-			buf_pixels.write(&blue, sizeof(u8));
-		}
-
-		//Batch erase
-		p->pixel_queue.erase(p->pixel_queue.begin(), p->pixel_queue.begin() + pixel_count);
-	}
-
-	auto compressed = compressLZ4(buf_pixels.data(), buf_pixels.size());
-
-	u32 count_BE = tobig32((u32)pixel_count);
-	u32 raw_size_BE = tobig32((u32)buf_pixels.size());
-	u32 compressed_size_BE = tobig32((u32)compressed.size());
-
-	Datasize data_pixel_count(&count_BE, sizeof(u32));
-	Datasize data_raw_size(&raw_size_BE, sizeof(u32));
-	Datasize data_compressed_size(&compressed_size_BE, sizeof(u32));
-	Datasize data_compressed_data(compressed.data(), compressed.size());
-
-	Datasize *datasizes[] =
-			{&data_pixel_count,
-			 &data_raw_size,
-			 &data_compressed_size,
-			 &data_compressed_data,
-			 nullptr};
-
-	auto packet = preparePacket(ServerCmd::pixel_pack, datasizes);
-
-	broadcast(packet);
-
-	return true;
-}*/
 
 void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 	auto *connection = ws_msg->connection;

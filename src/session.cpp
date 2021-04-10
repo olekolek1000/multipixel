@@ -147,7 +147,6 @@ void Session::linkChunk(Chunk *chunk) {
 	}
 
 	linked_chunks.push_back(chunk);
-	pushPacket(preparePacketChunkCreate(chunk->getPosition()));
 }
 
 void Session::unlinkChunk(Chunk *chunk) {
