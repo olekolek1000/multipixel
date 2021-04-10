@@ -129,6 +129,8 @@ public:
 			: ptr(a.ptr) {
 		ptr = nullptr;
 	}
+	uniqdata(void * ptr , size_t size) 
+		:ptr(ptr),_size(size){}
 
 	size_t size() {
 		return _size;
