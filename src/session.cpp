@@ -1,4 +1,6 @@
 #include "session.hpp"
+#include "chunk.hpp"
+#include "chunk_system.hpp"
 #include "command.hpp"
 #include "server.hpp"
 #include "util/timestep.hpp"
@@ -24,6 +26,14 @@ Session::~Session() {
 	remove = true;
 	if(thr_runner.joinable())
 		thr_runner.join();
+
+	LockGuard lock(mtx_linked_chunks);
+
+	//Remove linked chunks
+	while(!linked_chunks.empty()) {
+		linked_chunks.back()->unlinkSession(this);
+		linked_chunks.pop_back();
+	}
 }
 
 void Session::runner() {
@@ -126,6 +136,51 @@ void Session::pushPacket(const Packet &packet) {
 
 bool Session::wantsBeRemoved() {
 	return remove;
+}
+
+void Session::linkChunk(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+
+	for(auto &cell : linked_chunks) {
+		if(cell == chunk)
+			return; //Already linked
+	}
+
+	linked_chunks.push_back(chunk);
+	pushPacket(preparePacketChunkCreate(chunk->getPosition()));
+}
+
+void Session::unlinkChunk(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+
+	for(auto it = linked_chunks.begin(); it != linked_chunks.end();) {
+		if(*it == chunk) {
+			//Remove linked chunk
+			pushPacket(preparePacketChunkRemove(chunk->getPosition()));
+			it = linked_chunks.erase(it);
+			return;
+		} else {
+			it++;
+		}
+	}
+}
+
+bool Session::isChunkLinked(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+	for(auto &cell : linked_chunks) {
+		if(cell == chunk)
+			return true;
+	}
+	return false;
+}
+
+bool Session::isChunkLinked(Int2 chunk_pos) {
+	LockGuard lock(mtx_linked_chunks);
+	for(auto &cell : linked_chunks) {
+		if(cell->getPosition() == chunk_pos)
+			return true;
+	}
+	return false;
 }
 
 void Session::kick(const char *reason) {
@@ -260,13 +315,13 @@ void Session::updateCursor() {
 	auto *brush_shape_outline = server->getBrushShape(brush.size, false);
 	auto *brush_shape_filled = server->getBrushShape(brush.size, true);
 
-	std::vector<PixelCell> pixels;
+	std::vector<GlobalPixel> pixels;
 	pixels.reserve(256);
 
 	auto addPixel = [&](s32 x, s32 y, u8 r, u8 g, u8 b) {
 		auto &cell = pixels.emplace_back();
-		cell.x = x;
-		cell.y = y;
+		cell.pos.x = x;
+		cell.pos.y = y;
 		cell.r = r;
 		cell.g = g;
 		cell.b = b;
@@ -307,7 +362,7 @@ void Session::updateCursor() {
 		}
 	}
 
-	server->setPixels(pixels.data(), pixels.size());
+	server->getChunkSystem()->setPixels(this, pixels.data(), pixels.size());
 }
 
 void Session::parseCommandCursorPos(const std::string_view data) {
