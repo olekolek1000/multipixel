@@ -27,6 +27,7 @@ private:
 	std::vector<Session *> linked_sessions;
 
 	void allocateImage_nolock();
+	void sendChunkDataToSession_nolock(Session *session);
 	void getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b);
 
 public:

@@ -1,10 +1,10 @@
 #pragma once
 
+#include "util/listener.hpp"
 #include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 #include <map>
-#include <thread>
 
 struct Server;
 struct Session;
@@ -19,15 +19,10 @@ struct ChunkSystem {
 	Server *server;
 
 private:
-	bool ended;
-
 	Mutex mtx_chunks;
 	std::map<s32, std::map<s32, uniqptr<Chunk>>> chunks;
 
-	std::thread thr_runner;
-
-	void runner();
-	bool runner_tick();
+	Listener<void(Session *)> listener_session_remove;
 
 	//Never returns null
 	Chunk *getChunk_nolock(Int2 chunk_pos);
