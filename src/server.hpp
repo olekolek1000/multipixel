@@ -2,6 +2,7 @@
 
 #include "command.hpp"
 #include "util/event_queue.hpp"
+#include "util/listener.hpp"
 #include "util/mutex.hpp"
 #include "ws_server.hpp"
 #include <functional>
@@ -51,6 +52,8 @@ public:
 	BrushShape *getBrushShape(u8 size, bool filled);
 
 	ChunkSystem *getChunkSystem();
+
+	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 
 private:
 	void closeCallback(WsConnection *connection);

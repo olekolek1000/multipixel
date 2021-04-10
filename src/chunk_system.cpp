@@ -8,34 +8,21 @@
 #include <vector>
 
 ChunkSystem::ChunkSystem(Server *server)
-		: server(server),
-			ended(false) {
+		: server(server) {
 
-	thr_runner = std::thread(&ChunkSystem::runner, this);
+	server->dispatcher_session_remove.add(listener_session_remove, [this](Session *removing_session) {
+		LockGuard lock(mtx_chunks);
+		//For every chunk
+		for(auto &i : chunks) {			//X
+			for(auto &j : i.second) { //Y
+				auto *chunk = j.second.get();
+				chunk->unlinkSession(removing_session);
+			}
+		}
+	});
 }
 
 ChunkSystem::~ChunkSystem() {
-	ended = true;
-	server->log("Joining ChunkSystem thread");
-	if(thr_runner.joinable())
-		thr_runner.join();
-}
-
-void ChunkSystem::runner() {
-	while(!ended) {
-		if(runner_tick()) {
-			continue;
-		} else {
-			//Idle
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
-		}
-	}
-}
-
-bool ChunkSystem::runner_tick() {
-	bool used = false;
-
-	return used;
 }
 
 Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
@@ -54,31 +41,20 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 void ChunkSystem::setPixels(Session *session, GlobalPixel *pixels, size_t count) {
 	LockGuard lock(mtx_chunks);
 
-	//Chunk "cache"
-	//Visible and affected chunks by player
-
 	struct ChunkCacheCell {
 		Int2 chunk_pos;
 		Chunk *chunk;
 		std::vector<ChunkPixel> queued_pixels;
 	};
 
+	//Chunk "cache"
+	//Visible and affected chunks by player
 	std::vector<ChunkCacheCell> affected_chunks;
 
 	auto fetchCell = [&](Int2 chunk_pos) -> ChunkCacheCell * {
 		for(auto &cell : affected_chunks) {
 			if(cell.chunk_pos == chunk_pos) {
 				return &cell;
-			}
-		}
-
-		return nullptr;
-	};
-
-	auto fetchChunk = [&](Int2 chunk_pos) -> Chunk * {
-		for(auto &cell : affected_chunks) {
-			if(cell.chunk_pos == chunk_pos) {
-				return cell.chunk;
 			}
 		}
 
@@ -98,7 +74,7 @@ void ChunkSystem::setPixels(Session *session, GlobalPixel *pixels, size_t count)
 	for(size_t i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 		auto chunk_pos = globalPixelPosToChunkPos(pixel.pos);
-		if(fetchChunk(chunk_pos) == nullptr) {
+		if(fetchCell(chunk_pos) == nullptr) {
 			cacheNewChunk(chunk_pos);
 		}
 	}
@@ -127,8 +103,8 @@ void ChunkSystem::setPixels(Session *session, GlobalPixel *pixels, size_t count)
 }
 
 Int2 ChunkSystem::globalPixelPosToChunkPos(Int2 pixel_pos) {
-	s32 chunkX = pixel_pos.x / getChunkSize();
-	s32 chunkY = pixel_pos.y / getChunkSize();
+	s32 chunkX = pixel_pos.x / (s32)getChunkSize();
+	s32 chunkY = pixel_pos.y / (s32)getChunkSize();
 
 	if(pixel_pos.x < 0)
 		chunkX--;
@@ -140,16 +116,16 @@ Int2 ChunkSystem::globalPixelPosToChunkPos(Int2 pixel_pos) {
 }
 
 UInt2 ChunkSystem::globalPixelPosToLocalPixelPos(Int2 global_pixel_pos) {
-	auto chunk_size = getChunkSize();
+	auto chunk_size = (s32)getChunkSize();
 
 	s32 x = global_pixel_pos.x % chunk_size;
 	s32 y = global_pixel_pos.y % chunk_size;
 
 	if(global_pixel_pos.x < 0)
-		x += chunk_size;
+		x += chunk_size - 1;
 
 	if(global_pixel_pos.y < 0)
-		y += chunk_size;
+		y += chunk_size - 1;
 
 	//Can be removed later
 	assert(x >= 0 && y >= 0 && x < chunk_size && y < chunk_size);
