@@ -1,6 +1,7 @@
 #pragma once
 
 #include "command.hpp"
+#include "util/event_queue.hpp"
 #include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
@@ -13,6 +14,7 @@
 
 struct Server;
 struct WsConnection;
+struct Chunk;
 struct WsMessage;
 
 struct Session {
@@ -29,6 +31,11 @@ private:
 	bool cursor_down = false;
 	s32 cursorX, cursorY, cursorX_prev, cursorY_prev, cursorX_sent, cursorY_sent;
 
+	//Chunk visibility boundary
+	struct {
+		s32 start_x, start_y, end_x, end_y;
+	} boundary;
+
 	Timestep step_runner;
 	std::thread thr_runner;
 
@@ -38,6 +45,13 @@ private:
 
 	Mutex mtx_packet_queue;
 	std::queue<Packet> packet_queue;
+
+	Mutex mtx_linked_chunks;
+	std::vector<Chunk *> linked_chunks;
+
+	bool needs_boundary_test;
+
+	EventQueue queue;
 
 	//Brush settings
 	struct {
@@ -61,9 +75,18 @@ public:
 
 	bool wantsBeRemoved();
 
+	void linkChunk(Chunk *chunk);
+	void unlinkChunk(Chunk *chunk);
+	bool isChunkLinked(Chunk *chunk);
+	bool isChunkLinked(Int2 chunk_pos);
+
 private:
 	//Send packet with exception handler
 	void sendPacket(const Packet &packet);
+	void linkChunk_nolock(Chunk *chunk);
+	void unlinkChunk_nolock(Chunk *chunk);
+	bool isChunkLinked_nolock(Chunk *chunk);
+	bool isChunkLinked_nolock(Int2 chunk_pos);
 	void close();
 
 	void updateCursor();
@@ -72,10 +95,13 @@ private:
 	// All methods below are run in worker thread
 	//--------------------------------------------
 
+	bool processed_input_message = false;
+
 	void runner();
 	bool runner_tick();
 	bool runner_processMessageQueue();
 	bool runner_processPacketQueue();
+	void runner_performBoundaryTest();
 
 	void parseCommand(ClientCmd cmd, const std::string_view data);
 	void parseCommandAnnounce(const std::string_view data);
@@ -85,6 +111,7 @@ private:
 	void parseCommandCursorUp(const std::string_view data);
 	void parseCommandBrushSize(const std::string_view data);
 	void parseCommandBrushColor(const std::string_view data);
+	void parseCommandBoundary(const std::string_view data);
 
 	void kick(const char *reason);
 	void kickInvalidPacket();
