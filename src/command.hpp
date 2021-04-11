@@ -9,24 +9,28 @@
 #define PACKED			 __attribute__((packed))
 
 enum struct ClientCmd : u16 {
-	message = 1,			//utf-8 text
-	announce = 2,			//utf-8 username
+	message = 1,	//utf-8 text
+	announce = 2, //utf-8 username
 	ping = 4,
 	cursor_pos = 100, //s32 x, s32 y
 	cursor_down = 101,
 	cursor_up = 102,
-	brush_size = 103,	 //u8 size
-	brush_color = 104, //u8 red, u8 green, u8 blue
+	boundary = 103,
+	brush_size = 200,	 //u8 size
+	brush_color = 201, //u8 red, u8 green, u8 blue
 };
 
 enum struct ServerCmd : u16 {
-	message = 1,					 //utf-8 text
-	your_id = 2,					 //u16 id
-	kick = 3,							 //utf-8 reason
-	pixel_pack = 100,			 //u32 count, count* {s32 x, s32 y, u8 red, u8 green, u8 blue}
-	user_create = 200,		 //u16 id, utf-8 nickname
-	user_remove = 201,		 //u16 id
-	user_cursor_pos = 202, //u16 id, s32 x, s32 y
+	message = 1,						//utf-8 text
+	your_id = 2,						//u16 id
+	kick = 3,								//utf-8 reason
+	chunk_image = 100,			//complex data
+	chunk_pixel_pack = 101, //complex data
+	chunk_create = 110,			//s32 chunkX, s32 chunkY
+	chunk_remove = 111,			//s32 chunkX, s32 chunkY
+	user_create = 200,			//u16 id, utf-8 nickname
+	user_remove = 201,			//u16 id
+	user_cursor_pos = 202,	//u16 id, s32 x, s32 y
 };
 
 u16 frombig16(u16 in);
@@ -58,6 +62,8 @@ Packet preparePacket(ServerCmd cmd, const void *data, u32 size);
 Packet preparePacketUserCursorPos(u16 session_id, s32 x, s32 y);
 Packet preparePacketUserCreate(Session *session);
 Packet preparePacketUserRemove(Session *session);
+Packet preparePacketChunkCreate(Int2 chunk_pos);
+Packet preparePacketChunkRemove(Int2 chunk_pos);
 
 uniqdata<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER;
 uniqdata<u8> decompressLZ4(const void *data, u32 compressed_size, u32 raw_size) NO_SANITIZER;
