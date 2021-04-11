@@ -509,7 +509,7 @@ void Session::runner_performBoundaryTest() {
 	//Remove chunks outside bounds
 	for(auto &chunk : linked_chunks) {
 		auto pos = chunk->getPosition();
-		if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x<boundary.start_x | pos.x> boundary.end_x) {
+		if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
 			server->getChunkSystem()->deannounceChunkForSession(this, pos);
 		}
 	}
