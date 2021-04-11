@@ -49,6 +49,8 @@ private:
 	Mutex mtx_linked_chunks;
 	std::vector<Chunk *> linked_chunks;
 
+	bool needs_boundary_test;
+
 	EventQueue queue;
 
 	//Brush settings
@@ -93,10 +95,13 @@ private:
 	// All methods below are run in worker thread
 	//--------------------------------------------
 
+	bool processed_input_message = false;
+
 	void runner();
 	bool runner_tick();
 	bool runner_processMessageQueue();
 	bool runner_processPacketQueue();
+	void runner_performBoundaryTest();
 
 	void parseCommand(ClientCmd cmd, const std::string_view data);
 	void parseCommandAnnounce(const std::string_view data);
