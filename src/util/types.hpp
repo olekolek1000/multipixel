@@ -111,11 +111,18 @@ struct Int2 {
 	Int2() {}
 	Int2(s32 n) : x(n), y(n) {}
 	Int2(s32 x, s32 y) : x(x), y(y) {}
+
+	bool operator==(Int2 n) {
+		return n.x == this->x && n.y == this->y;
+	}
 };
 
 struct UInt2 {
 	u32 x;
 	u32 y;
+	bool operator==(UInt2 n) {
+		return n.x == this->x && n.y == this->y;
+	}
 };
 
 struct Int3 {

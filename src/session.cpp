@@ -1,4 +1,6 @@
 #include "session.hpp"
+#include "chunk.hpp"
+#include "chunk_system.hpp"
 #include "command.hpp"
 #include "server.hpp"
 #include "util/timestep.hpp"
@@ -16,7 +18,8 @@ Session::Session(Server *server, WsConnection *connection, u16 id)
 			cursorX_prev(0),
 			cursorY_prev(0),
 			cursorX_sent(0),
-			cursorY_sent(0) {
+			cursorY_sent(0),
+			needs_boundary_test(false) {
 	thr_runner = std::thread(&Session::runner, this);
 }
 
@@ -24,6 +27,14 @@ Session::~Session() {
 	remove = true;
 	if(thr_runner.joinable())
 		thr_runner.join();
+
+	LockGuard lock(mtx_linked_chunks);
+
+	//Remove linked chunks
+	while(!linked_chunks.empty()) {
+		linked_chunks.back()->unlinkSession(this);
+		linked_chunks.pop_back();
+	}
 }
 
 void Session::runner() {
@@ -32,14 +43,20 @@ void Session::runner() {
 
 	while(!remove) {
 		bool idle = true;
+		processed_input_message = false;
 
-		if(runner_processMessageQueue())
+		if(runner_processMessageQueue()) {
+			processed_input_message = true;
 			idle = false;
+		}
 
 		if(runner_processPacketQueue())
 			idle = false;
 
 		if(runner_tick())
+			idle = false;
+
+		if(queue.process(1))
 			idle = false;
 
 		if(idle)
@@ -54,6 +71,8 @@ bool Session::runner_tick() {
 			cursorY_sent = cursorY;
 			server->broadcast(preparePacketUserCursorPos(getID(), cursorX, cursorY));
 		}
+
+		runner_performBoundaryTest();
 		return true;
 	}
 	return false;
@@ -128,6 +147,69 @@ bool Session::wantsBeRemoved() {
 	return remove;
 }
 
+void Session::linkChunk_nolock(Chunk *chunk) {
+	for(auto &cell : linked_chunks) {
+		if(cell == chunk)
+			return; //Already linked
+	}
+
+	pushPacket(preparePacketChunkCreate(chunk->getPosition()));
+
+	chunk->linkSession(this);
+
+	linked_chunks.push_back(chunk);
+}
+
+void Session::unlinkChunk_nolock(Chunk *chunk) {
+	for(auto it = linked_chunks.begin(); it != linked_chunks.end();) {
+		if(*it == chunk) {
+			//Remove linked chunk
+			chunk->unlinkSession(this);
+			pushPacket(preparePacketChunkRemove(chunk->getPosition()));
+			it = linked_chunks.erase(it);
+			return;
+		} else {
+			it++;
+		}
+	}
+}
+
+void Session::linkChunk(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+	linkChunk_nolock(chunk);
+}
+
+void Session::unlinkChunk(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+	unlinkChunk_nolock(chunk);
+}
+
+bool Session::isChunkLinked(Chunk *chunk) {
+	LockGuard lock(mtx_linked_chunks);
+	return isChunkLinked_nolock(chunk);
+}
+
+bool Session::isChunkLinked(Int2 chunk_pos) {
+	LockGuard lock(mtx_linked_chunks);
+	return isChunkLinked_nolock(chunk_pos);
+}
+
+bool Session::isChunkLinked_nolock(Chunk *chunk) {
+	for(auto &cell : linked_chunks) {
+		if(cell == chunk)
+			return true;
+	}
+	return false;
+}
+
+bool Session::isChunkLinked_nolock(Int2 chunk_pos) {
+	for(auto &cell : linked_chunks) {
+		if(cell->getPosition() == chunk_pos)
+			return true;
+	}
+	return false;
+}
+
 void Session::kick(const char *reason) {
 	sendPacket(preparePacket(ServerCmd::kick, reason, strlen(reason)));
 	remove = true;
@@ -188,6 +270,10 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 		}
 		case ClientCmd::brush_color: {
 			parseCommandBrushColor(data);
+			break;
+		}
+		case ClientCmd::boundary: {
+			parseCommandBoundary(data);
 			break;
 		}
 		case ClientCmd::ping: {
@@ -260,13 +346,13 @@ void Session::updateCursor() {
 	auto *brush_shape_outline = server->getBrushShape(brush.size, false);
 	auto *brush_shape_filled = server->getBrushShape(brush.size, true);
 
-	std::vector<PixelCell> pixels;
+	std::vector<GlobalPixel> pixels;
 	pixels.reserve(256);
 
 	auto addPixel = [&](s32 x, s32 y, u8 r, u8 g, u8 b) {
 		auto &cell = pixels.emplace_back();
-		cell.x = x;
-		cell.y = y;
+		cell.pos.x = x;
+		cell.pos.y = y;
 		cell.r = r;
 		cell.g = g;
 		cell.b = b;
@@ -307,7 +393,7 @@ void Session::updateCursor() {
 		}
 	}
 
-	server->setPixels(pixels.data(), pixels.size());
+	server->getChunkSystem()->setPixels(this, pixels.data(), pixels.size());
 }
 
 void Session::parseCommandCursorPos(const std::string_view data) {
@@ -375,6 +461,108 @@ void Session::parseCommandBrushColor(const std::string_view data) {
 	brush.r = rgb.r;
 	brush.g = rgb.g;
 	brush.b = rgb.b;
+}
+
+void Session::parseCommandBoundary(const std::string_view data) {
+	struct PACKED boundary_t {
+		s32 start_x, start_y, end_x, end_y;
+	};
+
+	auto *bnd = (boundary_t *)data.data();
+
+	if(data.size() != sizeof(boundary_t)) {
+		kickInvalidPacket();
+		return;
+	}
+
+	auto start_x = frombig32(bnd->start_x);
+	auto start_y = frombig32(bnd->start_y);
+	auto end_x = frombig32(bnd->end_x);
+	auto end_y = frombig32(bnd->end_y);
+
+	if(end_y < start_y)
+		end_y = start_y;
+
+	if(end_x < start_x)
+		end_x = start_x;
+
+	//Chunk limit
+	end_x = std::min(end_x, start_x + 100);
+	end_y = std::min(end_y, start_y + 100);
+
+	boundary.start_x = start_x;
+	boundary.start_y = start_y;
+	boundary.end_x = end_x;
+	boundary.end_y = end_y;
+
+	needs_boundary_test = true;
+}
+
+void Session::runner_performBoundaryTest() {
+	if(processed_input_message)
+		return; //Process new chunks only when all client input messages are read
+
+	if(!needs_boundary_test)
+		return;
+	needs_boundary_test = false;
+
+	//Remove chunks outside bounds
+	for(auto &chunk : linked_chunks) {
+		auto pos = chunk->getPosition();
+		if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
+			server->getChunkSystem()->deannounceChunkForSession(this, pos);
+		}
+	}
+
+	std::vector<Int2> chunks_to_load;
+	{
+		LockGuard lock(mtx_linked_chunks);
+
+		//Check which chunks aren't announced for this session
+		for(s32 y = boundary.start_y; y < boundary.end_y; y++) {
+			for(s32 x = boundary.start_x; x < boundary.end_x; x++) {
+				if(!isChunkLinked_nolock({x, y})) {
+					chunks_to_load.push_back({x, y});
+				}
+			}
+		}
+	}
+
+	//No chunks to load
+	if(chunks_to_load.empty())
+		return;
+
+	for(u32 iterations = 0; iterations < 3; iterations++) {
+		if(chunks_to_load.empty())
+			break;
+
+		//Get closest chunk (circular loading)
+		float center_x = (boundary.start_x + boundary.end_x) / 2.0f;
+		float center_y = (boundary.start_y + boundary.end_y) / 2.0f;
+		Int2 closest_position;
+		float closest_distance = __FLT_MAX__;
+		for(auto &ch : chunks_to_load) {
+			float distance = VecDistance({center_x, center_y}, {(float)ch.x, (float)ch.y});
+			if(distance < closest_distance) {
+				closest_distance = distance;
+				closest_position = ch;
+			}
+		}
+
+		//Remove closest chunks_to_load cell (mark as loaded)
+		for(auto it = chunks_to_load.begin(); it != chunks_to_load.end();) {
+			if(*it == closest_position) {
+				it = chunks_to_load.erase(it);
+			} else {
+				it++;
+			}
+		}
+
+		//Announce chunk
+		server->getChunkSystem()->announceChunkForSession(this, closest_position);
+	}
+
+	needs_boundary_test = !chunks_to_load.empty();
 }
 
 bool Session::isValid() {
