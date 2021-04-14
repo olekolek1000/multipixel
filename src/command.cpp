@@ -118,19 +118,33 @@ Packet preparePacketUserCursorPos(u16 session_id, s32 x, s32 y) {
 }
 
 Packet preparePacketUserCreate(Session *session) {
-	u16 id_big = tobig16(session->getID());
+	u16 id_BE = tobig16(session->getID());
 	auto nickname = session->getNickname();
 
 	Buffer buf;
-	buf.write(&id_big, sizeof(id_big));
+	buf.write(&id_BE, sizeof(id_BE));
 	buf.write(nickname.data(), nickname.size());
 
 	return preparePacket(ServerCmd::user_create, buf.data(), buf.size());
 }
 
 Packet preparePacketUserRemove(Session *session) {
-	u16 id_big = tobig16(session->getID());
-	return preparePacket(ServerCmd::user_remove, &id_big, sizeof(id_big));
+	u16 id_BE = tobig16(session->getID());
+	return preparePacket(ServerCmd::user_remove, &id_BE, sizeof(id_BE));
+}
+
+Packet preparePacketChunkCreate(Int2 chunk_pos) {
+	Int2 chunk_pos_BE;
+	chunk_pos_BE.x = tobig32(chunk_pos.x);
+	chunk_pos_BE.y = tobig32(chunk_pos.y);
+	return preparePacket(ServerCmd::chunk_create, &chunk_pos_BE, sizeof(chunk_pos_BE));
+}
+
+Packet preparePacketChunkRemove(Int2 chunk_pos) {
+	Int2 chunk_pos_BE;
+	chunk_pos_BE.x = tobig32(chunk_pos.x);
+	chunk_pos_BE.y = tobig32(chunk_pos.y);
+	return preparePacket(ServerCmd::chunk_remove, &chunk_pos_BE, sizeof(chunk_pos_BE));
 }
 
 uniqdata<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {
@@ -145,6 +159,7 @@ uniqdata<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {
 uniqdata<u8> decompressLZ4(const void *data, u32 compressed_size, u32 raw_size) NO_SANITIZER {
 	uniqdata<u8> decompressed(raw_size);
 	auto ret = LZ4_decompress_safe((const char *)data, (char *)decompressed.data(), compressed_size, raw_size);
-	assert(ret == raw_size);
+	if(ret < 0)
+		decompressed.reset();
 	return decompressed;
 }
