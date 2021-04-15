@@ -66,13 +66,9 @@ void Server::run(u16 port) {
 			[this](WsConnection *con) { closeCallback(con); }												//Close callback
 	);
 
-	bool idle = false;
 	while(!got_sigint) {
-		idle = true;
-
-		//stonks
-		if(idle)
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		freeRemovedSessions();
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 }
 
@@ -136,7 +132,6 @@ void Server::removeSession_nolock(WsConnection *connection) {
 	for(auto it = sessions.begin(); it != sessions.end();) {
 		if((*it)->getConnection() == connection) {
 			auto *session_to_remove = it->get();
-			auto id = session_to_remove->getID();
 
 			auto packet_remove_user = preparePacketUserRemove(it->get());
 
@@ -148,26 +143,18 @@ void Server::removeSession_nolock(WsConnection *connection) {
 				session->pushPacket(packet_remove_user);
 			}
 
-			log("Removing session with ID %u (IP %s, Nickname %s)",
+			log("Removing session with ID %u (Nickname %s)",
 					session_to_remove->getID(),
-					session_to_remove->getConnection()->getIP(),
 					session_to_remove->getNickname().c_str());
 
 			log("Triggering session_remove dispatchers");
 
-			log("Flushing queue");
-
 			//Trigger session remove dispatcher
 			dispatcher_session_remove.triggerAll(session_to_remove);
 
-			//Remove session completely
-			//This can hang if Session::runner thread
-			//is freezed somehow (~Session() joins Session::runner thread).
-			//Good luck debugging that
-			log("Deallocating session");
+			log("Freeing session from memory");
 			it = sessions.erase(it);
-
-			log("Removed session with ID %u", id);
+			log("*bleep*, done.");
 			return;
 		} else {
 			it++;
@@ -178,6 +165,25 @@ void Server::removeSession_nolock(WsConnection *connection) {
 	assert(false);
 }
 
+void Server::freeRemovedSessions() {
+	LockGuard lock(mtx_sessions);
+
+	uniqdata<Session *> to_remove;
+
+	for(auto &session : sessions) {
+		if(session->hasStopped()) {
+			to_remove.push_back(session.get());
+			break;
+		}
+	}
+
+	for(size_t i = 0; i < to_remove.size(); i++) {
+		auto *session = to_remove[i];
+		log("Freeing dead session from memory (had ID %d)\n", session->getID());
+		removeSession_nolock(session->getConnection());
+	}
+}
+
 void Server::forEverySessionExcept(Session *except, std::function<void(Session *)> callback) {
 	LockGuard lock(mtx_sessions);
 
@@ -186,10 +192,7 @@ void Server::forEverySessionExcept(Session *except, std::function<void(Session *
 		if(session.get() == except)
 			continue;
 
-		if(!session->isValid())
-			continue;
-
-		if(session->wantsBeRemoved())
+		if(!session->isValid() || session->isStopping() || session->hasStopped())
 			continue;
 
 		callback(session.get());
@@ -265,9 +268,7 @@ void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 		session = createSession_nolock(connection);
 
 	if(session) {
-		if(session->wantsBeRemoved()) {
-			removeSession_nolock(connection);
-		} else {
+		if(!session->hasStopped() && !session->isStopping()) {
 			session->pushIncomingMessage(ws_msg);
 		}
 	}
@@ -282,7 +283,7 @@ void Server::closeCallback(WsConnection *connection) {
 		return;
 	}
 
-	removeSession_nolock(connection);
+	session->stopRunner();
 }
 
 void Server::log(const char *format, ...) {

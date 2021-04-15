@@ -1,4 +1,5 @@
 #include "ws_server.hpp"
+#include <atomic>
 #include <map>
 #include <thread>
 #include <websocketpp/common/connection_hdl.hpp>
@@ -13,7 +14,7 @@ typedef ws_server::message_ptr message_ptr;
 
 struct WsServer::P {
 	ws_server server;
-	bool stopped = false;
+	std::atomic<bool> stopped = false;
 
 	std::map<void *, uniqptr<WsConnection>> connections;
 

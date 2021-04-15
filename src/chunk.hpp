@@ -21,9 +21,8 @@ private:
 	u32 chunk_size;
 
 	Mutex mtx_access;
-	uniqdata<u8> image;
 
-	Mutex mtx_linked_sessions;
+	uniqdata<u8> image;
 	std::vector<Session *> linked_sessions;
 
 	void allocateImage_nolock();
@@ -33,6 +32,8 @@ private:
 public:
 	Chunk(ChunkSystem *chunk_system, Int2 position);
 	~Chunk();
+
+	friend struct ChunkSystem;
 
 	void linkSession(Session *session);
 	void unlinkSession(Session *session);
