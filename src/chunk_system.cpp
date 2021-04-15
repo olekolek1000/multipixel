@@ -144,3 +144,24 @@ void ChunkSystem::deannounceChunkForSession(Session *session, Int2 chunk_pos) {
 	auto *chunk = getChunk_nolock(chunk_pos);
 	session->unlinkChunk(chunk);
 }
+
+void ChunkSystem::removeChunk(Chunk *to_remove) {
+	LockGuard lock(mtx_chunks);
+
+	for(auto it = chunks.begin(); it != chunks.end(); it++) {
+		for(auto jt = it->second.begin(); jt != it->second.end();) {
+			if(jt->second.get() == to_remove) {
+				printf("Removing chunk %d, %d\n", to_remove->getPosition().x, to_remove->getPosition().y);
+				it->second.erase(jt);
+
+				//Remove empty map row
+				if(it->second.empty())
+					it = chunks.erase(it);
+
+				break;
+			} else {
+				jt++;
+			}
+		}
+	}
+}
