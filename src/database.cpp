@@ -9,6 +9,7 @@
 DatabaseConnector::DatabaseConnector() {
 	DatabaseConnector("chunks.db");
 }
+
 DatabaseConnector::DatabaseConnector(const char *dbpath) {
 	if(sqlite3_open(dbpath, &database) != SQLITE_OK) {
 		fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(database));
@@ -72,14 +73,14 @@ auto DatabaseConnector::saveBytes(s32 x, s32 y, const void *data, size_t size, C
 		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
 	}
 }
+
 auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 	sqlite3_stmt *statment;
 	DatabaseRecord rec;
 	if(id == 0) {
-
 		sqlite3_prepare_v2(
 				database,
-				"SELECT data,compression,modified , created FROM chunk_data WHERE x= ? AND y = ? ORDER BY rowid DESC",
+				"SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? ORDER BY rowid DESC",
 				-1,
 				&statment, 0);
 		sqlite3_bind_int(statment, 1, x);
@@ -87,7 +88,7 @@ auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 	} else {
 		sqlite3_prepare_v2(
 				database,
-				"SELECT data,compression,modified , created FROM chunk_data WHERE x= ? AND y = ? AND rowid = ?",
+				"SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? AND rowid=?",
 				-1,
 				&statment, 0);
 		sqlite3_bind_int(statment, 1, x);
@@ -98,7 +99,7 @@ auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 	if(sqlite3_step(statment) == SQLITE_ROW) {
 		u32 blob_size = sqlite3_column_bytes(statment, 0);
 		u8 *ptr = (u8 *)sqlite3_column_blob(statment, 0);
-		rec.compression_type = sqlite3_column_int(statment, 1);
+		rec.compression_type = (COMPRESSION_TYPE)sqlite3_column_int(statment, 1);
 		rec.modified = sqlite3_column_int64(statment, 2);
 		rec.created = sqlite3_column_int64(statment, 3);
 		rec.data.resize(blob_size);
@@ -109,6 +110,7 @@ auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 	sqlite3_finalize(statment);
 	return rec;
 }
+
 auto DatabaseConnector::listSnapshots(s32 x, s32 y) -> uniqdata<DatabseListElement> {
 	sqlite3_stmt *statment;
 	sqlite3_prepare_v2(
@@ -119,11 +121,12 @@ auto DatabaseConnector::listSnapshots(s32 x, s32 y) -> uniqdata<DatabseListEleme
 	sqlite3_bind_int(statment, 1, x);
 	sqlite3_bind_int(statment, 2, y);
 	uniqdata<DatabseListElement> timestamps;
-	while (sqlite3_step(statment) == SQLITE_ROW) {
-		timestamps.push_back({(u64)sqlite3_column_int64(statment, 0),(u64)sqlite3_column_int64(statment, 1)});
+	while(sqlite3_step(statment) == SQLITE_ROW) {
+		timestamps.push_back({(u64)sqlite3_column_int64(statment, 0), (u64)sqlite3_column_int64(statment, 1)});
 	}
 	return timestamps;
 }
+
 auto DatabaseConnector::insert(s32 x, s32 y, const void *data, size_t size, COMPRESSION_TYPE type) -> void {
 	sqlite3_stmt *statment;
 	sqlite3_prepare_v2(
@@ -144,9 +147,11 @@ auto DatabaseConnector::insert(s32 x, s32 y, const void *data, size_t size, COMP
 		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
 	}
 }
-auto DatabaseConnector::getSnapshotInerval() -> u32{
+
+auto DatabaseConnector::getSnapshotInerval() -> u32 {
 	return seconds_between_snapshot;
 }
-auto DatabaseConnector::setSnapshotInerval(u32 seconds) -> void{
+
+auto DatabaseConnector::setSnapshotInerval(u32 seconds) -> void {
 	seconds_between_snapshot = seconds;
 }

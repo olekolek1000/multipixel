@@ -24,7 +24,8 @@ Session::Session(Server *server, WsConnection *connection, u16 id)
 }
 
 Session::~Session() {
-	remove = true;
+	stopRunner();
+
 	if(thr_runner.joinable())
 		thr_runner.join();
 
@@ -41,7 +42,7 @@ void Session::runner() {
 	step_runner.reset();
 	step_runner.setRate(20);
 
-	while(!remove) {
+	while(perform_ticks) {
 		bool idle = true;
 		processed_input_message = false;
 
@@ -62,6 +63,9 @@ void Session::runner() {
 		if(idle)
 			std::this_thread::sleep_for(std::chrono::milliseconds(2));
 	}
+
+	stopped = true;
+	stopping = false;
 }
 
 bool Session::runner_tick() {
@@ -143,8 +147,19 @@ void Session::pushPacket(const Packet &packet) {
 	packet_queue.push(packet);
 }
 
-bool Session::wantsBeRemoved() {
-	return remove;
+bool Session::hasStopped() {
+	return stopped;
+}
+
+bool Session::isStopping() {
+	return stopping;
+}
+
+void Session::stopRunner() {
+	if(!stopping) {
+		stopping = true;
+		perform_ticks = false;
+	}
 }
 
 void Session::linkChunk_nolock(Chunk *chunk) {
@@ -212,7 +227,7 @@ bool Session::isChunkLinked_nolock(Int2 chunk_pos) {
 
 void Session::kick(const char *reason) {
 	sendPacket(preparePacket(ServerCmd::kick, reason, strlen(reason)));
-	remove = true;
+	stopRunner();
 }
 
 void Session::kickInvalidPacket() {
@@ -224,7 +239,7 @@ void Session::sendPacket(const Packet &packet) {
 		getConnection()->send(packet->data(), packet->size());
 	} catch(std::exception &e) {
 		server->log("Session send() failure (ID %u): %s", getID(), e.what());
-		remove = true;
+		stopRunner();
 	}
 }
 

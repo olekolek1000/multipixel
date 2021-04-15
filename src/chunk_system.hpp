@@ -1,5 +1,6 @@
 #pragma once
 
+#include "database.hpp"
 #include "util/listener.hpp"
 #include "util/mutex.hpp"
 #include "util/smartptr.hpp"
@@ -19,6 +20,9 @@ struct ChunkSystem {
 	Server *server;
 
 private:
+	Mutex mtx_database;
+	DatabaseConnector database;
+
 	Mutex mtx_chunks;
 	std::map<s32, std::map<s32, uniqptr<Chunk>>> chunks;
 
@@ -45,4 +49,7 @@ public:
 
 	void announceChunkForSession(Session *session, Int2 chunk_pos);
 	void deannounceChunkForSession(Session *session, Int2 chunk_pos);
+
+	//Save chunk to database and free it
+	void removeChunk(Chunk *to_remove);
 };

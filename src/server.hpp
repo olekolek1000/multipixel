@@ -20,17 +20,20 @@ struct BrushShape {
 };
 
 struct Server {
-private:
+public:
 	struct P;
 	uniqptr<P> p;
 
-	WsServer server;
+	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 
+private:
 	Mutex mtx_log;
 
 	Mutex mtx_sessions;
 	std::map<WsConnection *, Session *> session_map; //For fast session lookup
 	std::vector<uniqptr<Session>> sessions;
+
+	WsServer server; //Needs to be at the bottom to prevent data races
 
 public:
 	Server();
@@ -51,9 +54,10 @@ public:
 
 	ChunkSystem *getChunkSystem();
 
-	MultiDispatcher<void(Session *)> dispatcher_session_remove;
-
 private:
+	//Remove dead sessions
+	void freeRemovedSessions();
+
 	void closeCallback(WsConnection *connection);
 	void messageCallback(std::shared_ptr<WsMessage> &ws_msg);
 

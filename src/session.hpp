@@ -6,6 +6,7 @@
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
+#include <atomic>
 #include <memory>
 #include <queue>
 #include <string>
@@ -20,7 +21,9 @@ struct WsMessage;
 struct Session {
 private:
 	bool valid = false;
-	bool remove = false;
+	std::atomic<bool> perform_ticks = true;
+	std::atomic<bool> stopping = false;
+	std::atomic<bool> stopped = false;
 
 	Server *server;
 	WsConnection *connection;
@@ -73,7 +76,11 @@ public:
 	void pushIncomingMessage(std::shared_ptr<WsMessage> &msg);
 	void pushPacket(const Packet &packet);
 
-	bool wantsBeRemoved();
+	bool hasStopped();
+	bool isStopping();
+
+	/// Non-blocking
+	void stopRunner();
 
 	void linkChunk(Chunk *chunk);
 	void unlinkChunk(Chunk *chunk);
