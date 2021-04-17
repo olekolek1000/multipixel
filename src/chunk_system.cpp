@@ -170,7 +170,6 @@ void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
 	for(auto it = chunks.begin(); it != chunks.end(); it++) {
 		for(auto jt = it->second.begin(); jt != it->second.end();) {
 			if(jt->second.get() == to_remove) {
-				server->log("Removing chunk %d, %d", to_remove->getPosition().x, to_remove->getPosition().y);
 				it->second.erase(jt);
 
 				//Remove empty map row
@@ -206,21 +205,28 @@ bool ChunkSystem::runner_tick() {
 	//Atomic operation:
 	//if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
 	if(needs_garbage_collect.exchange(false)) {
-		server->log("Garbage collecting chunks");
 		std::lock_guard lock(mtx_access);
 
 		bool done = false;
 
+		//Informational use only
+		u32 removed_chunk_count = 0;
+		u32 loaded_chunk_count = 0;
+
 		do {
 			done = true;
 
+			loaded_chunk_count = 0;
+
 			//Iterate all loaded chunks as long as all chunks are deallocated
 			for(auto &i : chunks) {
+				loaded_chunk_count += i.second.size();
 				for(auto &j : i.second) {
 					auto *chunk = j.second.get();
 					if(chunk->isLinkedSessionsEmpty()) {
 						removeChunk_nolock(chunk);
 						done = false;
+						removed_chunk_count++;
 						goto breakloop;
 					}
 				}
@@ -229,6 +235,8 @@ bool ChunkSystem::runner_tick() {
 		breakloop:;
 
 		} while(!done);
+
+		server->log("Garbage collected %u chunks (%u chunks loaded)", removed_chunk_count, loaded_chunk_count);
 	}
 
 	return used;

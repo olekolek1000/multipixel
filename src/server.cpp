@@ -3,6 +3,7 @@
 #include "command.hpp"
 #include "session.hpp"
 #include "util/buffer.hpp"
+#include "util/mutex.hpp"
 #include "ws_server.hpp"
 #include <atomic>
 #include <cassert>
@@ -36,6 +37,8 @@ struct Server::P {
 	std::mutex mtx_brush_shapes;
 	BrushShapeMap brush_shapes_circle_filled;
 	BrushShapeMap brush_shapes_circle_outline;
+
+	bool properly_shut_down = false;
 };
 
 Server::Server() {
@@ -44,12 +47,17 @@ Server::Server() {
 }
 
 Server::~Server() {
+	if(!p->properly_shut_down) {
+		log("Server not properly shutted down");
+	}
+
+	log("Goodbye");
 }
 
 static bool got_sigint = false;
 void sigint_handler(int num) {
 	if(got_sigint) {
-		printf("Got more than 1 SIGINT, Hard-killing server. Goodbye.\n");
+		printf("Got more than 1 SIGINT, Hard-killing server.\n");
 		exit(-1);
 	} else {
 		got_sigint = true;
@@ -70,6 +78,23 @@ void Server::run(u16 port) {
 		freeRemovedSessions();
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
+
+	//Clean shutdown
+	shutdown();
+}
+
+void Server::shutdown() {
+	log("======== SHUTTING DOWN SERVER ========");
+
+	log("Disconnecting and removing sessions");
+	std::lock_guard lock(mtx_sessions);
+	while(!sessions.empty()) {
+		log("%u remaining", sessions.size());
+		auto *session = sessions.back().get();
+		removeSession_nolock(session->getConnection());
+	}
+
+	p->properly_shut_down = true;
 }
 
 u16 Server::findFreeSessionID_nolock() {
@@ -154,7 +179,7 @@ void Server::removeSession_nolock(WsConnection *connection) {
 
 			log("Freeing session from memory");
 			it = sessions.erase(it);
-			log("*bleep*, done.");
+			log("Session freed");
 			return;
 		} else {
 			it++;
@@ -179,7 +204,6 @@ void Server::freeRemovedSessions() {
 
 	for(size_t i = 0; i < to_remove.size(); i++) {
 		auto *session = to_remove[i];
-		log("Freeing dead session from memory (had ID %d)\n", session->getID());
 		removeSession_nolock(session->getConnection());
 	}
 }

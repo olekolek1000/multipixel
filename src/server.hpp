@@ -54,6 +54,8 @@ public:
 
 	ChunkSystem *getChunkSystem();
 
+	void shutdown();
+
 private:
 	//Remove dead sessions
 	void freeRemovedSessions();
