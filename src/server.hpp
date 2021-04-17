@@ -3,10 +3,10 @@
 #include "command.hpp"
 #include "util/event_queue.hpp"
 #include "util/listener.hpp"
-#include "util/mutex.hpp"
 #include "ws_server.hpp"
 #include <functional>
 #include <map>
+#include <mutex>
 
 struct Session;
 struct ChunkSystem;
@@ -27,9 +27,9 @@ public:
 	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 
 private:
-	Mutex mtx_log;
+	std::mutex mtx_log;
 
-	Mutex mtx_sessions;
+	std::mutex mtx_sessions;
 	std::map<WsConnection *, Session *> session_map; //For fast session lookup
 	std::vector<uniqptr<Session>> sessions;
 
