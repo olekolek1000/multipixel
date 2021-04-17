@@ -3,7 +3,6 @@
 #include "command.hpp"
 #include "session.hpp"
 #include "util/buffer.hpp"
-#include "util/mutex.hpp"
 #include "ws_server.hpp"
 #include <atomic>
 #include <cassert>
@@ -11,6 +10,7 @@
 #include <cstdio>
 #include <deque>
 #include <math.h>
+#include <mutex>
 #include <signal.h>
 #include <stdarg.h>
 #include <thread>
@@ -33,7 +33,7 @@ typedef std::map<u8, uniqptr<BrushShape>> BrushShapeMap;
 struct Server::P {
 	uniqptr<ChunkSystem> chunk_system;
 
-	Mutex mtx_brush_shapes;
+	std::mutex mtx_brush_shapes;
 	BrushShapeMap brush_shapes_circle_filled;
 	BrushShapeMap brush_shapes_circle_outline;
 };
@@ -166,7 +166,7 @@ void Server::removeSession_nolock(WsConnection *connection) {
 }
 
 void Server::freeRemovedSessions() {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	uniqdata<Session *> to_remove;
 
@@ -185,7 +185,7 @@ void Server::freeRemovedSessions() {
 }
 
 void Server::forEverySessionExcept(Session *except, std::function<void(Session *)> callback) {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	//For every session
 	for(auto &session : sessions) {
@@ -200,7 +200,7 @@ void Server::forEverySessionExcept(Session *except, std::function<void(Session *
 }
 
 void Server::broadcast(const Packet &packet, Session *except) {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	//For every session
 	for(auto &session : sessions) {
@@ -215,7 +215,7 @@ void Server::broadcast(const Packet &packet, Session *except) {
 }
 
 BrushShape *Server::getBrushShape(u8 size, bool filled) {
-	LockGuard lock(p->mtx_brush_shapes);
+	std::lock_guard lock(p->mtx_brush_shapes);
 
 	BrushShapeMap *map;
 	if(filled)
@@ -260,7 +260,7 @@ ChunkSystem *Server::getChunkSystem() {
 void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 	auto *connection = ws_msg->connection;
 
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	auto *session = getSession_nolock(connection);
 
@@ -275,7 +275,7 @@ void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 }
 
 void Server::closeCallback(WsConnection *connection) {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	auto *session = getSession_nolock(connection);
 	if(!session) {
@@ -287,7 +287,7 @@ void Server::closeCallback(WsConnection *connection) {
 }
 
 void Server::log(const char *format, ...) {
-	LockGuard lock(mtx_log);
+	std::lock_guard lock(mtx_log);
 
 	char *buf = nullptr;
 

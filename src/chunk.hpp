@@ -1,9 +1,9 @@
 #pragma once
 
 #include "server.hpp"
-#include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
+#include <mutex>
 #include <vector>
 
 struct ChunkSystem;
@@ -20,9 +20,11 @@ private:
 	Int2 position;
 	u32 chunk_size;
 
-	Mutex mtx_access;
+	std::mutex mtx_access;
 
 	uniqdata<u8> image;
+
+	std::atomic<bool> linked_sessions_empty = true;
 	std::vector<Session *> linked_sessions;
 
 	void allocateImage_nolock();
@@ -37,6 +39,8 @@ public:
 
 	void linkSession(Session *session);
 	void unlinkSession(Session *session);
+	bool isLinkedSessionsEmpty();
+
 	void setPixels(ChunkPixel *pixels, size_t count);
 	Int2 getPosition() const;
 };

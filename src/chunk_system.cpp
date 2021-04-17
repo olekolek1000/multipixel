@@ -2,27 +2,38 @@
 #include "chunk.hpp"
 #include "server.hpp"
 #include "session.hpp"
-#include "util/mutex.hpp"
 #include "util/types.hpp"
 #include <cassert>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 ChunkSystem::ChunkSystem(Server *server)
 		: server(server) {
 
+	running = true;
+	needs_garbage_collect = false;
+	thr_runner = std::thread([this] {
+		runner();
+	});
+
 	server->dispatcher_session_remove.add(listener_session_remove, [this](Session *removing_session) {
-		LockGuard lock(mtx_chunks);
+		std::lock_guard lock(mtx_access);
 		//For every chunk
 		for(auto &i : chunks) {			//X
 			for(auto &j : i.second) { //Y
 				auto *chunk = j.second.get();
-				chunk->unlinkSession(removing_session);
+				deannounceChunkForSession_nolock(removing_session, chunk->getPosition());
 			}
 		}
 	});
 }
 
 ChunkSystem::~ChunkSystem() {
+	running = false;
+	server->log("Joining chunk system runner thread");
+	if(thr_runner.joinable())
+		thr_runner.join();
 }
 
 Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
@@ -39,7 +50,7 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 }
 
 void ChunkSystem::setPixels(Session *session, GlobalPixel *pixels, size_t count) {
-	LockGuard lock(mtx_chunks);
+	std::lock_guard lock(mtx_access);
 
 	struct ChunkCacheCell {
 		Int2 chunk_pos;
@@ -134,34 +145,91 @@ UInt2 ChunkSystem::globalPixelPosToLocalPixelPos(Int2 global_pixel_pos) {
 }
 
 void ChunkSystem::announceChunkForSession(Session *session, Int2 chunk_pos) {
-	LockGuard lock(mtx_chunks);
-	auto *chunk = getChunk_nolock(chunk_pos);
-	session->linkChunk(chunk);
+	std::lock_guard lock(mtx_access);
+	announceChunkForSession_nolock(session, chunk_pos);
 }
 
 void ChunkSystem::deannounceChunkForSession(Session *session, Int2 chunk_pos) {
-	LockGuard lock(mtx_chunks);
-	auto *chunk = getChunk_nolock(chunk_pos);
-	session->unlinkChunk(chunk);
+	std::lock_guard lock(mtx_access);
+	deannounceChunkForSession_nolock(session, chunk_pos);
 }
 
-void ChunkSystem::removeChunk(Chunk *to_remove) {
-	LockGuard lock(mtx_chunks);
+void ChunkSystem::announceChunkForSession_nolock(Session *session, Int2 chunk_pos) {
+	auto *chunk = getChunk_nolock(chunk_pos);
+	session->linkChunk(chunk);
+	chunk->linkSession(session);
+}
 
+void ChunkSystem::deannounceChunkForSession_nolock(Session *session, Int2 chunk_pos) {
+	auto *chunk = getChunk_nolock(chunk_pos);
+	session->unlinkChunk(chunk);
+	chunk->unlinkSession(session);
+}
+
+void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
 	for(auto it = chunks.begin(); it != chunks.end(); it++) {
 		for(auto jt = it->second.begin(); jt != it->second.end();) {
 			if(jt->second.get() == to_remove) {
-				printf("Removing chunk %d, %d\n", to_remove->getPosition().x, to_remove->getPosition().y);
+				server->log("Removing chunk %d, %d", to_remove->getPosition().x, to_remove->getPosition().y);
 				it->second.erase(jt);
 
 				//Remove empty map row
 				if(it->second.empty())
 					it = chunks.erase(it);
 
-				break;
+				return;
 			} else {
 				jt++;
 			}
 		}
 	}
+}
+
+void ChunkSystem::markGarbageCollect() {
+	needs_garbage_collect = true;
+}
+
+void ChunkSystem::runner() {
+	while(running) {
+		bool used = runner_tick();
+		if(!used) {
+			//Idle
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+	}
+}
+
+bool ChunkSystem::runner_tick() {
+
+	bool used = false;
+
+	//Atomic operation:
+	//if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
+	if(needs_garbage_collect.exchange(false)) {
+		server->log("Garbage collecting chunks");
+		std::lock_guard lock(mtx_access);
+
+		bool done = false;
+
+		do {
+			done = true;
+
+			//Iterate all loaded chunks as long as all chunks are deallocated
+			for(auto &i : chunks) {
+				for(auto &j : i.second) {
+					auto *chunk = j.second.get();
+					if(chunk->isLinkedSessionsEmpty()) {
+						removeChunk_nolock(chunk);
+						done = false;
+						goto breakloop;
+					}
+				}
+			}
+
+		breakloop:;
+
+		} while(!done);
+	}
+
+	return used;
 }

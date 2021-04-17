@@ -2,12 +2,12 @@
 
 #include "command.hpp"
 #include "util/event_queue.hpp"
-#include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <queue>
 #include <string>
 #include <string_view>
@@ -43,13 +43,13 @@ private:
 	std::thread thr_runner;
 
 	//Queues
-	Mutex mtx_message_queue;
+	std::mutex mtx_message_queue;
 	std::queue<std::shared_ptr<WsMessage>> message_queue;
 
-	Mutex mtx_packet_queue;
+	std::mutex mtx_packet_queue;
 	std::queue<Packet> packet_queue;
 
-	Mutex mtx_linked_chunks;
+	std::mutex mtx_linked_chunks;
 	std::vector<Chunk *> linked_chunks;
 
 	bool needs_boundary_test;
@@ -90,8 +90,6 @@ public:
 private:
 	//Send packet with exception handler
 	void sendPacket(const Packet &packet);
-	void linkChunk_nolock(Chunk *chunk);
-	void unlinkChunk_nolock(Chunk *chunk);
 	bool isChunkLinked_nolock(Chunk *chunk);
 	bool isChunkLinked_nolock(Int2 chunk_pos);
 	void close();
