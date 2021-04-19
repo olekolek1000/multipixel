@@ -1,15 +1,15 @@
 #pragma once
 
-#include "mutex.hpp"
 #include <atomic>
 #include <functional>
+#include <mutex>
 #include <queue>
 #include <stdint.h>
 
 // Event queue, used for thread-safe, mutltithreaded callback management.
 struct EventQueue {
 	std::atomic<uint32_t> processing_tasks = 0;
-	Mutex mtx_queue;
+	std::mutex mtx_queue;
 	size_t taskIndex = 0;
 
 	// function callback, taskID
@@ -42,13 +42,13 @@ struct EventQueue {
 
 	// Returns task ID
 	size_t push(std::function<void()> callback) {
-		LockGuard lock(mtx_queue);
+		std::lock_guard lock(mtx_queue);
 		queue.push_back({callback, taskIndex});
 		return taskIndex++;
 	}
 
 	bool cancelTask(size_t task) {
-		LockGuard lock(mtx_queue);
+		std::lock_guard lock(mtx_queue);
 		for(auto it = queue.begin(); it != queue.end(); it++) {
 			if(it->second == task) {
 				queue.erase(it);
@@ -59,12 +59,12 @@ struct EventQueue {
 	}
 
 	void clear() {
-		LockGuard lock(mtx_queue);
+		std::lock_guard lock(mtx_queue);
 		queue.clear();
 	}
 
 	size_t size() {
-		LockGuard lock(mtx_queue);
+		std::lock_guard lock(mtx_queue);
 		return queue.size();
 	}
 };

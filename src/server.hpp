@@ -3,10 +3,10 @@
 #include "command.hpp"
 #include "util/event_queue.hpp"
 #include "util/listener.hpp"
-#include "util/mutex.hpp"
 #include "ws_server.hpp"
 #include <functional>
 #include <map>
+#include <mutex>
 
 struct Session;
 struct ChunkSystem;
@@ -20,17 +20,20 @@ struct BrushShape {
 };
 
 struct Server {
-private:
+public:
 	struct P;
 	uniqptr<P> p;
 
-	WsServer server;
+	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 
-	Mutex mtx_log;
+private:
+	std::mutex mtx_log;
 
-	Mutex mtx_sessions;
+	std::mutex mtx_sessions;
 	std::map<WsConnection *, Session *> session_map; //For fast session lookup
 	std::vector<uniqptr<Session>> sessions;
+
+	WsServer server; //Needs to be at the bottom to prevent data races
 
 public:
 	Server();
@@ -51,9 +54,12 @@ public:
 
 	ChunkSystem *getChunkSystem();
 
-	MultiDispatcher<void(Session *)> dispatcher_session_remove;
+	void shutdown();
 
 private:
+	//Remove dead sessions
+	void freeRemovedSessions();
+
 	void closeCallback(WsConnection *connection);
 	void messageCallback(std::shared_ptr<WsMessage> &ws_msg);
 
