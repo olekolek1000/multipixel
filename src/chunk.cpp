@@ -4,10 +4,14 @@
 #include "session.hpp"
 #include <cassert>
 
-Chunk::Chunk(ChunkSystem *chunk_system, Int2 position)
+Chunk::Chunk(ChunkSystem *chunk_system, Int2 position, uniqdata<u8> *compressed_chunk_data)
 		: chunk_system(chunk_system),
 			position(position),
 			chunk_size(chunk_system->getChunkSize()) {
+	if(!compressed_chunk_data->empty()) {
+		std::lock_guard lock(mtx_access);
+		decodeChunkData_nolock(compressed_chunk_data->data(), compressed_chunk_data->size());
+	}
 }
 
 Chunk::~Chunk() {
@@ -34,11 +38,26 @@ void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 	*b = rgb[offset + 2];
 }
 
+uniqdata<u8> Chunk::encodeChunkData_nolock() {
+	allocateImage_nolock();
+	return compressLZ4(image.data(), image.size_bytes());
+}
+
+uniqdata<u8> Chunk::encodeChunkData() {
+	std::lock_guard lock(mtx_access);
+	return encodeChunkData_nolock();
+}
+
+void Chunk::decodeChunkData_nolock(const void *data, size_t size) {
+	allocateImage_nolock();
+	decompressLZ4(data, size, image.data(), image.size_bytes());
+}
+
 void Chunk::sendChunkDataToSession_nolock(Session *session) {
 	allocateImage_nolock();
 
 	//Compress chunk data
-	auto compressed_rgb = compressLZ4(image.data(), image.size_bytes());
+	auto compressed_data = encodeChunkData_nolock();
 
 	s32 chunk_x_BE = tobig32((s32)getPosition().x);
 	s32 chunk_y_BE = tobig32((s32)getPosition().y);
@@ -47,7 +66,7 @@ void Chunk::sendChunkDataToSession_nolock(Session *session) {
 	Datasize data_chunk_x(&chunk_x_BE, sizeof(s32));
 	Datasize data_chunk_y(&chunk_y_BE, sizeof(s32));
 	Datasize data_raw_size(&raw_size_BE, sizeof(u32));
-	Datasize data_compressed_data(compressed_rgb.data(), compressed_rgb.size_bytes());
+	Datasize data_compressed_data(compressed_data.data(), compressed_data.size_bytes());
 
 	Datasize *datasizes[] = {
 			&data_chunk_x,
@@ -168,8 +187,14 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	for(auto &session : linked_sessions) {
 		session->pushPacket(packet);
 	}
+
+	modified = true;
 }
 
 Int2 Chunk::getPosition() const {
 	return position;
+}
+
+bool Chunk::isModified() {
+	return modified;
 }
