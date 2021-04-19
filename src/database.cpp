@@ -103,6 +103,8 @@ auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 		rec.created = sqlite3_column_int64(statment, 3);
 		rec.data.resize(blob_size);
 		memcpy(rec.data.ptr, ptr, blob_size);
+	}else if(sqlite3_step(statment) == SQLITE_DONE){
+		return rec;
 	} else {
 		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
 	}
