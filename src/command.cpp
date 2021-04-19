@@ -156,10 +156,6 @@ uniqdata<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {
 	return compressed;
 }
 
-uniqdata<u8> decompressLZ4(const void *data, u32 compressed_size, u32 raw_size) NO_SANITIZER {
-	uniqdata<u8> decompressed(raw_size);
-	auto ret = LZ4_decompress_safe((const char *)data, (char *)decompressed.data(), compressed_size, raw_size);
-	if(ret < 0)
-		decompressed.reset();
-	return decompressed;
+int decompressLZ4(const void *compressed_data, u32 compressed_size, void *raw_data, u32 raw_size) NO_SANITIZER {
+	return LZ4_decompress_safe((const char *)compressed_data, (char *)raw_data, compressed_size, raw_size);
 }

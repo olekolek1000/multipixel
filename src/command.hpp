@@ -66,4 +66,6 @@ Packet preparePacketChunkCreate(Int2 chunk_pos);
 Packet preparePacketChunkRemove(Int2 chunk_pos);
 
 uniqdata<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER;
-uniqdata<u8> decompressLZ4(const void *data, u32 compressed_size, u32 raw_size) NO_SANITIZER;
+
+///@returns <= 0 on failure
+int decompressLZ4(const void *compressed_data, u32 compressed_size, void *raw_data, u32 raw_size) NO_SANITIZER;
