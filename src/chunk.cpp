@@ -11,13 +11,9 @@ Chunk::Chunk(ChunkSystem *chunk_system, Int2 position)
 }
 
 Chunk::~Chunk() {
-	//Remove linked sessions
-	LockGuard lock(mtx_linked_sessions);
-
-	//Remove linked chunks
 	while(!linked_sessions.empty()) {
-		linked_sessions.back()->unlinkChunk(this);
-		linked_sessions.pop_back();
+		fprintf(stderr, "Chunk linked sessions NOT empty");
+		abort();
 	}
 }
 
@@ -64,14 +60,15 @@ void Chunk::sendChunkDataToSession_nolock(Session *session) {
 }
 
 void Chunk::linkSession(Session *session) {
-	LockGuard lock1(mtx_access);
-	LockGuard lock2(mtx_linked_sessions);
+	std::lock_guard lock(mtx_access);
 
 	//Check if session pointer already exists
 	for(auto &cell : linked_sessions) {
 		if(cell == session)
 			return;
 	}
+
+	linked_sessions_empty = false;
 
 	//Add session pointer
 	linked_sessions.push_back(session);
@@ -80,24 +77,32 @@ void Chunk::linkSession(Session *session) {
 }
 
 void Chunk::unlinkSession(Session *session) {
-	LockGuard lock(mtx_linked_sessions);
+	std::lock_guard lock(mtx_access);
 
 	//Find pointer
 	for(auto it = linked_sessions.begin(); it != linked_sessions.end();) {
 		if(*it == session) {
 			//Remove session pointer
 			it = linked_sessions.erase(it);
-			return;
+			break;
 		} else {
 			it++;
 		}
 	}
 
-	//Do nothing otherwise
+	bool is_empty = linked_sessions.empty();
+	linked_sessions_empty = is_empty;
+
+	if(is_empty)
+		chunk_system->markGarbageCollect();
+}
+
+bool Chunk::isLinkedSessionsEmpty() {
+	return linked_sessions_empty;
 }
 
 void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
-	LockGuard lock(mtx_access);
+	std::lock_guard lock(mtx_access);
 
 	allocateImage_nolock();
 

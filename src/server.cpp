@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <deque>
 #include <math.h>
+#include <mutex>
 #include <signal.h>
 #include <stdarg.h>
 #include <thread>
@@ -33,9 +34,11 @@ typedef std::map<u8, uniqptr<BrushShape>> BrushShapeMap;
 struct Server::P {
 	uniqptr<ChunkSystem> chunk_system;
 
-	Mutex mtx_brush_shapes;
+	std::mutex mtx_brush_shapes;
 	BrushShapeMap brush_shapes_circle_filled;
 	BrushShapeMap brush_shapes_circle_outline;
+
+	bool properly_shut_down = false;
 };
 
 Server::Server() {
@@ -44,12 +47,17 @@ Server::Server() {
 }
 
 Server::~Server() {
+	if(!p->properly_shut_down) {
+		log("Server not properly shutted down");
+	}
+
+	log("Goodbye");
 }
 
 static bool got_sigint = false;
 void sigint_handler(int num) {
 	if(got_sigint) {
-		printf("Got more than 1 SIGINT, Hard-killing server. Goodbye.\n");
+		printf("Got more than 1 SIGINT, Hard-killing server.\n");
 		exit(-1);
 	} else {
 		got_sigint = true;
@@ -66,14 +74,27 @@ void Server::run(u16 port) {
 			[this](WsConnection *con) { closeCallback(con); }												//Close callback
 	);
 
-	bool idle = false;
 	while(!got_sigint) {
-		idle = true;
-
-		//stonks
-		if(idle)
-			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		freeRemovedSessions();
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
+
+	//Clean shutdown
+	shutdown();
+}
+
+void Server::shutdown() {
+	log("======== SHUTTING DOWN SERVER ========");
+
+	log("Disconnecting and removing sessions");
+	std::lock_guard lock(mtx_sessions);
+	while(!sessions.empty()) {
+		log("%u remaining", sessions.size());
+		auto *session = sessions.back().get();
+		removeSession_nolock(session->getConnection());
+	}
+
+	p->properly_shut_down = true;
 }
 
 u16 Server::findFreeSessionID_nolock() {
@@ -136,7 +157,6 @@ void Server::removeSession_nolock(WsConnection *connection) {
 	for(auto it = sessions.begin(); it != sessions.end();) {
 		if((*it)->getConnection() == connection) {
 			auto *session_to_remove = it->get();
-			auto id = session_to_remove->getID();
 
 			auto packet_remove_user = preparePacketUserRemove(it->get());
 
@@ -148,26 +168,18 @@ void Server::removeSession_nolock(WsConnection *connection) {
 				session->pushPacket(packet_remove_user);
 			}
 
-			log("Removing session with ID %u (IP %s, Nickname %s)",
+			log("Removing session with ID %u (Nickname %s)",
 					session_to_remove->getID(),
-					session_to_remove->getConnection()->getIP(),
 					session_to_remove->getNickname().c_str());
 
 			log("Triggering session_remove dispatchers");
 
-			log("Flushing queue");
-
 			//Trigger session remove dispatcher
 			dispatcher_session_remove.triggerAll(session_to_remove);
 
-			//Remove session completely
-			//This can hang if Session::runner thread
-			//is freezed somehow (~Session() joins Session::runner thread).
-			//Good luck debugging that
-			log("Deallocating session");
+			log("Freeing session from memory");
 			it = sessions.erase(it);
-
-			log("Removed session with ID %u", id);
+			log("Session freed");
 			return;
 		} else {
 			it++;
@@ -178,18 +190,33 @@ void Server::removeSession_nolock(WsConnection *connection) {
 	assert(false);
 }
 
+void Server::freeRemovedSessions() {
+	std::lock_guard lock(mtx_sessions);
+
+	uniqdata<Session *> to_remove;
+
+	for(auto &session : sessions) {
+		if(session->hasStopped()) {
+			to_remove.push_back(session.get());
+			break;
+		}
+	}
+
+	for(size_t i = 0; i < to_remove.size(); i++) {
+		auto *session = to_remove[i];
+		removeSession_nolock(session->getConnection());
+	}
+}
+
 void Server::forEverySessionExcept(Session *except, std::function<void(Session *)> callback) {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	//For every session
 	for(auto &session : sessions) {
 		if(session.get() == except)
 			continue;
 
-		if(!session->isValid())
-			continue;
-
-		if(session->wantsBeRemoved())
+		if(!session->isValid() || session->isStopping() || session->hasStopped())
 			continue;
 
 		callback(session.get());
@@ -197,7 +224,7 @@ void Server::forEverySessionExcept(Session *except, std::function<void(Session *
 }
 
 void Server::broadcast(const Packet &packet, Session *except) {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	//For every session
 	for(auto &session : sessions) {
@@ -212,7 +239,7 @@ void Server::broadcast(const Packet &packet, Session *except) {
 }
 
 BrushShape *Server::getBrushShape(u8 size, bool filled) {
-	LockGuard lock(p->mtx_brush_shapes);
+	std::lock_guard lock(p->mtx_brush_shapes);
 
 	BrushShapeMap *map;
 	if(filled)
@@ -257,7 +284,7 @@ ChunkSystem *Server::getChunkSystem() {
 void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 	auto *connection = ws_msg->connection;
 
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	auto *session = getSession_nolock(connection);
 
@@ -265,16 +292,14 @@ void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 		session = createSession_nolock(connection);
 
 	if(session) {
-		if(session->wantsBeRemoved()) {
-			removeSession_nolock(connection);
-		} else {
+		if(!session->hasStopped() && !session->isStopping()) {
 			session->pushIncomingMessage(ws_msg);
 		}
 	}
 }
 
 void Server::closeCallback(WsConnection *connection) {
-	LockGuard lock(mtx_sessions);
+	std::lock_guard lock(mtx_sessions);
 
 	auto *session = getSession_nolock(connection);
 	if(!session) {
@@ -282,11 +307,11 @@ void Server::closeCallback(WsConnection *connection) {
 		return;
 	}
 
-	removeSession_nolock(connection);
+	session->stopRunner();
 }
 
 void Server::log(const char *format, ...) {
-	LockGuard lock(mtx_log);
+	std::lock_guard lock(mtx_log);
 
 	char *buf = nullptr;
 
