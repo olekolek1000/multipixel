@@ -40,9 +40,19 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 	auto &horizontal = chunks[chunk_pos.x];
 	auto it = horizontal.find(chunk_pos.y);
 	if(it == horizontal.end()) {
-		//Chunk not found, create new
+		uniqdata<u8> compressed_chunk_data;
+		{
+			//Load chunk pixels from database
+			std::lock_guard lock(mtx_database);
+			auto record = database.loadBytes(chunk_pos.x, chunk_pos.y);
+
+			if(!record.data.empty())
+				record.data.move_to(&compressed_chunk_data);
+		}
+
+		//Chunk not found, create new chunk
 		auto &cell = horizontal[chunk_pos.y];
-		cell.create(this, chunk_pos);
+		cell.create(this, chunk_pos, &compressed_chunk_data);
 		return cell.get();
 	} else {
 		return it->second.get();
@@ -224,6 +234,12 @@ bool ChunkSystem::runner_tick() {
 				for(auto &j : i.second) {
 					auto *chunk = j.second.get();
 					if(chunk->isLinkedSessionsEmpty()) {
+						//Save chunk data to database (only if modified)
+						if(chunk->isModified()) {
+							auto chunk_data = chunk->encodeChunkData();
+							database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data.data(), chunk_data.size_bytes(), COMPRESSION_TYPE::LZ4);
+						}
+
 						removeChunk_nolock(chunk);
 						done = false;
 						removed_chunk_count++;

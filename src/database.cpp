@@ -6,12 +6,12 @@
 #include <sqlite3.h>
 #include <stdio.h>
 
-DatabaseConnector::DatabaseConnector() {
-	DatabaseConnector("chunks.db");
+DatabaseConnector::DatabaseConnector()
+		: DatabaseConnector("chunks.db") {
 }
 
 DatabaseConnector::DatabaseConnector(const char *dbpath) {
-	if(sqlite3_open(dbpath, &database) != SQLITE_OK) {
+	if(sqlite3_open_v2(dbpath, &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
 		fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(database));
 	}
 	if(sqlite3_exec(
@@ -19,7 +19,7 @@ DatabaseConnector::DatabaseConnector(const char *dbpath) {
 				 NULL, NULL, NULL) == SQLITE_OK) {
 
 	} else {
-		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
+		fprintf(stderr, "Can't prepare SQL statment (DatabaseConnector constructor): %s\n", sqlite3_errmsg(database));
 	}
 }
 
@@ -62,7 +62,7 @@ auto DatabaseConnector::saveBytes(s32 x, s32 y, const void *data, size_t size, C
 			sqlite3_bind_int64(statment, 4, chunk_id);
 			if(sqlite3_step(statment) == SQLITE_DONE) {
 			} else {
-				fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
+				fprintf(stderr, "Can't prepare SQL statment (saveBytes): %s\n", sqlite3_errmsg(database));
 			}
 		}
 
@@ -70,12 +70,12 @@ auto DatabaseConnector::saveBytes(s32 x, s32 y, const void *data, size_t size, C
 		insert(x, y, data, size, type);
 
 	} else {
-		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
+		fprintf(stderr, "Can't prepare SQL statment (saveBytes): %s\n", sqlite3_errmsg(database));
 	}
 }
 
 auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
-	sqlite3_stmt *statment;
+	sqlite3_stmt *statment = nullptr;
 	DatabaseRecord rec;
 	if(id == 0) {
 		sqlite3_prepare_v2(
@@ -104,10 +104,10 @@ auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 		rec.created = sqlite3_column_int64(statment, 3);
 		rec.data.resize(blob_size);
 		memcpy(rec.data.ptr, ptr, blob_size);
-	}else if(sqlite3_step(statment) == SQLITE_DONE){
-		return rec;
+	} else if(sqlite3_step(statment) == SQLITE_DONE) {
+		//nothing
 	} else {
-		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
+		fprintf(stderr, "Can't prepare SQL statment (loadBytes): %s\n", sqlite3_errmsg(database));
 	}
 	sqlite3_finalize(statment);
 	return rec;
@@ -146,7 +146,7 @@ auto DatabaseConnector::insert(s32 x, s32 y, const void *data, size_t size, COMP
 	if(sqlite3_step(statment) == SQLITE_DONE) {
 		sqlite3_finalize(statment);
 	} else {
-		fprintf(stderr, "Can't prepare SQL statment: %s\n", sqlite3_errmsg(database));
+		fprintf(stderr, "Can't prepare SQL statment (insert): %s\n", sqlite3_errmsg(database));
 	}
 }
 
