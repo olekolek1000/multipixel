@@ -87,8 +87,15 @@ bool Session::runner_processMessageQueue() {
 		message_queue.pop();
 		mtx_message_queue.unlock();
 
+		if(msg->data.size() < sizeof(ClientCmd)) {
+			kickInvalidPacket();
+			return false;
+		}
+
 		//Command ID
-		auto command = (ClientCmd)frombig16(*(u16 *)msg->data.data());
+		u16 command_BE;
+		memcpy(&command_BE, msg->data.data(), sizeof(u16));
+		auto command = (ClientCmd)frombig16(command_BE);
 
 		//Content without command (header)
 		std::string_view content(msg->data.data() + sizeof(ClientCmd), msg->data.size() - sizeof(ClientCmd));
@@ -276,6 +283,10 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 		}
 		case ClientCmd::boundary: {
 			parseCommandBoundary(data);
+			break;
+		}
+		case ClientCmd::chunks_received: {
+			parseCommandChunksReceived(data);
 			break;
 		}
 		case ClientCmd::ping: {
@@ -500,6 +511,17 @@ void Session::parseCommandBoundary(const std::string_view data) {
 	needs_boundary_test = true;
 }
 
+void Session::parseCommandChunksReceived(const std::string_view data) {
+	u32 chunks_received_BE;
+	memcpy(&chunks_received_BE, data.data(), sizeof(u32));
+	auto chunks_received = frombig32(chunks_received_BE);
+	if(chunks_received <= this->chunks_received) {
+		kickInvalidPacket();
+		return;
+	}
+	this->chunks_received = chunks_received;
+}
+
 void Session::runner_performBoundaryTest() {
 	if(processed_input_message)
 		return; //Process new chunks only when all client input messages are read
@@ -541,13 +563,16 @@ void Session::runner_performBoundaryTest() {
 	if(chunks_to_load.empty())
 		return;
 
-	for(u32 iterations = 0; iterations < 3; iterations++) {
+	s64 in_queue = (s64)chunks_sent - (s64)chunks_received;
+	s32 to_send = 15 - in_queue; //Max 10 queued chunks
+
+	for(s32 iterations = 0; iterations < to_send; iterations++) {
 		if(chunks_to_load.empty())
 			break;
 
 		//Get closest chunk (circular loading)
-		float center_x = (boundary.start_x + boundary.end_x) / 2.0f;
-		float center_y = (boundary.start_y + boundary.end_y) / 2.0f;
+		float center_x = (float)cursorX / ChunkSystem::getChunkSize();
+		float center_y = (float)cursorY / ChunkSystem::getChunkSize();
 		Int2 closest_position;
 		float closest_distance = __FLT_MAX__;
 		for(auto &ch : chunks_to_load) {
@@ -568,6 +593,7 @@ void Session::runner_performBoundaryTest() {
 		}
 
 		//Announce chunk
+		chunks_sent++;
 		server->getChunkSystem()->announceChunkForSession(this, closest_position);
 	}
 

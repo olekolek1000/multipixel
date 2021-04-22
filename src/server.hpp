@@ -21,9 +21,6 @@ struct BrushShape {
 
 struct Server {
 public:
-	struct P;
-	uniqptr<P> p;
-
 	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 
 private:
@@ -68,4 +65,7 @@ private:
 	Session *getSession_nolock(WsConnection *connection);
 	void removeSession_nolock(WsConnection *connection);
 	u16 findFreeSessionID_nolock();
+
+	struct P;
+	uniqptr<P> p;
 };
