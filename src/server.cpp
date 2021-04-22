@@ -51,7 +51,7 @@ Server::~Server() {
 		log("Server not properly shutted down");
 	}
 
-	log("Goodbye");
+	log("Server stopped");
 }
 
 static bool got_sigint = false;
@@ -125,16 +125,6 @@ Session *Server::createSession_nolock(WsConnection *connection) {
 	session_map[connection] = ptr;
 
 	log("Created session with ID %u (IP: %s)", id, connection->getIP());
-
-	auto *chunk_system = getChunkSystem();
-	//Announce spawn chunks (temporary)
-	s32 countX = 4;
-	s32 countY = 4;
-	for(s32 y = -countY; y < countY; y++) {
-		for(s32 x = -countX; x < countX; x++) {
-			chunk_system->announceChunkForSession(ptr, {x, y});
-		}
-	}
 
 	return ptr;
 }

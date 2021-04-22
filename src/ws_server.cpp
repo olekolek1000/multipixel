@@ -162,8 +162,10 @@ WsServer::P::~P() {
 	printf("Stopping server\n");
 	stopped = true;
 	server.stop();
+	server.stop_listening();
 	if(thr_runner.joinable())
 		thr_runner.join();
+	printf("Joined WsServer thread\n");
 }
 
 WsServer::WsServer() {
