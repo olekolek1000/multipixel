@@ -39,6 +39,11 @@ private:
 		s32 start_x, start_y, end_x, end_y;
 	} boundary;
 
+	//Number of chunks received by client
+	u32 chunks_received = 0;
+	//Number of chunks sent by server
+	u32 chunks_sent = 0;
+
 	Timestep step_runner;
 	std::thread thr_runner;
 
@@ -117,6 +122,7 @@ private:
 	void parseCommandBrushSize(const std::string_view data);
 	void parseCommandBrushColor(const std::string_view data);
 	void parseCommandBoundary(const std::string_view data);
+	void parseCommandChunksReceived(const std::string_view data);
 
 	void kick(const char *reason);
 	void kickInvalidPacket();
