@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+
+<head>
+	<title>
+		MultiPixel
+	</title>
+	<link rel="shortcut icon" type="image/png" href="favicon.png" />
+	<link href="style.css" rel="stylesheet">
+	<meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+	<meta content="utf-8" http-equiv="encoding">
+</head>
+
+<body id="body" bgcolor="#FFF">
+	<div id="loading" style="position:fixed; width:100vw; height:100vh; background-color: goldenrod; text-align: center;">
+		<img src="drums.gif">
+	</div>
+	<canvas id="viewport" width="100%" height="100%"></canvas>
+	<script src="lz4.min.js"></script>
+	<script src="client.js"></script>
+	<script src="script.js"></script>
+	<script src="viewport.js"></script>
+	<script src="run.js"></script>
+	<div id="logo">
+		<img src="logo.webp" style="width: 100%; height:  auto;" />
+		<div id="center-logo">
+			<input type="text" placeholder="Nickname" maxlength="32" id="nick">
+			<input type="button" value="START" onclick="onStartClick()" disabled="disabled" id="nick-button">
+
+		</div>
+	</div>
+	<div id="player_list">Connecting...</div>
+	<div id="ui">
+
+		<br>
+		<br>
+		<div class="floating-button col-select cl">
+			<input type="color" id="color" onchange="colorChange()">
+		</div>
+		<div class="floating-button col cl" onclick="handleColor(this)">
+		 
+		</div>
+		<div class="floating-button col cl" onclick="handleColor(this)">
+		 
+		</div>
+		<br>
+		<br>
+		<br>
+		<br>
+		<div class="floating-button col-select" id="brush-size" onclick="handleBrushSizeSlider()">
+			<span id="brush-size-text">1px</span>
+
+		</div>
+		<input disabled type="range" min="1" max="15" value="1" id="slider" class=""
+			onchange="let size = document.getElementById('slider').value;	document.getElementById('brush-size-text').innerText =  size + 'px'; client.socketSendBrushSize(size)">
+		<br>
+		<br>
+		<br>
+		<br>
+		<div class="floating-button col-select" id="zoom-level" onclick="handleZoomSlider()">
+			<input type="number" id="zoom-level-number" min="0.1" max="64" onchange="setZoom(this.value, false);">
+		</div>
+		<input type="range" class="floating-button" id="zoom-level-range" min="0.0" max="1.0" step="0.0001"
+			onmousedown="handleSliderZoomDown();" onmouseup="handleSliderZoomUp();" />
+	</div>
+</body>
+
+
+</html>
