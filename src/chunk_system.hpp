@@ -31,6 +31,8 @@ private:
 	std::atomic<bool> running;
 	std::thread thr_runner;
 
+	u64 last_autosave_timestamp;
+
 	std::atomic<bool> needs_garbage_collect;
 
 	Listener<void(Session *)> listener_session_remove;
@@ -68,4 +70,7 @@ private:
 
 	void announceChunkForSession_nolock(Session *session, Int2 chunk_pos);
 	void deannounceChunkForSession_nolock(Session *session, Int2 chunk_pos);
+
+	void autosave();
+	void saveChunk_nolock(Chunk *chunk);
 };

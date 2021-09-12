@@ -1,65 +1,9 @@
 #body {
 	margin: 0;
 	overflow: hidden;
-}
-
-#viewport {
-	position: fixed;
-	top:0;
-	left:0;
-}
-
-#player_list {
 	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-	position:fixed;
-	right:0;
-	text-align: right;
-	margin-top:0.3cm;
-	margin-right:0.3cm;
-	font-size: 0.3cm;
 }
 
-#ui {
-	position: absolute;
-	top: 0;
-	left: 0;
-	z-index: 10;
-
-}
-
-#color {
-	appearance: none;
-	position: absolute;
-	z-index: 12;
-	opacity: 0;
-	width: 130%;
-	height: 130%;
-	left: -30%;
-	top: -30%;
-	-moz-appearance: none;
-	-webkit-appearance: none;
-}
-
-.floating-button {
-	position: relative;
-	float: left;
-	width: auto;
-	height: auto;
-	left: 4rem;
-	padding: 0.5rem;
-	background-color: white;
-	border-radius: 1rem;
-	border-color: white;
-	-webkit-box-shadow: 0px 0px 15px 6px rgba(0,0,0,0.89); 
-	box-shadow: 0px 0px 15px 6px rgba(0,0,0,0.89);
-	font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
-}
-
-.col-select{
-	width: 2rem;
-	height: 2rem;
-	overflow: hidden;
-}
 
 #brush-size {
 	position: relative;
@@ -71,33 +15,9 @@
 	overflow:visible;
 }
 
-#slider {
-	position: absolute;
-	
-	z-index: -5;
-	transition: 0.3s;
-	opacity: 0;
-	left:  9rem;
-	appearance: none;
-}
 
-#slider.active {
-	opacity: 1;
-	z-index: 11;	
-}
-#color-over{
-	position: absolute;
-	z-index: 3;
-	background-color: black;
-	overflow: hidden;
-	width: 130%;
-	height: 130%;
-	left: -30%;
-	top: -30%;
-}
 #logo{
 	position: absolute;
-	z-index: 14;
 	top:30%;
 	width: 20%;
 	left: 35%;
@@ -105,39 +25,4 @@
 	border-radius: 5rem;
 		padding: 5%;
 	background-color: floralwhite;
-}
-#zoom-level-number{
-	appearance: none;
-	position: relative;
-	border: none;
-	top: -0.1rem;
-	left: -0.35rem;
-	width: 2.8rem;
-	height: 2rem;
-	-moz-appearance: textfield;
-	font-size: large;
-}
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-#zoom-level-range{
-	position: absolute;
-	
-	z-index: -5;
-	transition: 0.3s;
-	opacity: 0;
-	left:  9rem;
-	appearance: none;
-}
-#zoom-level-range.active {
-	opacity: 1;
-	z-index: 11;	
-}
-.col{
-	position: relative;
-	width: 2rem;
-	height: 2rem;
-	margin-left: 2rem;
 }

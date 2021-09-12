@@ -1,6 +1,7 @@
 #include "chunk.hpp"
 #include "chunk_system.hpp"
 #include "command.hpp"
+#include "server.hpp"
 #include "session.hpp"
 #include <cassert>
 
@@ -197,4 +198,8 @@ Int2 Chunk::getPosition() const {
 
 bool Chunk::isModified() {
 	return modified;
+}
+
+void Chunk::setModified(bool n) {
+	modified = n;
 }

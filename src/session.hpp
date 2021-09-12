@@ -18,6 +18,11 @@ struct WsConnection;
 struct Chunk;
 struct WsMessage;
 
+struct LinkedChunk {
+	Chunk *chunk;
+	u32 outside_boundary_duration = 0;
+};
+
 struct Session {
 private:
 	bool valid = false;
@@ -55,7 +60,7 @@ private:
 	std::queue<Packet> packet_queue;
 
 	std::mutex mtx_linked_chunks;
-	std::vector<Chunk *> linked_chunks;
+	std::vector<LinkedChunk> linked_chunks;
 
 	bool needs_boundary_test;
 

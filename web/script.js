@@ -1,6 +1,3 @@
-function getById(id) {
-	return document.getElementById(id)
-}
 
 function clamp(num, min, max) {
 	return num <= min ? min : num >= max ? max : num;
@@ -17,9 +14,6 @@ let mouse = {
 	down_right: false
 }
 
-let body = getById("body");
-let viewport = getById("viewport");
-
 let needs_boundaries_update = false;
 
 function boundary_update() {
@@ -32,6 +26,9 @@ function boundary_update() {
 function initListeners() {
 	setInterval(boundary_update, 200);
 
+	let viewport = getViewport();
+	let body = getBody();
+
 	viewport.addEventListener("mousemove", function (e) {
 		mouse.x_prev = mouse.x;
 		mouse.y_prev = mouse.y;
@@ -40,8 +37,14 @@ function initListeners() {
 
 		let scrolling = map.getScrolling();
 
-		mouse.canvas_x = (mouse.x - scrolling.x) / scrolling.zoom;
-		mouse.canvas_y = (mouse.y - scrolling.y) / scrolling.zoom;
+		let raw_x = (mouse.x - scrolling.x) / scrolling.zoom;
+		let raw_y = (mouse.y - scrolling.y) / scrolling.zoom;
+
+		mouse.canvas_x = Math.floor(raw_x);
+		mouse.canvas_y = Math.floor(raw_y);
+
+		if (raw_x < 0) mouse.canvas_x++;
+		if (raw_y < 0) mouse.canvas_y++;
 
 		client.socketSendCursorPos(mouse.canvas_x, mouse.canvas_y);
 
@@ -51,7 +54,7 @@ function initListeners() {
 			scrolling.y += (mouse.y - mouse.y_prev);
 			needs_boundaries_update = true;
 
-			triggerRerender();
+			map.triggerRerender();
 		}
 	});
 
@@ -96,10 +99,7 @@ function initListeners() {
 
 function initRenderer() {
 	function draw() {
-		if (needs_redraw) {
-			map.draw();
-			needs_redraw = false;
-		}
+		map.draw();
 		window.requestAnimationFrame(draw);
 	}
 
@@ -108,7 +108,7 @@ function initRenderer() {
 
 
 function refreshPlayerList() {
-	let player_list = getById("player_list");
+	let player_list = document.getElementById("multipixel_player_list");
 	let buf = "[Online players]<br><br>";
 
 	let self_shown = false;
@@ -138,14 +138,14 @@ function refreshPlayerList() {
 function handleBrushSizeSlider() {
 	let sld = document.getElementById('slider');
 	if (sld.className.includes('active')) {
-		sld.className = 'floating-button'
+		sld.className = 'multipixel_floating_button'
 		sld.setAttribute("disabled", "disabled")
 	}
 	else {
-		sld.className = 'active floating-button'
+		sld.className = 'active multipixel_floating_button'
 		sld.removeAttribute("disabled")
 		setTimeout(function () {
-			sld.className = 'floating-button'
+			sld.className = 'multipixel_floating_button'
 			sld.setAttribute("disabled", "disabled")
 		}, 5000)
 
@@ -153,68 +153,17 @@ function handleBrushSizeSlider() {
 	document.getElementById('brush-size-text').innerText = sld.value + 'px';
 }
 
-
-
-function handleZoomSlider() {
-	let sld = document.getElementById('zoom-level-range');
-	if (sld.className.includes('active')) {
-		sld.className = 'floating-button'
-		sld.setAttribute("disabled", "disabled")
-	}
-	else {
-		sld.className = 'active floating-button'
-		sld.removeAttribute("disabled")
-		setTimeout(function () {
-			sld.className = 'floating-button'
-			sld.setAttribute("disabled", "disabled")
-		}, 5000)
-
-	}
-}
-
-function sliderValueToZoom(num) {
-	num = parseFloat(num);
-	return 0.1 * (639.0 * Math.pow(num, 4.0) + 1);
-}
-
-function zoomToSliderValue(num) {
-	num = parseFloat(num);
-	return (Math.pow(10 * num - 1, 1.0 / 4.0)) / (Math.sqrt(3) * Math.pow(71, 1.0 / 4.0));
-}
-
 function setZoom(val, add) {
-	if (add) {
+	if (add && add == true) {
 		map.addZoom(val);
 	}
 	else {
 		map.setZoom(val);
 	}
-
-	document.getElementById('zoom-level-number').value = map.scrolling.zoom;
-	document.getElementById('zoom-level-range').value = zoomToSliderValue(map.scrolling.zoom);
 }
 
 var slider_value_callback;
 
-function updateSliderZoomValue() {
-	let slider = document.getElementById("zoom-level-range");
-	setZoom(sliderValueToZoom(slider.value), false);
-}
-
-function handleSliderZoomDown() {
-	if (slider_value_callback != null)
-		clearInterval(slider_value_callback);
-
-	slider_value_callback = null;
-	slider_value_callback = setInterval(updateSliderZoomValue, 15);
-}
-
-function handleSliderZoomUp() {
-	clearInterval(slider_value_callback);
-	slider_value_callback = null;
-	updateSliderZoomValue();
-	needs_boundaries_update = true;
-}
 function handleColor(elem) {
 
 	let color = elem.getAttribute("contained-color");
@@ -240,8 +189,9 @@ function currentColorUpadate(color_string) {
 	cl[0].style.backgroundColor = color_string;
 	cl[0].setAttribute("contained-color", color_string)
 }
+
 function colorChange() {
-	let selector = document.getElementById('color')
+	let selector = document.getElementById("multipixel_color_selector")
 	let string_value = selector.value;
 	currentColorUpadate(string_value)
 }

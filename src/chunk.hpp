@@ -48,6 +48,7 @@ public:
 
 	uniqdata<u8> encodeChunkData();
 	bool isModified();
+	void setModified(bool n);
 
 	void setPixels(ChunkPixel *pixels, size_t count);
 	Int2 getPosition() const;
