@@ -213,7 +213,7 @@ class Client {
 				let pixel_count = dataview.getUint32(offset); offset += 4;
 				let raw_size = dataview.getUint32(offset); offset += 4;
 
-				let uncompressed_buffer = new Buffer(raw_size);
+				let uncompressed_buffer = Buffer.alloc(raw_size);
 				let compressed_data = raw_data.slice(header_offset + offset);
 				let decoded_bytes = LZ4.decodeBlock(new Buffer(compressed_data), uncompressed_buffer);
 				decoded_bytes;
@@ -245,14 +245,14 @@ class Client {
 				this.chunks_received++;
 				this.socketSendChunksReceived();
 				map.createChunk(chunkX, chunkY);
-				triggerRerender();
+				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.chunk_remove: {
 				let chunkX = dataview.getInt32(0);
 				let chunkY = dataview.getInt32(4);
 				map.removeChunk(chunkX, chunkY);
-				triggerRerender();
+				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_create: {
@@ -260,14 +260,14 @@ class Client {
 				let nickname = new TextDecoder().decode(new DataView(e.data, header_offset + size_u16));
 				this.users[id] = new User(id, nickname);
 				refreshPlayerList();
-				triggerRerender();
+				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_remove: {
 				let id = dataview.getUint16(0);
 				this.users[id] = null;
 				refreshPlayerList();
-				triggerRerender();
+				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_cursor_pos: {
@@ -279,7 +279,7 @@ class Client {
 				if (user) {
 					user.cursor_x = x;
 					user.cursor_y = y;
-					triggerRerender();
+					map.triggerRerender();
 				}
 				break;
 			}

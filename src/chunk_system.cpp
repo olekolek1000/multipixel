@@ -124,8 +124,8 @@ void ChunkSystem::setPixels(Session *session, GlobalPixel *pixels, size_t count)
 }
 
 Int2 ChunkSystem::globalPixelPosToChunkPos(Int2 pixel_pos) {
-	s32 chunkX = pixel_pos.x / (s32)getChunkSize();
-	s32 chunkY = pixel_pos.y / (s32)getChunkSize();
+	s32 chunkX = (pixel_pos.x + (pixel_pos.x < 0 ? 1 : 0)) / (s32)getChunkSize();
+	s32 chunkY = (pixel_pos.y + (pixel_pos.y < 0 ? 1 : 0)) / (s32)getChunkSize();
 
 	if(pixel_pos.x < 0)
 		chunkX--;
@@ -136,17 +136,15 @@ Int2 ChunkSystem::globalPixelPosToChunkPos(Int2 pixel_pos) {
 	return {chunkX, chunkY};
 }
 
+int modulo(int x, int n) {
+	return (x % n + n) % n;
+}
+
 UInt2 ChunkSystem::globalPixelPosToLocalPixelPos(Int2 global_pixel_pos) {
 	auto chunk_size = (s32)getChunkSize();
 
-	s32 x = global_pixel_pos.x % chunk_size;
-	s32 y = global_pixel_pos.y % chunk_size;
-
-	if(global_pixel_pos.x < 0)
-		x += chunk_size - 1;
-
-	if(global_pixel_pos.y < 0)
-		y += chunk_size - 1;
+	s32 x = modulo(global_pixel_pos.x, chunk_size);
+	s32 y = modulo(global_pixel_pos.y, chunk_size);
 
 	//Can be removed later
 	assert(x >= 0 && y >= 0 && x < chunk_size && y < chunk_size);
@@ -176,6 +174,35 @@ void ChunkSystem::deannounceChunkForSession_nolock(Session *session, Int2 chunk_
 	chunk->unlinkSession(session);
 }
 
+void ChunkSystem::autosave() {
+	std::lock_guard lock(mtx_access);
+
+	std::vector<Chunk *> to_autosave;
+	u32 total_chunk_count = 0;
+	u32 saved_chunk_count = 0;
+
+	for(auto &i : chunks) {
+		for(auto &j : i.second) {
+			auto *chunk = j.second.get();
+			total_chunk_count++;
+
+			if(chunk->isModified()) {
+				saveChunk_nolock(chunk);
+				saved_chunk_count++;
+			}
+		}
+	}
+
+	if(saved_chunk_count)
+		server->log("Autosaved %u chunks (%u chunks loaded)", saved_chunk_count, total_chunk_count);
+}
+
+void ChunkSystem::saveChunk_nolock(Chunk *chunk) {
+	auto chunk_data = chunk->encodeChunkData();
+	database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data.data(), chunk_data.size_bytes(), COMPRESSION_TYPE::LZ4);
+	chunk->setModified(false);
+}
+
 void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
 	for(auto it = chunks.begin(); it != chunks.end(); it++) {
 		for(auto jt = it->second.begin(); jt != it->second.end();) {
@@ -199,6 +226,8 @@ void ChunkSystem::markGarbageCollect() {
 }
 
 void ChunkSystem::runner() {
+	last_autosave_timestamp = getMillis();
+
 	while(running) {
 		bool used = runner_tick();
 		if(!used) {
@@ -206,11 +235,19 @@ void ChunkSystem::runner() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
 	}
+
+	autosave();
 }
 
 bool ChunkSystem::runner_tick() {
-
 	bool used = false;
+
+	auto millis = getMillis();
+
+	if(last_autosave_timestamp + 30000 < millis) { //Autosave
+		autosave();
+		last_autosave_timestamp = millis;
+	}
 
 	//Atomic operation:
 	//if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
@@ -220,7 +257,7 @@ bool ChunkSystem::runner_tick() {
 		bool done = false;
 
 		//Informational use only
-		u32 removed_chunk_count = 0;
+		u32 saved_chunk_count = 0;
 		u32 loaded_chunk_count = 0;
 
 		do {
@@ -236,13 +273,11 @@ bool ChunkSystem::runner_tick() {
 					if(chunk->isLinkedSessionsEmpty()) {
 						//Save chunk data to database (only if modified)
 						if(chunk->isModified()) {
-							auto chunk_data = chunk->encodeChunkData();
-							database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data.data(), chunk_data.size_bytes(), COMPRESSION_TYPE::LZ4);
+							saved_chunk_count++;
+							saveChunk_nolock(chunk);
 						}
-
 						removeChunk_nolock(chunk);
 						done = false;
-						removed_chunk_count++;
 						goto breakloop;
 					}
 				}
@@ -252,7 +287,8 @@ bool ChunkSystem::runner_tick() {
 
 		} while(!done);
 
-		server->log("Garbage collected %u chunks (%u chunks loaded)", removed_chunk_count, loaded_chunk_count);
+		if(saved_chunk_count)
+			server->log("Saved %u chunks (%u chunks loaded)", saved_chunk_count, loaded_chunk_count);
 	}
 
 	return used;
