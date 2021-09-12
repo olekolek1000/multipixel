@@ -15,6 +15,14 @@ class PixelQueueCell {
 	}
 }
 
+function getViewport() {
+	return document.getElementById("multipixel_viewport");
+}
+
+function getBody() {
+	return document.getElementById("body");
+}
+
 class Chunk {
 	canvas;
 	ctx;
@@ -33,8 +41,8 @@ class Chunk {
 		this.ctx = this.canvas.getContext("2d");
 		this.ctx.imageSmoothingEnabled = false;
 
-		this.ctx.fillStyle = '#555';
-		this.ctx.fillRect(0, 0, chunk_size, chunk_size);
+		//this.ctx.fillStyle = '#555';
+		//this.ctx.fillRect(0, 0, chunk_size, chunk_size);
 		this.image_data = this.ctx.getImageData(0, 0, chunk_size, chunk_size);
 	}
 
@@ -64,6 +72,7 @@ class Chunk {
 				data[image_offset + 0] = red;
 				data[image_offset + 1] = green;
 				data[image_offset + 2] = blue;
+				data[image_offset + 3] = 255;
 			}
 		}
 
@@ -95,32 +104,42 @@ class Chunk {
 	}
 }
 
-var needs_redraw = true;
-
 //Load cursor
 var cursor_img = document.createElement("img");
 cursor_img.src = "breeze.png";
 
-function triggerRerender() {
-	needs_redraw = true;
-}
-
 class Map {
 	viewport;
 	viewport_ctx;
+	needs_redraw;
 
 	map = [];
-
-	constructor() {
-		this.viewport = getById("viewport");
-		this.viewport_ctx = this.viewport.getContext("2d");
-	}
 
 	scrolling = {
 		x: 0,
 		y: 0,
 		zoom: 1.0
 	};
+
+	constructor() {
+		this.viewport = getViewport();
+		this.viewport_ctx = this.viewport.getContext("2d");
+		this.needs_redraw = true;
+
+		window.addEventListener("resize", () => { this.resize(); });
+		this.resize();
+	}
+
+	triggerRerender = function () {
+		this.needs_redraw = true;
+	}
+
+	resize = function () {
+		let viewport = getViewport();
+		viewport.width = window.innerWidth;
+		viewport.height = window.innerHeight;
+		this.triggerRerender();
+	}
 
 	chunkExists = function (x, y) {
 		if (this.map[x] == null)
@@ -182,14 +201,14 @@ class Map {
 		return {
 			start_x: Math.floor((-this.scrolling.x / this.scrolling.zoom) / chunk_size),
 			start_y: Math.floor((-this.scrolling.y / this.scrolling.zoom) / chunk_size),
-			end_x: Math.floor(((-this.scrolling.x + viewport.width) / this.scrolling.zoom) / chunk_size) + 1,
-			end_y: Math.floor(((-this.scrolling.y + viewport.height) / this.scrolling.zoom) / chunk_size) + 1
+			end_x: Math.floor(((-this.scrolling.x + this.viewport.width) / this.scrolling.zoom) / chunk_size) + 1,
+			end_y: Math.floor(((-this.scrolling.y + this.viewport.height) / this.scrolling.zoom) / chunk_size) + 1
 		};
 	}
 
 	drawChunks = function () {
 		this.viewport_ctx.fillStyle = '#ccc';
-		this.viewport_ctx.fillRect(0, 0, viewport.width, viewport.height);
+		this.viewport_ctx.fillRect(0, 0, this.viewport.width, this.viewport.height);
 
 		let boundary = this.getBoundaries();
 
@@ -233,6 +252,9 @@ class Map {
 	}
 
 	draw = function () {
+		if (!this.needs_redraw)
+			return;
+		this.needs_redraw = false;
 		this.drawChunks();
 		this.drawCursors();
 	}
@@ -247,7 +269,7 @@ class Map {
 		this.setZoom(zoom)
 	}
 
-	setZoom(num) {
+	setZoom = function (num) {
 		let scrolling = this.getScrolling();
 		let zoom = num;
 		let zoom_prev = scrolling.zoom;
@@ -262,13 +284,13 @@ class Map {
 		scrolling.x *= zoom_mul;
 		scrolling.y *= zoom_mul;
 
-		let pixel_diff_x = viewport.width / zoom_prev - viewport.width / zoom;
-		let pixel_diff_y = viewport.height / zoom_prev - viewport.height / zoom;
+		let pixel_diff_x = this.viewport.width / zoom_prev - this.viewport.width / zoom;
+		let pixel_diff_y = this.viewport.height / zoom_prev - this.viewport.height / zoom;
 
-		scrolling.x -= (pixel_diff_x * zoom) * (mouse.x / viewport.width);
-		scrolling.y -= (pixel_diff_y * zoom) * (mouse.y / viewport.height);
+		scrolling.x -= (pixel_diff_x * zoom) * (mouse.x / this.viewport.width);
+		scrolling.y -= (pixel_diff_y * zoom) * (mouse.y / this.viewport.height);
 
-		triggerRerender();
+		this.triggerRerender();
 	}
 
 	putPixel = function (x, y, red, green, blue) {
@@ -290,22 +312,7 @@ class Map {
 		let chunk = map.getChunk(chunkX, chunkY);
 		if (chunk) {
 			chunk.putPixel(localX, localY, red, green, blue);
-			triggerRerender();
+			this.triggerRerender();
 		}
 	}
 }
-
-var map = new Map();
-
-function resize() {
-	//Resize viewport canvas
-	// / window.devicePixelRatio;
-	viewport.width = window.innerWidth;
-	viewport.height = window.innerHeight;
-	triggerRerender();
-}
-
-
-
-window.onresize = resize;
-resize();

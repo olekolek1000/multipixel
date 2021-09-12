@@ -66,11 +66,39 @@ void Session::runner() {
 }
 
 bool Session::runner_tick() {
-	if(step_runner.onTick()) {
+	while(step_runner.onTick()) {
+		auto ticks = step_runner.getTicks();
+
 		if(cursorX_sent != cursorX || cursorY_sent != cursorY) {
 			cursorX_sent = cursorX;
 			cursorY_sent = cursorY;
 			server->broadcast(preparePacketUserCursorPos(getID(), cursorX, cursorY));
+		}
+
+		//Every 1s
+		if(ticks % 20 == 0) {
+			//Remove chunks outside bounds and left for longer time
+			std::vector<Int2> chunks_to_unload;
+			{
+				std::lock_guard lock(mtx_linked_chunks);
+				for(size_t i = 0; i < linked_chunks.size(); i++) { //Do not use iterator there
+					auto &linked_chunk = linked_chunks[i];
+					auto pos = linked_chunk.chunk->getPosition();
+					if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
+						linked_chunk.outside_boundary_duration++;
+						if(linked_chunk.outside_boundary_duration == 30 /* seconds */) {
+							chunks_to_unload.push_back(pos);
+						}
+					} else {
+						linked_chunk.outside_boundary_duration = 0;
+					}
+				}
+			}
+
+			//Deannounce chunks from list
+			for(auto &pos : chunks_to_unload) {
+				server->getChunkSystem()->deannounceChunkForSession(this, pos);
+			}
 		}
 
 		runner_performBoundaryTest();
@@ -81,55 +109,54 @@ bool Session::runner_tick() {
 
 bool Session::runner_processMessageQueue() {
 	mtx_message_queue.lock();
-	if(!message_queue.empty()) {
-		//Grab next incoming message
-		auto msg = message_queue.front();
-		message_queue.pop();
-		mtx_message_queue.unlock();
-
-		if(msg->data.size() < sizeof(ClientCmd)) {
-			kickInvalidPacket();
-			return false;
-		}
-
-		//Command ID
-		u16 command_BE;
-		memcpy(&command_BE, msg->data.data(), sizeof(u16));
-		auto command = (ClientCmd)frombig16(command_BE);
-
-		//Content without command (header)
-		std::string_view content(msg->data.data() + sizeof(ClientCmd), msg->data.size() - sizeof(ClientCmd));
-
-		try {
-			parseCommand(command, content);
-		} catch(std::exception &e) {
-			server->log("Session parseCommand() failure (ID %u): %s", getID(), e.what());
-		}
-
-		return true;
-	} else {
+	if(message_queue.empty()) {
 		mtx_message_queue.unlock();
 		return false;
 	}
+
+	//Grab next incoming message
+	auto msg = message_queue.front();
+	message_queue.pop();
+	mtx_message_queue.unlock();
+
+	if(msg->data.size() < sizeof(ClientCmd)) {
+		kickInvalidPacket();
+		return false;
+	}
+
+	//Command ID
+	u16 command_BE;
+	memcpy(&command_BE, msg->data.data(), sizeof(u16));
+	auto command = (ClientCmd)frombig16(command_BE);
+
+	//Content without command (header)
+	std::string_view content(msg->data.data() + sizeof(ClientCmd), msg->data.size() - sizeof(ClientCmd));
+
+	try {
+		parseCommand(command, content);
+	} catch(std::exception &e) {
+		server->log("Session parseCommand() failure (ID %u): %s", getID(), e.what());
+	}
+
+	return true;
 }
 
 bool Session::runner_processPacketQueue() {
-	//Process packet queue
 	mtx_packet_queue.lock();
-	if(!packet_queue.empty()) {
-		//Grab next packet
-		auto packet = packet_queue.front();
-		packet_queue.pop();
-		mtx_packet_queue.unlock();
-
-		//Send packet to client
-		sendPacket(packet);
-
-		return true;
-	} else {
+	if(packet_queue.empty()) {
 		mtx_packet_queue.unlock();
 		return false;
 	}
+
+	//Grab next packet
+	auto packet = packet_queue.front();
+	packet_queue.pop();
+	mtx_packet_queue.unlock();
+
+	//Send packet to client
+	sendPacket(packet);
+
+	return true;
 }
 
 u16 Session::getID() {
@@ -170,19 +197,21 @@ void Session::linkChunk(Chunk *chunk) {
 	std::lock_guard lock(mtx_linked_chunks);
 
 	for(auto &cell : linked_chunks) {
-		if(cell == chunk)
+		if(cell.chunk == chunk)
 			return; //Already linked
 	}
 
 	pushPacket(preparePacketChunkCreate(chunk->getPosition()));
-	linked_chunks.push_back(chunk);
+
+	auto &linked_chunk = linked_chunks.emplace_back();
+	linked_chunk.chunk = chunk;
 }
 
 void Session::unlinkChunk(Chunk *chunk) {
 	std::lock_guard lock(mtx_linked_chunks);
 
 	for(auto it = linked_chunks.begin(); it != linked_chunks.end();) {
-		if(*it == chunk) {
+		if(it->chunk == chunk) {
 			//Remove linked chunk
 			pushPacket(preparePacketChunkRemove(chunk->getPosition()));
 			it = linked_chunks.erase(it);
@@ -205,7 +234,7 @@ bool Session::isChunkLinked(Int2 chunk_pos) {
 
 bool Session::isChunkLinked_nolock(Chunk *chunk) {
 	for(auto &cell : linked_chunks) {
-		if(cell == chunk)
+		if(cell.chunk == chunk)
 			return true;
 	}
 	return false;
@@ -213,7 +242,7 @@ bool Session::isChunkLinked_nolock(Chunk *chunk) {
 
 bool Session::isChunkLinked_nolock(Int2 chunk_pos) {
 	for(auto &cell : linked_chunks) {
-		if(cell->getPosition() == chunk_pos)
+		if(cell.chunk->getPosition() == chunk_pos)
 			return true;
 	}
 	return false;
@@ -348,13 +377,14 @@ void Session::updateCursor() {
 	if(!cursor_down)
 		return; //Cursor is not down, do nothing
 
-	//Draw line
 	u32 iters = VecDistance({cursorX_prev, cursorY_prev}, {cursorX, cursorY});
 	if(iters == 0)
 		iters = 1;
 
-	if(iters > 600) //Too much pixels at once
+	if(iters > 300) { //Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+		cursor_down = false;
 		return;
+	}
 
 	auto *brush_shape_outline = server->getBrushShape(brush.size, false);
 	auto *brush_shape_filled = server->getBrushShape(brush.size, true);
@@ -371,6 +401,7 @@ void Session::updateCursor() {
 		cell.b = b;
 	};
 
+	//Draw line
 	for(u32 i = 0; i <= iters; i++) {
 		float alpha = i / float(iters);
 
@@ -452,7 +483,7 @@ void Session::parseCommandBrushSize(const std::string_view data) {
 	}
 
 	auto size = *(uint8_t *)data.data();
-	if(size < 1 || size > 15) {
+	if(size < 1 || size > 8) {
 		kickInvalidPacket();
 	}
 
@@ -530,19 +561,9 @@ void Session::runner_performBoundaryTest() {
 		return;
 	needs_boundary_test = false;
 
-	std::vector<Int2> chunks_to_unload;
 	std::vector<Int2> chunks_to_load;
 	{
 		std::lock_guard lock(mtx_linked_chunks);
-
-		//Remove chunks outside bounds
-		for(size_t i = 0; i < linked_chunks.size(); i++) { //Do not use iterator there
-			auto *chunk = linked_chunks[i];
-			auto pos = chunk->getPosition();
-			if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
-				chunks_to_unload.push_back(pos);
-			}
-		}
 
 		//Check which chunks aren't announced for this session
 		for(s32 y = boundary.start_y; y < boundary.end_y; y++) {
@@ -554,17 +575,12 @@ void Session::runner_performBoundaryTest() {
 		}
 	}
 
-	//Deannounce chunks from list
-	for(auto &pos : chunks_to_unload) {
-		server->getChunkSystem()->deannounceChunkForSession(this, pos);
-	}
-
 	//No chunks to load
 	if(chunks_to_load.empty())
 		return;
 
 	s64 in_queue = (s64)chunks_sent - (s64)chunks_received;
-	s32 to_send = 15 - in_queue; //Max 10 queued chunks
+	s32 to_send = 10 - in_queue; //Max 10 queued chunks
 
 	for(s32 iterations = 0; iterations < to_send; iterations++) {
 		if(chunks_to_load.empty())

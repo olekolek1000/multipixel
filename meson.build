@@ -25,10 +25,19 @@ deps = [
 	dependency('sqlite3')
 ]
 
+global_link_args = []
+
+if get_option('buildtype') == 'release'
+	add_global_arguments(['-fvisibility=hidden'], language : ['c', 'cpp'])
+	add_global_arguments('-DNDEBUG', language : 'cpp')
+	global_link_args += '-flto'
+endif
+
 executable(
 	'multipixel_server',
 	sources: src,
 	include_directories: inc,
 	dependencies: deps,
+	link_args: global_link_args,
 	cpp_pch: meson.source_root() + '/pch.hpp'
 )

@@ -25,8 +25,6 @@ public:
 	}
 
 	void write(const void *data, size_t size) {
-		auto prev_size = vec.size();
-		vec.resize(vec.size() + size);
-		memcpy(vec.data() + prev_size, data, size);
+		vec.insert(vec.end(), (u8 *)data, (u8 *)data + size);
 	}
 };
