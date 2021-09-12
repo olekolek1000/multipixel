@@ -227,6 +227,7 @@ void ChunkSystem::markGarbageCollect() {
 
 void ChunkSystem::runner() {
 	last_autosave_timestamp = getMillis();
+	last_garbage_collect_timestamp = getMillis();
 
 	while(running) {
 		bool used = runner_tick();
@@ -249,6 +250,11 @@ bool ChunkSystem::runner_tick() {
 		last_autosave_timestamp = millis;
 	}
 
+	if(last_garbage_collect_timestamp + 10000 < millis) {
+		needs_garbage_collect = true;
+		last_garbage_collect_timestamp = millis;
+	}
+
 	//Atomic operation:
 	//if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
 	if(needs_garbage_collect.exchange(false)) {
@@ -258,6 +264,7 @@ bool ChunkSystem::runner_tick() {
 
 		//Informational use only
 		u32 saved_chunk_count = 0;
+		u32 removed_chunk_count = 0;
 		u32 loaded_chunk_count = 0;
 
 		do {
@@ -276,6 +283,7 @@ bool ChunkSystem::runner_tick() {
 							saved_chunk_count++;
 							saveChunk_nolock(chunk);
 						}
+						removed_chunk_count++;
 						removeChunk_nolock(chunk);
 						done = false;
 						goto breakloop;
@@ -287,8 +295,8 @@ bool ChunkSystem::runner_tick() {
 
 		} while(!done);
 
-		if(saved_chunk_count)
-			server->log("Saved %u chunks (%u chunks loaded)", saved_chunk_count, loaded_chunk_count);
+		if(saved_chunk_count || removed_chunk_count)
+			server->log("Saved %u chunks, %u total chunks loaded, %u removed (GC))", saved_chunk_count, loaded_chunk_count, removed_chunk_count);
 	}
 
 	return used;

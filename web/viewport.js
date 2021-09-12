@@ -56,6 +56,17 @@ class Chunk {
 		this.pixel_queue.push(new PixelQueueCell(x, y, red, green, blue));
 	}
 
+	// returns array of 3 numbers (R,G,B)
+	getPixel = function (x, y) {
+		let data = this.image_data.data;
+		let image_offset = y * chunk_size * 4 + x * 4;
+		return [
+			data[image_offset + 0],
+			data[image_offset + 1],
+			data[image_offset + 2]
+		];
+	}
+
 	putImage = function (dataview_rgb) {
 		let offset = 0;
 
@@ -314,5 +325,29 @@ class Map {
 			chunk.putPixel(localX, localY, red, green, blue);
 			this.triggerRerender();
 		}
+	}
+
+	//returns array of 3 numbers (R,G,B)
+	getPixel = function (x, y) {
+		x = Math.floor(x);
+		y = Math.floor(y);
+
+		let localX = x % chunk_size;
+		let localY = y % chunk_size;
+
+		let chunkX = Math.floor(x / chunk_size);
+		let chunkY = Math.floor(y / chunk_size);
+
+		if (localX < 0)
+			localX += chunk_size;
+
+		if (localY < 0)
+			localY += chunk_size;
+
+		let chunk = map.getChunk(chunkX, chunkY);
+		if (chunk)
+			return chunk.getPixel(localX, localY);
+
+		return null;
 	}
 }

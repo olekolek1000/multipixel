@@ -32,6 +32,7 @@ private:
 	std::thread thr_runner;
 
 	u64 last_autosave_timestamp;
+	u64 last_garbage_collect_timestamp;
 
 	std::atomic<bool> needs_garbage_collect;
 

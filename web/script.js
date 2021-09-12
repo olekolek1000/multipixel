@@ -63,6 +63,9 @@ function initListeners() {
 			mouse.down_left = true;
 			client.socketSendCursorDown();
 		}
+		if (e.button == 1) {
+			performColorPick();
+		}
 		if (e.button == 2) {//Right
 			mouse.down_right = true;
 		}
@@ -175,6 +178,17 @@ function colorRefresh(parent, colr_string) {
 	elem.setAttribute("contained-color", color_string);
 	elem.style.backgroundColor = color_string
 }
+
+function dec2hex(n) {
+	if (n < 0) n = 0;
+	if (n > 255) n = 255;
+	return n.toString(16).padStart(2, '0');
+}
+
+function rgb2hex(red, green, blue) {
+	return '#' + dec2hex(red) + dec2hex(green) + dec2hex(blue);
+}
+
 function currentColorUpadate(color_string) {
 	let red = parseInt("0x" + color_string.substring(1, 3))
 	let green = parseInt("0x" + color_string.substring(3, 5))
@@ -190,8 +204,20 @@ function currentColorUpadate(color_string) {
 	cl[0].setAttribute("contained-color", color_string)
 }
 
+function getColorSelector() {
+	return document.getElementById("multipixel_color_selector");
+}
+
 function colorChange() {
-	let selector = document.getElementById("multipixel_color_selector")
+	let selector = getColorSelector();
 	let string_value = selector.value;
 	currentColorUpadate(string_value)
+}
+
+function performColorPick() {
+	let rgb = map.getPixel(mouse.canvas_x, mouse.canvas_y);
+	if (rgb) {
+		getColorSelector().value = rgb2hex(rgb[0], rgb[1], rgb[2]);
+		colorChange();
+	}
 }
