@@ -43,8 +43,8 @@ function initListeners() {
 		mouse.canvas_x = Math.floor(raw_x);
 		mouse.canvas_y = Math.floor(raw_y);
 
-		if (raw_x < 0) mouse.canvas_x++;
-		if (raw_y < 0) mouse.canvas_y++;
+		//if (raw_x < 0) mouse.canvas_x++;
+		//if (raw_y < 0) mouse.canvas_y++;
 
 		client.socketSendCursorPos(mouse.canvas_x, mouse.canvas_y);
 
