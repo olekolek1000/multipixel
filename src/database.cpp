@@ -102,8 +102,8 @@ auto DatabaseConnector::loadBytes(s32 x, s32 y, u32 id) -> DatabaseRecord {
 		rec.compression_type = (COMPRESSION_TYPE)sqlite3_column_int(statment, 1);
 		rec.modified = sqlite3_column_int64(statment, 2);
 		rec.created = sqlite3_column_int64(statment, 3);
-		rec.data.resize(blob_size);
-		memcpy(rec.data.ptr, ptr, blob_size);
+		rec.data = createSharedVector<u8>(blob_size);
+		memcpy(rec.data->data(), ptr, blob_size);
 	} else if(sqlite3_step(statment) == SQLITE_DONE) {
 		//nothing
 	} else {

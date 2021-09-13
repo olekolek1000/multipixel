@@ -66,7 +66,15 @@ Packet preparePacketUserRemove(Session *session);
 Packet preparePacketChunkCreate(Int2 chunk_pos);
 Packet preparePacketChunkRemove(Int2 chunk_pos);
 
-uniqdata<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER;
+template <typename T>
+using SharedVector = std::shared_ptr<std::vector<T>>;
+
+template <typename T>
+inline SharedVector<T> createSharedVector(size_t count) {
+	return std::make_shared<std::vector<T>>(count);
+}
+
+SharedVector<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER;
 
 ///@returns <= 0 on failure
 int decompressLZ4(const void *compressed_data, u32 compressed_size, void *raw_data, u32 raw_size) NO_SANITIZER;
