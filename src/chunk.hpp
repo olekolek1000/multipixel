@@ -18,9 +18,12 @@ struct ChunkPixel {
 
 struct Chunk {
 private:
+	bool new_chunk = true; //Newly (and blank) chunk?
 	ChunkSystem *chunk_system;
 	Int2 position;
 	u32 chunk_size;
+
+	u32 getImageSizeBytes() const;
 
 	/// @brief Dirty = modified chunk that should be saved
 	std::atomic<bool> modified = false;
@@ -36,7 +39,6 @@ private:
 	void allocateImage_nolock();
 	void sendChunkDataToSession_nolock(Session *session);
 	SharedVector<u8> encodeChunkData_nolock();
-	void decodeChunkData_nolock(const SharedVector<u8> &compressed_chunk_data);
 	void getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b);
 	void setModified_nolock(bool n);
 
@@ -50,10 +52,9 @@ public:
 	void unlinkSession(Session *session);
 	bool isLinkedSessionsEmpty();
 
-	/// @param clear_modified Set to true if encoded chunk data will be used to save
+	/// @param clear_modified Set to true if encoded chunk data will be used to save, raw RGB data will be freed
 	SharedVector<u8> encodeChunkData(bool clear_modified);
 	bool isModified();
-	void setModified(bool n);
 
 	void setPixels(ChunkPixel *pixels, size_t count);
 	Int2 getPosition() const;

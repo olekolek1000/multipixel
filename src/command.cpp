@@ -153,6 +153,7 @@ SharedVector<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {
 	auto compressed_data_size = LZ4_compress_default((const char *)data, (char *)compressed->data(), raw_size, max_dst_size);
 	assert(compressed_data_size > 0);
 	compressed->resize(compressed_data_size);
+	compressed->shrink_to_fit();
 	return compressed;
 }
 
