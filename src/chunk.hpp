@@ -4,6 +4,7 @@
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -21,23 +22,26 @@ private:
 	Int2 position;
 	u32 chunk_size;
 
+	/// @brief Dirty = modified chunk that should be saved
 	std::atomic<bool> modified = false;
 
 	std::mutex mtx_access;
 
 	uniqdata<u8> image;
+	SharedVector<u8> compressed_image;
 
 	std::atomic<bool> linked_sessions_empty = true;
 	std::vector<Session *> linked_sessions;
 
 	void allocateImage_nolock();
 	void sendChunkDataToSession_nolock(Session *session);
-	uniqdata<u8> encodeChunkData_nolock();
-	void decodeChunkData_nolock(const void *data, size_t size);
+	SharedVector<u8> encodeChunkData_nolock();
+	void decodeChunkData_nolock(const SharedVector<u8> &compressed_chunk_data);
 	void getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b);
+	void setModified_nolock(bool n);
 
 public:
-	Chunk(ChunkSystem *chunk_system, Int2 position, uniqdata<u8> *compressed_chunk_data);
+	Chunk(ChunkSystem *chunk_system, Int2 position, SharedVector<u8> compressed_chunk_data);
 	~Chunk();
 
 	friend struct ChunkSystem;
@@ -46,7 +50,8 @@ public:
 	void unlinkSession(Session *session);
 	bool isLinkedSessionsEmpty();
 
-	uniqdata<u8> encodeChunkData();
+	/// @param clear_modified Set to true if encoded chunk data will be used to save
+	SharedVector<u8> encodeChunkData(bool clear_modified);
 	bool isModified();
 	void setModified(bool n);
 

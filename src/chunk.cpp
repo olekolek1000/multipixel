@@ -5,13 +5,13 @@
 #include "session.hpp"
 #include <cassert>
 
-Chunk::Chunk(ChunkSystem *chunk_system, Int2 position, uniqdata<u8> *compressed_chunk_data)
+Chunk::Chunk(ChunkSystem *chunk_system, Int2 position, SharedVector<u8> compressed_chunk_data)
 		: chunk_system(chunk_system),
 			position(position),
 			chunk_size(chunk_system->getChunkSize()) {
-	if(!compressed_chunk_data->empty()) {
+	if(compressed_chunk_data) {
 		std::lock_guard lock(mtx_access);
-		decodeChunkData_nolock(compressed_chunk_data->data(), compressed_chunk_data->size());
+		decodeChunkData_nolock(compressed_chunk_data);
 	}
 }
 
@@ -26,6 +26,7 @@ void Chunk::allocateImage_nolock() {
 	if(!image) {
 		image.create(chunk_size * chunk_size * 3 /* RGB */);
 		memset(image.data(), 255, image.size_bytes()); //White
+		compressed_image.reset();
 	}
 }
 
@@ -39,26 +40,39 @@ void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 	*b = rgb[offset + 2];
 }
 
-uniqdata<u8> Chunk::encodeChunkData_nolock() {
+SharedVector<u8> Chunk::encodeChunkData_nolock() {
 	allocateImage_nolock();
-	return compressLZ4(image.data(), image.size_bytes());
+	auto compressed = compressLZ4(image.data(), image.size_bytes());
+	this->compressed_image = compressed;
+	return compressed;
 }
 
-uniqdata<u8> Chunk::encodeChunkData() {
+SharedVector<u8> Chunk::encodeChunkData(bool clear_modified) {
 	std::lock_guard lock(mtx_access);
-	return encodeChunkData_nolock();
+	auto compressed = encodeChunkData_nolock();
+	if(clear_modified)
+		setModified_nolock(false);
+	return compressed;
 }
 
-void Chunk::decodeChunkData_nolock(const void *data, size_t size) {
+void Chunk::decodeChunkData_nolock(const SharedVector<u8> &compressed_chunk_data) {
 	allocateImage_nolock();
-	decompressLZ4(data, size, image.data(), image.size_bytes());
+	decompressLZ4(compressed_chunk_data->data(), compressed_chunk_data->size(), image.data(), image.size_bytes());
+	compressed_image = compressed_chunk_data;
+	setModified_nolock(false);
 }
 
 void Chunk::sendChunkDataToSession_nolock(Session *session) {
 	allocateImage_nolock();
 
-	//Compress chunk data
-	auto compressed_data = encodeChunkData_nolock();
+	SharedVector<u8> compressed_data;
+
+	if(compressed_image) {
+		compressed_data = compressed_image;
+	} else {
+		//Compress chunk data
+		compressed_data = encodeChunkData_nolock();
+	}
 
 	s32 chunk_x_BE = tobig32((s32)getPosition().x);
 	s32 chunk_y_BE = tobig32((s32)getPosition().y);
@@ -67,7 +81,7 @@ void Chunk::sendChunkDataToSession_nolock(Session *session) {
 	Datasize data_chunk_x(&chunk_x_BE, sizeof(s32));
 	Datasize data_chunk_y(&chunk_y_BE, sizeof(s32));
 	Datasize data_raw_size(&raw_size_BE, sizeof(u32));
-	Datasize data_compressed_data(compressed_data.data(), compressed_data.size_bytes());
+	Datasize data_compressed_data(compressed_data->data(), compressed_data->size());
 
 	Datasize *datasizes[] = {
 			&data_chunk_x,
@@ -160,7 +174,7 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	}
 
 	if(pixel_count == 0)
-		return;
+		return; //Nothing modified
 
 	auto compressed = compressLZ4(buf_pixels.data(), buf_pixels.size());
 
@@ -173,7 +187,7 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	Datasize data_chunk_y(&chunk_y_BE, sizeof(s32));
 	Datasize data_pixel_count(&pixel_count_BE, sizeof(u32));
 	Datasize data_raw_size(&raw_size_BE, sizeof(u32));
-	Datasize data_compressed_data(compressed.data(), compressed.size_bytes());
+	Datasize data_compressed_data(compressed->data(), compressed->size());
 
 	Datasize *datasizes[] = {
 			&data_chunk_x,
@@ -189,7 +203,7 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 		session->pushPacket(packet);
 	}
 
-	modified = true;
+	setModified_nolock(true);
 }
 
 Int2 Chunk::getPosition() const {
@@ -200,6 +214,15 @@ bool Chunk::isModified() {
 	return modified;
 }
 
-void Chunk::setModified(bool n) {
+void Chunk::setModified_nolock(bool n) {
 	modified = n;
+	if(modified) {
+		//Compressed image data is now invalid
+		compressed_image.reset();
+	}
+}
+
+void Chunk::setModified(bool n) {
+	std::lock_guard lock(mtx_access);
+	setModified_nolock(n);
 }

@@ -40,19 +40,19 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 	auto &horizontal = chunks[chunk_pos.x];
 	auto it = horizontal.find(chunk_pos.y);
 	if(it == horizontal.end()) {
-		uniqdata<u8> compressed_chunk_data;
+		SharedVector<u8> compressed_chunk_data;
 		{
 			//Load chunk pixels from database
 			std::lock_guard lock(mtx_database);
 			auto record = database.loadBytes(chunk_pos.x, chunk_pos.y);
 
-			if(!record.data.empty())
-				record.data.move_to(&compressed_chunk_data);
+			if(!record.data || !record.data->empty())
+				compressed_chunk_data = record.data;
 		}
 
 		//Chunk not found, create new chunk
 		auto &cell = horizontal[chunk_pos.y];
-		cell.create(this, chunk_pos, &compressed_chunk_data);
+		cell.create(this, chunk_pos, compressed_chunk_data);
 		return cell.get();
 	} else {
 		return it->second.get();
@@ -198,9 +198,8 @@ void ChunkSystem::autosave() {
 }
 
 void ChunkSystem::saveChunk_nolock(Chunk *chunk) {
-	auto chunk_data = chunk->encodeChunkData();
-	database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data.data(), chunk_data.size_bytes(), COMPRESSION_TYPE::LZ4);
-	chunk->setModified(false);
+	auto chunk_data = chunk->encodeChunkData(true);
+	database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data->data(), chunk_data->size(), COMPRESSION_TYPE::LZ4);
 }
 
 void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {

@@ -1,3 +1,4 @@
+#include "command.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 #include <cstddef>
@@ -16,7 +17,7 @@ struct DatabaseRecord {
 	//unix timestamp
 	u64 modified;
 	//blob from sqlite
-	uniqdata<u8> data;
+	SharedVector<u8> data;
 };
 
 struct DatabseListElement {
