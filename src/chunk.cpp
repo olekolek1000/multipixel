@@ -9,10 +9,12 @@ Chunk::Chunk(ChunkSystem *chunk_system, Int2 position, SharedVector<u8> compress
 		: chunk_system(chunk_system),
 			position(position),
 			chunk_size(chunk_system->getChunkSize()) {
-	if(compressed_chunk_data) {
-		std::lock_guard lock(mtx_access);
-		decodeChunkData_nolock(compressed_chunk_data);
-	}
+	std::lock_guard lock(mtx_access);
+	this->compressed_image = compressed_chunk_data;
+
+	new_chunk = true;
+	if(compressed_chunk_data && !compressed_chunk_data->empty())
+		new_chunk = false;
 }
 
 Chunk::~Chunk() {
@@ -22,11 +24,20 @@ Chunk::~Chunk() {
 	}
 }
 
+u32 Chunk::getImageSizeBytes() const {
+	return chunk_size * chunk_size * 3; /*RGB*/
+}
+
 void Chunk::allocateImage_nolock() {
 	if(!image) {
-		image.create(chunk_size * chunk_size * 3 /* RGB */);
-		memset(image.data(), 255, image.size_bytes()); //White
-		compressed_image.reset();
+		image.create(getImageSizeBytes());
+		new_chunk = false;
+
+		if(compressed_image) {
+			decompressLZ4(compressed_image->data(), compressed_image->size(), image.data(), image.size_bytes());
+		} else {
+			memset(image.data(), 255, image.size_bytes()); //White
+		}
 	}
 }
 
@@ -41,8 +52,18 @@ void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 }
 
 SharedVector<u8> Chunk::encodeChunkData_nolock() {
-	allocateImage_nolock();
-	auto compressed = compressLZ4(image.data(), image.size_bytes());
+	SharedVector<u8> compressed;
+
+	if(new_chunk) {
+		//TODO skip allocation just to compress blank white rectangle...
+		uniqdata<u8> stub_img(getImageSizeBytes());
+		memset(stub_img.data(), 255, stub_img.size_bytes());
+		compressed = compressLZ4(stub_img.data(), stub_img.size_bytes());
+	} else {
+		allocateImage_nolock();
+		compressed = compressLZ4(image.data(), image.size_bytes());
+	}
+
 	this->compressed_image = compressed;
 	return compressed;
 }
@@ -50,33 +71,27 @@ SharedVector<u8> Chunk::encodeChunkData_nolock() {
 SharedVector<u8> Chunk::encodeChunkData(bool clear_modified) {
 	std::lock_guard lock(mtx_access);
 	auto compressed = encodeChunkData_nolock();
-	if(clear_modified)
+	if(clear_modified) {
 		setModified_nolock(false);
+		image.reset();
+	}
 	return compressed;
 }
 
-void Chunk::decodeChunkData_nolock(const SharedVector<u8> &compressed_chunk_data) {
-	allocateImage_nolock();
-	decompressLZ4(compressed_chunk_data->data(), compressed_chunk_data->size(), image.data(), image.size_bytes());
-	compressed_image = compressed_chunk_data;
-	setModified_nolock(false);
-}
-
 void Chunk::sendChunkDataToSession_nolock(Session *session) {
-	allocateImage_nolock();
-
 	SharedVector<u8> compressed_data;
 
 	if(compressed_image) {
+		//Grab from cache
 		compressed_data = compressed_image;
 	} else {
-		//Compress chunk data
+		//Recompress chunk data
 		compressed_data = encodeChunkData_nolock();
 	}
 
 	s32 chunk_x_BE = tobig32((s32)getPosition().x);
 	s32 chunk_y_BE = tobig32((s32)getPosition().y);
-	u32 raw_size_BE = tobig32((u32)image.size_bytes());
+	u32 raw_size_BE = tobig32((u32)getImageSizeBytes());
 
 	Datasize data_chunk_x(&chunk_x_BE, sizeof(s32));
 	Datasize data_chunk_y(&chunk_y_BE, sizeof(s32));
@@ -220,9 +235,4 @@ void Chunk::setModified_nolock(bool n) {
 		//Compressed image data is now invalid
 		compressed_image.reset();
 	}
-}
-
-void Chunk::setModified(bool n) {
-	std::lock_guard lock(mtx_access);
-	setModified_nolock(n);
 }
