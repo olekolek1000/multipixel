@@ -17,13 +17,13 @@ struct ChunkPixel {
 };
 
 struct Chunk {
+	u32 getImageSizeBytes() const;
+
 private:
 	bool new_chunk = true; //Newly (and blank) chunk?
 	ChunkSystem *chunk_system;
 	Int2 position;
 	u32 chunk_size;
-
-	u32 getImageSizeBytes() const;
 
 	/// @brief Dirty = modified chunk that should be saved
 	std::atomic<bool> modified = false;
