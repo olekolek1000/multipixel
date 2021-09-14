@@ -43,9 +43,6 @@ function initListeners() {
 		mouse.canvas_x = Math.floor(raw_x);
 		mouse.canvas_y = Math.floor(raw_y);
 
-		//if (raw_x < 0) mouse.canvas_x++;
-		//if (raw_y < 0) mouse.canvas_y++;
-
 		client.socketSendCursorPos(mouse.canvas_x, mouse.canvas_y);
 
 		if (mouse.down_right) {
@@ -111,7 +108,7 @@ function initRenderer() {
 
 
 function refreshPlayerList() {
-	let player_list = document.getElementById("multipixel_player_list");
+	let player_list = document.getElementById("mp_player_list");
 	let buf = "[Online players]<br><br>";
 
 	let self_shown = false;
@@ -205,7 +202,7 @@ function currentColorUpadate(color_string) {
 }
 
 function getColorSelector() {
-	return document.getElementById("multipixel_color_selector");
+	return document.getElementById("mp_color_selector");
 }
 
 function colorChange() {

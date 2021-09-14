@@ -4,25 +4,23 @@
 	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-
 #brush-size {
 	position: relative;
 	overflow: hidden;
-	float:left;
+	float: left;
 }
 
-#brush-size:hover{
-	overflow:visible;
+#brush-size:hover {
+	overflow: visible;
 }
 
-
-#logo{
+#logo {
 	position: absolute;
-	top:30%;
+	top: 30%;
 	width: 20%;
 	left: 35%;
 	border-color: floralwhite;
 	border-radius: 5rem;
-		padding: 5%;
+	padding: 5%;
 	background-color: floralwhite;
 }

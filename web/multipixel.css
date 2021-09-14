@@ -1,102 +1,132 @@
-
-#multipixel_screen {
+#mp_screen {
 	width: 100vw;
-	height:100vh;
+	height: 100vh;
 }
 
-#multipixel_viewport {
+#mp_viewport {
 	position: fixed;
-	top:0;
-	left:0;
+	top: 0;
+	left: 0;
 }
 
-
-#multipixel_player_list {
-	position:fixed;
-	right:0;
+#mp_player_list {
+	position: fixed;
+	right: 0;
 	text-align: right;
 	padding: 8px;
 	font-size: 0.3cm;
 	background-color: rgba(80, 80, 80, 0.8);
 	border-bottom: 1px solid black;
 	border-left: 1px solid black;
-	color:#FFF;
+	color: #FFF;
+	text-shadow: 1px 1px #000;
 }
 
-#multipixel_top_panel {
+#mp_chat_box {
+	position: fixed;
+	background-color: rgba(80, 80, 80, 0.8);
+	border-top: 1px solid black;
+	border-right: 1px solid black;
+	text-shadow: 1px 1px #000;
+	bottom: 0;
+	left: 0;
+}
+
+#mp_chat_history {
+	margin-left: 8px;
+	margin-right: 4px;
+}
+
+.mp_chat_message {
+	width: 250px;
+	overflow-wrap: break-word;
+	color: #FFF;
+	border-bottom: 1px solid black;
+	font-size: 12px;
+	padding-top: 4px;
+	padding-bottom: 4px;
+	text-shadow: 1px 1px #000;
+}
+
+#mp_chat_input {
+	background-color: rgba(0, 0, 0, 0.5);
+	border: 0;
+	margin: 2px;
+	width: 256px;
+	color: #FFF;
+	font-size: 12px;
+}
+
+#mp_top_panel {
 	background-color: rgba(80, 80, 80, 0.8);
 	border-bottom: 1px solid black;
 	border-right: 1px solid black;
-	position:fixed;
-	top:0;
-	left:0;
+	position: fixed;
+	top: 0;
+	left: 0;
 }
 
-#multipixel_brush_settings {
-	margin-right:4px;
+#mp_brush_settings {
+	margin-right: 4px;
 }
 
-#multipixel_slider_brush_size {
+#mp_slider_brush_size {
 	background-color: #FFF;
-	width:100px;
-	height:32px;
+	width: 100px;
+	height: 32px;
 }
 
-.multipixel_floating_button {
+.mp_floating_button {
 	display: flex;
 	user-select: none;
 	justify-content: center;
 	align-items: center;
 	min-width: 32px;
 	min-height: 32px;
-	float:left;
+	float: left;
 	border: 1px solid black;
-	background-color: rgba(255,255,255,0.8);
-	margin-left:2px;
-	margin-top:2px;
-	font-size:0.8em;
-	border-radius:3px;
+	background-color: rgba(255, 255, 255, 0.8);
+	margin-left: 2px;
+	margin-top: 2px;
+	font-size: 0.8em;
+	border-radius: 3px;
 }
 
-.multipixel_floating_button:hover {
-	cursor:pointer;
+.mp_floating_button:hover {
+	cursor: pointer;
 }
 
-.col-select { 
+.col-select {
 	width: 32px;
 	height: 32px;
 	overflow: hidden;
 }
 
-.col{
+.col {
 	min-width: 16px;
 }
 
-
 #slider {
 	position: absolute;
-	
 	transition: 0.3s;
 	opacity: 0;
-	left:  9rem;
+	left: 9rem;
 	appearance: none;
 }
 
-
-#multipixel_color_selector {
+#mp_color_selector {
 	appearance: none;
 	-moz-appearance: none;
 	-webkit-appearance: none;
-	position:relative;
-	opacity:0;
-	top:0;
-	left:0;
-	width:inherit;
-	height:inherit;
+	position: relative;
+	opacity: 0;
+	top: 0;
+	left: 0;
+	width: inherit;
+	height: inherit;
 }
-
 
 #slider.active {
 	opacity: 1;
-	z-index:5;
+	z-index: 5;
 }

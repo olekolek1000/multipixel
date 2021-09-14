@@ -370,7 +370,12 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 void Session::parseCommandMessage(const std::string_view data) {
 	//Copy data to string
 	std::string message = std::string(data);
-	server->log("Got client message from IP %s: %s", connection->getIP(), message.c_str());
+
+	char buf[1024];
+	snprintf(buf, sizeof(buf), "<%s> %s", getNickname().c_str(), message.c_str());
+
+	server->log("[%s] <%s> %s", connection->getIP(), getNickname().c_str(), message.c_str());
+	server->broadcast(preparePacketMessage(buf));
 }
 
 void Session::updateCursor() {
