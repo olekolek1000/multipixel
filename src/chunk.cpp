@@ -51,14 +51,26 @@ void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 	*b = rgb[offset + 2];
 }
 
+static SharedVector<u8> compressed_empty_chunk;
+static std::mutex mtx_empty_chunk;
+
+//Returns LZ4-compressed empty, white chunk. Generates once.
+SharedVector<u8> getEmptyChunk(Chunk *chunk) {
+	std::lock_guard lock(mtx_empty_chunk);
+	if(!compressed_empty_chunk) {
+		uniqdata<u8> stub_img(chunk->getImageSizeBytes());
+		memset(stub_img.data(), 255, stub_img.size_bytes());
+		compressed_empty_chunk = compressLZ4(stub_img.data(), stub_img.size_bytes());
+	}
+	return compressed_empty_chunk;
+}
+
 SharedVector<u8> Chunk::encodeChunkData_nolock() {
 	SharedVector<u8> compressed;
 
 	if(new_chunk) {
-		//TODO skip allocation just to compress blank white rectangle...
-		uniqdata<u8> stub_img(getImageSizeBytes());
-		memset(stub_img.data(), 255, stub_img.size_bytes());
-		compressed = compressLZ4(stub_img.data(), stub_img.size_bytes());
+		//Return compressed empty chunk
+		compressed = getEmptyChunk(this);
 	} else {
 		allocateImage_nolock();
 		compressed = compressLZ4(image.data(), image.size_bytes());
