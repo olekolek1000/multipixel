@@ -65,6 +65,7 @@ Packet preparePacketUserCreate(Session *session);
 Packet preparePacketUserRemove(Session *session);
 Packet preparePacketChunkCreate(Int2 chunk_pos);
 Packet preparePacketChunkRemove(Int2 chunk_pos);
+Packet preparePacketMessage(const char *message);
 
 template <typename T>
 using SharedVector = std::shared_ptr<std::vector<T>>;

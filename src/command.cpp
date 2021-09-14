@@ -147,6 +147,10 @@ Packet preparePacketChunkRemove(Int2 chunk_pos) {
 	return preparePacket(ServerCmd::chunk_remove, &chunk_pos_BE, sizeof(chunk_pos_BE));
 }
 
+Packet preparePacketMessage(const char *message) {
+	return preparePacket(ServerCmd::message, message, strlen(message));
+}
+
 SharedVector<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {
 	auto max_dst_size = LZ4_compressBound(raw_size);
 	auto compressed = createSharedVector<u8>(max_dst_size);

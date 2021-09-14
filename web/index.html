@@ -16,6 +16,7 @@
 	<script src="client.js"></script>
 	<script src="script.js"></script>
 	<script src="viewport.js"></script>
+	<script src="chat.js"></script>
 	<script src="run.js"></script>
 </head>
 
@@ -29,24 +30,27 @@
 			</div>
 		</div>
 	</div>
-	<div id="multipixel_screen" style="visibility: hidden;">
-		<canvas id="multipixel_viewport" width="100%" height="100%"></canvas>
-		<div id="multipixel_top_panel">
-			<span id="multipixel_brush_settings">
-				<div class="multipixel_floating_button col-select cl">
-					<input type="color" id="multipixel_color_selector" onchange="colorChange()" style="cursor:pointer;">
+	<div id="mp_screen" style="visibility: hidden;">
+		<canvas id="mp_viewport" width="100%" height="100%"></canvas>
+		<div id="mp_chat_box">
+			<div id="mp_chat_history"></div>
+			<input id="mp_chat_input" type="text" />
+		</div>
+		<div id="mp_top_panel">
+			<span id="mp_brush_settings">
+				<div class="mp_floating_button col-select cl">
+					<input type="color" id="mp_color_selector" onchange="colorChange()" style="cursor:pointer;">
 					<div style="position:absolute;pointer-events: none;text-shadow:1px 1px black; color:#FFF; font-size: 20px;">+
 					</div>
 				</div>
-				<div class="multipixel_floating_button col cl" onclick="handleColor(this)"></div>
-				<div class="multipixel_floating_button col cl" onclick="handleColor(this)"></div>
-				<input type="range" min="1" max="8" value="1" id="multipixel_slider_brush_size">
+				<div class="mp_floating_button col cl" onclick="handleColor(this)"></div>
+				<div class="mp_floating_button col cl" onclick="handleColor(this)"></div>
+				<input type="range" min="1" max="8" value="1" id="mp_slider_brush_size">
 			</span>
-
 			<!-- Zoom buttons -->
-			<div class="multipixel_floating_button" id="button_zoom_1_1">1:1</div>
+			<div class="mp_floating_button" id="button_zoom_1_1">1:1</div>
 		</div>
-		<div id="multipixel_player_list"></div>
+		<div id="mp_player_list"></div>
 	</div>
 </body>
 
