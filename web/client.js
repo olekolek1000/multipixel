@@ -70,6 +70,10 @@ class Client {
 	id = -1;
 	chunks_received = 0;
 
+	setChatObject = function (chat) {
+		this.chat = chat;
+	}
+
 	socketSendAnnouncement = function (nickname) {
 		let utf8 = textToUTF8(nickname);
 
@@ -169,7 +173,7 @@ class Client {
 		switch (command) {
 			case ServerCmd.message: {
 				let str = new TextDecoder().decode(dataview);
-				console.log("Got message: " + str);
+				this.chat.addMessage(str);
 				break;
 			}
 			case ServerCmd.your_id: {

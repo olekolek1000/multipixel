@@ -3,12 +3,12 @@ var map;
 
 function showLoginScreen() {
 	document.getElementById("login_screen").style.visibility = "visible";
-	document.getElementById("multipixel_screen").style.visibility = "hidden";
+	document.getElementById("mp_screen").style.visibility = "hidden";
 }
 
 function showMultipixelScreen() {
 	document.getElementById("login_screen").style.visibility = "hidden";
-	document.getElementById("multipixel_screen").style.visibility = "visible";
+	document.getElementById("mp_screen").style.visibility = "visible";
 }
 
 window.onload = function () {
@@ -19,7 +19,9 @@ window.onload = function () {
 function onConnect() {
 	map = new Map();
 
-	let slider = document.getElementById("multipixel_slider_brush_size");
+	let chat = new Chat(client);
+
+	let slider = document.getElementById("mp_slider_brush_size");
 	slider.value = 1;
 	slider.addEventListener("change", () => {
 		let size = slider.value;

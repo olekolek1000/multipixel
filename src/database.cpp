@@ -40,17 +40,17 @@ DatabaseConnector::DatabaseConnector(const char *dbpath) {
 		fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(database));
 	}
 	if(sqlite3_exec(
-				 database, "CREATE TABLE IF NOT EXISTS chunk_data(x INT  NOT NULL , y INT    NOT NULL , data BLOB,modified INT64 NOT NULL,created INT64 NOT NULL, compression INT); ",
+				 database, "CREATE TABLE IF NOT EXISTS chunk_data(x INT NOT NULL, y INT NOT NULL, data BLOB,modified INT64 NOT NULL,created INT64 NOT NULL, compression INT); ",
 				 NULL, NULL, NULL) == SQLITE_OK) {
 
 	} else {
 		fprintf(stderr, "Can't prepare SQL statement (DatabaseConnector constructor): %s\n", sqlite3_errmsg(database));
 	}
 
-	statement_loadBytes.load(database, "SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? ORDER BY rowid DESC");
+	statement_loadBytes.load(database, "SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? ORDER BY modified DESC");
 
-	statement_saveBytes_select.load(database, "SELECT created , rowid FROM chunk_data WHERE x = ? AND y = ? ORDER BY created DESC");
-	statement_saveBytes_update.load(database, "UPDATE chunk_data SET modified = ? , data = ? , compression = ? WHERE rowid = ?");
+	statement_saveBytes_select.load(database, "SELECT created, rowid FROM chunk_data WHERE x = ? AND y = ? ORDER BY created DESC");
+	statement_saveBytes_update.load(database, "UPDATE chunk_data SET modified = ?, data = ?, compression = ? WHERE rowid = ?");
 
 	statement_insert.load(database, "INSERT INTO chunk_data (x,y,data,modified,created,compression) VALUES(?,?,?,?,?,?)");
 }

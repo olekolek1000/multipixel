@@ -16,7 +16,7 @@ class PixelQueueCell {
 }
 
 function getViewport() {
-	return document.getElementById("multipixel_viewport");
+	return document.getElementById("mp_viewport");
 }
 
 function getBody() {
