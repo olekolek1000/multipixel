@@ -4,25 +4,35 @@
 #include <cstddef>
 
 struct sqlite3;
-enum COMPRESSION_TYPE : s32 {
+struct sqlite3_stmt;
+
+enum struct CompressionType : s32 {
 	NONE,
 	LZ4
 };
 
 struct DatabaseRecord {
 	//compresion type enum
-	COMPRESSION_TYPE compression_type;
+	CompressionType compression_type;
 	//unix timestamp
-	u64 created;
+	s64 created;
 	//unix timestamp
-	u64 modified;
+	s64 modified;
 	//blob from sqlite
 	SharedVector<u8> data;
 };
 
-struct DatabseListElement {
+struct DatabaseListElement {
 	u64 id;
 	u64 modified;
+};
+
+struct Statement {
+	sqlite3 *database = nullptr;
+	sqlite3_stmt *statement = nullptr;
+	void load(sqlite3 *databse, const char *sql);
+	void done();
+	~Statement();
 };
 
 class DatabaseConnector {
@@ -33,14 +43,19 @@ public:
 	DatabaseConnector(const char *dbpath);
 	~DatabaseConnector();
 	//saves blob to db ; creates snaphot automatically
-	auto saveBytes(s32 x, s32 y, const void *data, size_t size, COMPRESSION_TYPE type) -> void;
-	auto loadBytes(s32 x, s32 y, u32 id = 0) -> DatabaseRecord;
-	auto listSnapshots(s32 x, s32 y) -> uniqdata<DatabseListElement>;
-	auto setSnapshotInerval(u32 seconds) -> void;
-	auto getSnapshotInerval() -> u32;
+	auto saveBytes(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void;
+	auto loadBytes(s32 x, s32 y) -> DatabaseRecord;
+	auto listSnapshots(s32 x, s32 y) -> uniqdata<DatabaseListElement>;
+	auto setSnapshotInerval(s64 seconds) -> void;
+	auto getSnapshotInerval() -> s64;
 
-protected:
-	auto insert(s32 x, s32 y, const void *data, size_t size, COMPRESSION_TYPE type) -> void;
+private:
+	auto insert(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void;
 	u32 seconds_between_snapshot = 14400;
 	sqlite3 *database = nullptr;
+
+	Statement statement_loadBytes;
+	Statement statement_saveBytes_select;
+	Statement statement_saveBytes_update;
+	Statement statement_insert;
 };

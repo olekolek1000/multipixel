@@ -199,7 +199,7 @@ void ChunkSystem::autosave() {
 
 void ChunkSystem::saveChunk_nolock(Chunk *chunk) {
 	auto chunk_data = chunk->encodeChunkData(true);
-	database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data->data(), chunk_data->size(), COMPRESSION_TYPE::LZ4);
+	database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data->data(), chunk_data->size(), CompressionType::LZ4);
 }
 
 void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
