@@ -1,10 +1,9 @@
+#include "SQLiteCpp/Database.h"
+#include "SQLiteCpp/SQLiteCpp.h"
 #include "command.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 #include <cstddef>
-
-struct sqlite3;
-struct sqlite3_stmt;
 
 enum struct CompressionType : s32 {
 	NONE,
@@ -23,16 +22,8 @@ struct DatabaseRecord {
 };
 
 struct DatabaseListElement {
-	u64 id;
-	u64 modified;
-};
-
-struct Statement {
-	sqlite3 *database = nullptr;
-	sqlite3_stmt *statement = nullptr;
-	void load(sqlite3 *databse, const char *sql);
-	void done();
-	~Statement();
+	s64 rowid;
+	s64 modified;
 };
 
 class DatabaseConnector {
@@ -52,10 +43,6 @@ public:
 private:
 	auto insert(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void;
 	u32 seconds_between_snapshot = 14400;
-	sqlite3 *database = nullptr;
 
-	Statement statement_loadBytes;
-	Statement statement_saveBytes_select;
-	Statement statement_saveBytes_update;
-	Statement statement_insert;
+	uniqptr<SQLite::Database> db;
 };
