@@ -581,11 +581,10 @@ void Session::runner_performBoundaryTest() {
 	}
 
 	//No chunks to load
-	if(chunks_to_load.empty())
-		return;
+	if(chunks_to_load.empty()) return;
 
 	s64 in_queue = (s64)chunks_sent - (s64)chunks_received;
-	s32 to_send = 10 - in_queue; //Max 10 queued chunks
+	s32 to_send = 40 - in_queue; //Max 40 queued chunks
 
 	for(s32 iterations = 0; iterations < to_send; iterations++) {
 		if(chunks_to_load.empty())
