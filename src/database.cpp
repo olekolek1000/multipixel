@@ -1,158 +1,114 @@
 #include "database.hpp"
+#include "SQLiteCpp/Statement.h"
+#include "src/server.hpp"
 #include "util/smartptr.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <sqlite3.h>
 #include <stdexcept>
 #include <stdio.h>
 #include <string>
-
-Statement::~Statement() {
-	if(statement) {
-		sqlite3_finalize(statement);
-		statement = nullptr;
-	}
-}
-
-void Statement::load(sqlite3 *database, const char *sql) {
-	this->database = database;
-
-	if(statement)
-		sqlite3_finalize(statement);
-
-	sqlite3_prepare_v2(database, sql, -1, &statement, nullptr);
-
-	if(!statement)
-		throw std::runtime_error("Invalid statement: " + std::string(sql));
-}
-
-void Statement::done() {
-	sqlite3_reset(statement);
-}
 
 DatabaseConnector::DatabaseConnector()
 		: DatabaseConnector("chunks.db") {
 }
 
 DatabaseConnector::DatabaseConnector(const char *dbpath) {
-	if(sqlite3_open_v2(dbpath, &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-		fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(database));
-	}
-	if(sqlite3_exec(
-				 database, "CREATE TABLE IF NOT EXISTS chunk_data(x INT NOT NULL, y INT NOT NULL, data BLOB,modified INT64 NOT NULL,created INT64 NOT NULL, compression INT); ",
-				 NULL, NULL, NULL) == SQLITE_OK) {
+	db.create(dbpath, SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE);
 
-	} else {
-		fprintf(stderr, "Can't prepare SQL statement (DatabaseConnector constructor): %s\n", sqlite3_errmsg(database));
+	{
+		SQLite::Statement query(*db, "CREATE TABLE IF NOT EXISTS chunk_data(x INT NOT NULL, y INT NOT NULL, data BLOB, modified INT64 NOT NULL, created INT64 NOT NULL, compression INT);");
+		query.exec();
 	}
 
-	statement_loadBytes.load(database, "SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? ORDER BY modified DESC");
+	//X index
+	{
+		SQLite::Statement query(*db, "CREATE INDEX IF NOT EXISTS index_x on chunk_data(x)");
+		query.exec();
+	}
 
-	statement_saveBytes_select.load(database, "SELECT created, rowid FROM chunk_data WHERE x = ? AND y = ? ORDER BY created DESC");
-	statement_saveBytes_update.load(database, "UPDATE chunk_data SET modified = ?, data = ?, compression = ? WHERE rowid = ?");
-
-	statement_insert.load(database, "INSERT INTO chunk_data (x,y,data,modified,created,compression) VALUES(?,?,?,?,?,?)");
+	//Y index
+	{
+		SQLite::Statement query(*db, "CREATE INDEX IF NOT EXISTS index_y on chunk_data(y)");
+		query.exec();
+	}
 }
 
 DatabaseConnector::~DatabaseConnector() {
-	if(database) {
-		sqlite3_close(database);
-		database = nullptr;
-	}
 }
 
 auto DatabaseConnector::saveBytes(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void {
-	auto *statement_select = statement_saveBytes_select.statement;
-	sqlite3_bind_int(statement_select, 1, x);
-	sqlite3_bind_int(statement_select, 2, y);
-	auto res_code = sqlite3_step(statement_select);
-	if(res_code == SQLITE_ROW) {
-		s64 timestamp = sqlite3_column_int64(statement_select, 0);
+	SQLite::Statement query_select(*db, "SELECT created, rowid FROM chunk_data WHERE x = ? AND y = ? ORDER BY created DESC");
+	query_select.bind(1, x);
+	query_select.bind(2, y);
 
-		if(time(NULL) - timestamp > seconds_between_snapshot) {
-			statement_saveBytes_select.done();
+	if(query_select.executeStep()) {
+		//Chunk already exists, update chunk
+		s64 timestamp = query_select.getColumn(0);
+
+		if(time(nullptr) - timestamp > seconds_between_snapshot) {
 			insert(x, y, data, size, type);
 		} else {
-			auto chunk_id = sqlite3_column_int64(statement_select, 1);
-			statement_saveBytes_select.done();
+			s64 chunk_id = query_select.getColumn(1);
 
-			auto *statement_update = statement_saveBytes_update.statement;
-			sqlite3_bind_int64(statement_update, 1, time(NULL));
-			sqlite3_bind_blob(statement_update, 2, data, size, NULL);
-			sqlite3_bind_int(statement_update, 3, (int)type);
-			sqlite3_bind_int64(statement_update, 4, chunk_id);
-			if(sqlite3_step(statement_update) == SQLITE_DONE) {
-			} else {
-				fprintf(stderr, "Can't prepare SQL statement (saveBytes): %s\n", sqlite3_errmsg(database));
-			}
-
-			statement_saveBytes_update.done();
+			SQLite::Statement query_update(*db, "UPDATE chunk_data SET modified = ?, data = ?, compression = ? WHERE rowid = ?");
+			query_update.bind(1, time(nullptr));
+			query_update.bind(2, data, size);
+			query_update.bind(3, (int)type);
+			query_update.bind(4, chunk_id);
+			query_update.exec();
 		}
-	} else if(res_code == SQLITE_DONE) {
-		insert(x, y, data, size, type);
 	} else {
-		fprintf(stderr, "Can't prepare SQL statement (saveBytes): %s\n", sqlite3_errmsg(database));
+		//Chunk does not exist, create chunk
+		insert(x, y, data, size, type);
 	}
 }
 
 auto DatabaseConnector::loadBytes(s32 x, s32 y) -> DatabaseRecord {
 	DatabaseRecord rec;
 
-	auto *st = statement_loadBytes.statement;
+	SQLite::Statement query(*db, "SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? ORDER BY modified DESC");
+	query.bind(1, x);
+	query.bind(2, y);
 
-	sqlite3_bind_int(st, 1, x);
-	sqlite3_bind_int(st, 2, y);
+	if(query.executeStep()) {
+		const auto &col = query.getColumn(0);
+		auto *blob = col.getBlob();
+		auto blob_size = col.size();
 
-	if(sqlite3_step(st) == SQLITE_ROW) {
-		u32 blob_size = sqlite3_column_bytes(st, 0);
-		u8 *ptr = (u8 *)sqlite3_column_blob(st, 0);
-		rec.compression_type = (CompressionType)sqlite3_column_int(st, 1);
-		rec.modified = sqlite3_column_int64(st, 2);
-		rec.created = sqlite3_column_int64(st, 3);
+		rec.compression_type = (CompressionType)query.getColumn(1).getInt();
+		rec.modified = query.getColumn(2).getInt64();
+		rec.created = query.getColumn(3).getInt64();
+
 		rec.data = createSharedVector<u8>(blob_size);
-		memcpy(rec.data->data(), ptr, blob_size);
-	} else if(sqlite3_step(st) == SQLITE_DONE) {
-		//nothing
-	} else {
-		fprintf(stderr, "Can't prepare SQL statement (loadBytes): %s\n", sqlite3_errmsg(database));
+		memcpy(rec.data->data(), blob, blob_size);
 	}
-
-	statement_loadBytes.done();
 
 	return rec;
 }
 
 auto DatabaseConnector::listSnapshots(s32 x, s32 y) -> uniqdata<DatabaseListElement> {
-	sqlite3_stmt *statement;
-	sqlite3_prepare_v2(
-			database,
-			"SELECT rowid,  modified FROM chunk_data WHERE x= ? AND y = ? ORDER BY modified DESC",
-			-1,
-			&statement, 0);
-	sqlite3_bind_int(statement, 1, x);
-	sqlite3_bind_int(statement, 2, y);
+	SQLite::Statement query(*db, "SELECT rowid, modified FROM chunk_data WHERE x = ? AND y = ? ORDER BY modified DESC");
+	query.bind(1, x);
+	query.bind(2, y);
+
 	uniqdata<DatabaseListElement> timestamps;
-	while(sqlite3_step(statement) == SQLITE_ROW) {
-		timestamps.push_back({(u64)sqlite3_column_int64(statement, 0), (u64)sqlite3_column_int64(statement, 1)});
+	while(query.executeStep()) {
+		timestamps.push_back({query.getColumn(0).getInt64(), query.getColumn(0).getInt64()});
 	}
+
 	return timestamps;
 }
 
 auto DatabaseConnector::insert(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void {
-	auto *st = statement_insert.statement;
-
-	sqlite3_bind_int(st, 1, x);
-	sqlite3_bind_int(st, 2, y);
-	sqlite3_bind_blob(st, 3, data, size, NULL);
-	sqlite3_bind_int64(st, 4, time(NULL));
-	sqlite3_bind_int64(st, 5, time(NULL));
-	sqlite3_bind_int(st, 6, (int)type);
-	if(sqlite3_step(st) == SQLITE_DONE) {
-		statement_insert.done();
-	} else {
-		fprintf(stderr, "Can't prepare SQL statement (insert): %s\n", sqlite3_errmsg(database));
-	}
+	SQLite::Statement query(*db, "INSERT INTO chunk_data (x,y,data,modified,created,compression) VALUES(?,?,?,?,?,?)");
+	query.bind(1, x);
+	query.bind(2, y);
+	query.bind(3, data, size);
+	query.bind(4, time(nullptr));
+	query.bind(5, time(nullptr));
+	query.bind(6, (int)type);
+	query.exec();
 }
 
 auto DatabaseConnector::getSnapshotInerval() -> s64 {
