@@ -17,6 +17,11 @@ DatabaseConnector::DatabaseConnector(const char *dbpath) {
 	db.create(dbpath, SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE);
 
 	{
+		SQLite::Statement query(*db, "PRAGMA synchronous=OFF");
+		query.exec();
+	}
+
+	{
 		SQLite::Statement query(*db, "CREATE TABLE IF NOT EXISTS chunk_data(x INT NOT NULL, y INT NOT NULL, data BLOB, modified INT64 NOT NULL, created INT64 NOT NULL, compression INT);");
 		query.exec();
 	}
