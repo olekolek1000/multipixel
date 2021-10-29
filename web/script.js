@@ -1,9 +1,10 @@
+var renderer;
 
 function clamp(num, min, max) {
 	return num <= min ? min : num >= max ? max : num;
 }
 
-let mouse = {
+var mouse = {
 	x: 0,
 	y: 0,
 	x_prev: 0,
@@ -11,7 +12,8 @@ let mouse = {
 	canvas_x: 0,
 	canvas_y: 0,
 	down_left: false,
-	down_right: false
+	down_right: false,
+	brush_size: 1
 }
 
 let needs_boundaries_update = false;
@@ -26,19 +28,22 @@ function boundary_update() {
 function initListeners() {
 	setInterval(boundary_update, 200);
 
-	let viewport = getViewport();
+	let canvas = renderer.getCanvas();
 	let body = getBody();
 
-	viewport.addEventListener("mousemove", function (e) {
+	canvas.addEventListener("mousemove", function (e) {
 		mouse.x_prev = mouse.x;
 		mouse.y_prev = mouse.y;
 		mouse.x = e.clientX;
 		mouse.y = e.clientY;
 
-		let scrolling = map.getScrolling();
+		let canvas = renderer.getCanvas();
 
-		let raw_x = (mouse.x - scrolling.x) / scrolling.zoom;
-		let raw_y = (mouse.y - scrolling.y) / scrolling.zoom;
+		let boundary = map.boundary;
+		let scrolling = map.scrolling;
+
+		let raw_x = boundary.center_x - boundary.width / 2.0 + (mouse.x / canvas.width) * boundary.width;
+		let raw_y = boundary.center_y - boundary.height / 2.0 + (mouse.y / canvas.height) * boundary.height;
 
 		mouse.canvas_x = Math.floor(raw_x);
 		mouse.canvas_y = Math.floor(raw_y);
@@ -47,15 +52,15 @@ function initListeners() {
 
 		if (mouse.down_right) {
 			//Scroll
-			scrolling.x += (mouse.x - mouse.x_prev);
-			scrolling.y += (mouse.y - mouse.y_prev);
+			scrolling.x += (mouse.x - mouse.x_prev) / scrolling.zoom;
+			scrolling.y += (mouse.y - mouse.y_prev) / scrolling.zoom;
 			needs_boundaries_update = true;
-
-			map.triggerRerender();
 		}
+
+		map.triggerRerender();
 	});
 
-	viewport.addEventListener("mousedown", function (e) {
+	canvas.addEventListener("mousedown", function (e) {
 		if (e.button == 0) {//Left
 			mouse.down_left = true;
 			client.socketSendCursorDown();
@@ -69,7 +74,7 @@ function initListeners() {
 	});
 
 
-	viewport.addEventListener("mouseup", function (e) {
+	canvas.addEventListener("mouseup", function (e) {
 		if (e.button == 0) {//Left
 			mouse.down_left = false;
 			client.socketSendCursorUp();
@@ -85,7 +90,7 @@ function initListeners() {
 		client.socketSendCursorUp();
 	});
 
-	viewport.addEventListener("wheel", function (e) {
+	canvas.addEventListener("wheel", function (e) {
 		let zoom_diff = clamp(-e.deltaY * 100.0, -1, 1) * 0.2;
 		setZoom(zoom_diff, true);
 		needs_boundaries_update = true;
@@ -97,14 +102,6 @@ function initListeners() {
 	});
 }
 
-function initRenderer() {
-	function draw() {
-		map.draw();
-		window.requestAnimationFrame(draw);
-	}
-
-	window.requestAnimationFrame(draw);
-}
 
 
 function refreshPlayerList() {
