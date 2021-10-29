@@ -3,10 +3,11 @@
 	height: 100vh;
 }
 
-#mp_viewport {
+#canvas_render {
 	position: fixed;
 	top: 0;
 	left: 0;
+	cursor: url(cursor.png) 12 12, auto;
 }
 
 #mp_player_list {

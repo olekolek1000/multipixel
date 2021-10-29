@@ -13,6 +13,8 @@
 	<link href="multipixel.css" rel="stylesheet">
 
 	<script src="lz4.min.js"></script>
+	<script src="gl-matrix.min.js"></script>
+	<script src="render_engine.js"></script>
 	<script src="client.js"></script>
 	<script src="script.js"></script>
 	<script src="viewport.js"></script>
@@ -31,7 +33,7 @@
 		</div>
 	</div>
 	<div id="mp_screen" style="visibility: hidden;">
-		<canvas id="mp_viewport" width="100%" height="100%"></canvas>
+		<canvas id="canvas_render" width="100%" height="100%"></canvas>
 		<div id="mp_chat_box">
 			<div id="mp_chat_history"></div>
 			<input id="mp_chat_input" type="text" />
