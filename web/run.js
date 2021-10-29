@@ -1,5 +1,6 @@
 var client;
 var map;
+var renderer;
 
 function showLoginScreen() {
 	document.getElementById("login_screen").style.visibility = "visible";
@@ -17,6 +18,7 @@ window.onload = function () {
 
 //Called after connecting to the server
 function onConnect() {
+	initRenderer();
 	map = new Map();
 
 	let chat = new Chat(client);
@@ -25,6 +27,7 @@ function onConnect() {
 	slider.value = 1;
 	slider.addEventListener("change", () => {
 		let size = slider.value;
+		mouse.brush_size = size;
 		client.socketSendBrushSize(size);
 	});
 
@@ -34,7 +37,6 @@ function onConnect() {
 	});
 
 	initListeners();
-	initRenderer();
 	setInterval(() => { client.socketSendPing() }, 8000);
 
 	showMultipixelScreen();

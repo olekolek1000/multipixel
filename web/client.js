@@ -1,3 +1,5 @@
+var renderer;
+
 //Size in bytes
 const header_offset = 2;
 
@@ -150,7 +152,7 @@ class Client {
 	socketSendBoundary = function () {
 		let buf = createMessage(ClientCmd.boundary, size_s32 * 4);
 		let dataview = new DataView(buf, header_offset);
-		let boundary = map.getBoundaries();
+		let boundary = map.getChunkBoundaries();
 		dataview.setInt32(0, boundary.start_x);
 		dataview.setInt32(4, boundary.start_y);
 		dataview.setInt32(8, boundary.end_x);
@@ -204,7 +206,7 @@ class Client {
 				let rgb_view = new DataView(uncompressed_buffer.buffer);
 				let chunk = map.getChunk(chunk_x, chunk_y);
 				if (chunk) {
-					chunk.putImage(rgb_view);
+					chunk.putImage(renderer.getContext(), rgb_view);
 				}
 
 				break;

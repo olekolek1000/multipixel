@@ -1,3 +1,6 @@
+var renderer;
+var mouse;
+
 const chunk_size = 256;
 
 class PixelQueueCell {
@@ -15,41 +18,54 @@ class PixelQueueCell {
 	}
 }
 
-function getViewport() {
-	return document.getElementById("mp_viewport");
-}
-
 function getBody() {
 	return document.getElementById("body");
 }
 
+function initRenderer() {
+	renderer = new RenderEngine(document.getElementById("canvas_render"));
+
+	function draw() {
+		map.draw();
+		window.requestAnimationFrame(draw);
+	}
+
+	window.requestAnimationFrame(draw);
+}
+
+
 class Chunk {
-	canvas;
-	ctx;
 	x;//X position
 	y;//y position
-	image_data;
+	texture;
+	pixels;
 
 	pixel_queue = [];
 
-	constructor(x, y) {
+	constructor(gl, x, y) {
 		this.x = x;
 		this.y = y;
-		this.canvas = document.createElement("canvas");
-		this.canvas.width = chunk_size;
-		this.canvas.height = chunk_size;
-		this.ctx = this.canvas.getContext("2d");
-		this.ctx.imageSmoothingEnabled = false;
 
-		//this.ctx.fillStyle = '#555';
-		//this.ctx.fillRect(0, 0, chunk_size, chunk_size);
-		this.image_data = this.ctx.getImageData(0, 0, chunk_size, chunk_size);
+		this.texture = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, this.texture);
+
+		this.pixels = new Uint8Array(chunk_size * chunk_size * 3);
+		this.updateTexture(gl);
+
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 	}
 
-	destructor = function () {
-		this.canvas.remove();
-		this.ctx = null;
-		this.ctx = null;
+	destructor = function (gl) {
+		gl.deleteTexture(this.texture);
+		this.pixels = null;
+	}
+
+	updateTexture = function (gl) {
+		gl.bindTexture(gl.TEXTURE_2D, this.texture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, chunk_size, chunk_size, 0, gl.RGB, gl.UNSIGNED_BYTE, this.pixels);
 	}
 
 	putPixel = function (x, y, red, green, blue) {
@@ -58,8 +74,8 @@ class Chunk {
 
 	// returns array of 3 numbers (R,G,B)
 	getPixel = function (x, y) {
-		let data = this.image_data.data;
-		let image_offset = y * chunk_size * 4 + x * 4;
+		let data = this.pixels;
+		let image_offset = y * chunk_size * 3 + x * 3;
 		return [
 			data[image_offset + 0],
 			data[image_offset + 1],
@@ -67,89 +83,99 @@ class Chunk {
 		];
 	}
 
-	putImage = function (dataview_rgb) {
+	putImage = function (gl, dataview_rgb) {
 		let offset = 0;
 
-		let data = this.image_data.data;
+		let data = this.pixels;
 
-		for (let y = 0; y < 256; y++) {
-			for (let x = 0; x < 256; x++) {
+		for (let y = 0; y < chunk_size; y++) {
+			for (let x = 0; x < chunk_size; x++) {
 				let red = dataview_rgb.getUint8(offset + 0);
 				let green = dataview_rgb.getUint8(offset + 1);
 				let blue = dataview_rgb.getUint8(offset + 2);
 				offset += 3;
 
-				let image_offset = y * chunk_size * 4 + x * 4;
+				let image_offset = y * chunk_size * 3 + x * 3;
 				data[image_offset + 0] = red;
 				data[image_offset + 1] = green;
 				data[image_offset + 2] = blue;
-				data[image_offset + 3] = 255;
 			}
 		}
 
-		this.ctx.putImageData(this.image_data, 0, 0);
+		gl.bindTexture(gl.TEXTURE_2D, this.texture);
+		this.updateTexture(gl);
 	}
 
-	processPixels = function () {
+	processPixels = function (gl) {
 		let count = this.pixel_queue.length;
 
 		if (count == 0)
 			return false;
 
-		let data = this.image_data.data;
+		let data = this.pixels;
 
 		for (let i = 0; i < count; i++) {
 			let cell = this.pixel_queue[i];
 
-			let offset = cell.y * chunk_size * 4 + cell.x * 4;
+			let offset = cell.y * chunk_size * 3 + cell.x * 3;
 			data[offset + 0] = cell.red;
 			data[offset + 1] = cell.green;
 			data[offset + 2] = cell.blue;
 		}
 
-		this.ctx.putImageData(this.image_data, 0, 0);
-
+		this.updateTexture(gl);
 		this.pixel_queue = [];
 
 		return true;
 	}
 }
 
-//Load cursor
-var cursor_img = document.createElement("img");
-cursor_img.src = "breeze.png";
-
 class Map {
-	viewport;
-	viewport_ctx;
 	needs_redraw;
+	texture_cursor = null;
+	texture_brush = null;
 
 	map = [];
 
 	scrolling = {
 		x: 0,
 		y: 0,
-		zoom: 1.0
-	};
+		zoom: 1.0,
+	}
+
+	boundary = {
+		center_x: 0.0,
+		center_y: 0.0,
+		width: 0.0,
+		height: 0.0
+	}
 
 	constructor() {
-		this.viewport = getViewport();
-		this.viewport_ctx = this.viewport.getContext("2d");
-		this.needs_redraw = true;
+		renderer.loadTextureImage("cursor.png", (tex) => {
+			this.texture_cursor = tex;
+		});
 
-		window.addEventListener("resize", () => { this.resize(); });
+		renderer.loadTextureImage("brush.png", (tex) => {
+			this.texture_brush = tex;
+		});
+
+		window.addEventListener("resize", () => {
+			this.resize();
+		});
+
 		this.resize();
+		this.updateBoundary();
+	}
+
+	resize = function () {
+		let canvas = renderer.getCanvas();
+		canvas.width = window.innerWidth;
+		canvas.height = window.innerHeight;
+		this.triggerRerender();
 	}
 
 	triggerRerender = function () {
 		this.needs_redraw = true;
-	}
-
-	resize = function () {
-		let viewport = getViewport();
-		viewport.width = window.innerWidth;
-		viewport.height = window.innerHeight;
-		this.triggerRerender();
 	}
 
 	chunkExists = function (x, y) {
@@ -179,7 +205,7 @@ class Map {
 			return this.map[x][y];
 		}
 
-		let ch = new Chunk(x, y);
+		let ch = new Chunk(renderer.getContext(), x, y);
 		this.map[x][y] = ch;
 
 		//console.log("Created chunk at ", x, y);
@@ -193,37 +219,27 @@ class Map {
 
 		if (this.map[x][y] != null) {
 			let chunk = this.map[x][y];
-			chunk.destructor();
+			chunk.destructor(renderer.getContext());
 			this.map[x][y] = null;
 		}
 
 		//console.log("Removed chunk at ", x, y);
 	}
 
-	getRenderX = function (pos_x) {
-		return pos_x * this.scrolling.zoom + this.scrolling.x;
-	}
+	getChunkBoundaries = function () {
+		let canvas = renderer.getCanvas();
+		let boundary = this.boundary;
 
-	getRenderY = function (pos_y) {
-		return pos_y * this.scrolling.zoom + this.scrolling.y;
-	}
-
-	getBoundaries = function () {
 		return {
-			start_x: Math.floor((-this.scrolling.x / this.scrolling.zoom) / chunk_size),
-			start_y: Math.floor((-this.scrolling.y / this.scrolling.zoom) / chunk_size),
-			end_x: Math.floor(((-this.scrolling.x + this.viewport.width) / this.scrolling.zoom) / chunk_size) + 1,
-			end_y: Math.floor(((-this.scrolling.y + this.viewport.height) / this.scrolling.zoom) / chunk_size) + 1
+			start_x: Math.floor((boundary.center_x - boundary.width / 2.0) / chunk_size),
+			start_y: Math.floor((boundary.center_y - boundary.height / 2.0) / chunk_size),
+			end_x: Math.floor((boundary.center_x + boundary.width / 2.0) / chunk_size) + 1,
+			end_y: Math.floor((boundary.center_y + boundary.height / 2.0) / chunk_size) + 1
 		};
 	}
 
-	drawChunks = function () {
-		this.viewport_ctx.fillStyle = '#ccc';
-		this.viewport_ctx.fillRect(0, 0, this.viewport.width, this.viewport.height);
-
-		let boundary = this.getBoundaries();
-
-		this.viewport_ctx.imageSmoothingEnabled = this.scrolling.zoom < 1.0;
+	drawChunks = function (gl) {
+		let boundary = this.getChunkBoundaries();
 
 		for (let y = boundary.start_y; y < boundary.end_y; y++) {
 			for (let x = boundary.start_x; x < boundary.end_x; x++) {
@@ -231,43 +247,77 @@ class Map {
 				if (!chunk)
 					continue;
 
-				chunk.processPixels();
-
-				let render_x = this.getRenderX(chunk.x * chunk_size);
-				let render_y = this.getRenderY(chunk.y * chunk_size);
-				let render_size = chunk_size * this.scrolling.zoom;
-
-				if (this.scrolling.zoom < 1.0)
-					render_size++;//Fix for Firefox (prevent pixel-wide lines in chunk borders)
-
-				this.viewport_ctx.drawImage(chunk.canvas, render_x, render_y, render_size, render_size);
+				chunk.processPixels(gl);
+				renderer.drawRect(
+					chunk.texture,
+					chunk.x * chunk_size,
+					chunk.y * chunk_size,
+					chunk_size, chunk_size);
 			}
 		}
 	}
 
-	drawCursors = function () {
-		this.viewport_ctx.font = "10px Helvetica";
-		this.viewport_ctx.fillStyle = '#000';
-
+	drawCursors = function (gl) {
 		client.users.forEach(user => {
 			if (user == null)
 				return;
 
-			let render_x = this.getRenderX(user.cursor_x + 0.5);
-			let render_y = this.getRenderY(user.cursor_y + 0.5);
+			let zoom = this.scrolling.zoom;
 
-			this.viewport_ctx.drawImage(cursor_img, render_x, render_y);
-
-			this.viewport_ctx.fillText(user.nickname, render_x + cursor_img.width + 4, render_y + cursor_img.height - 10);
+			if (this.texture_cursor) {
+				renderer.drawRect(
+					this.texture_cursor.texture, user.cursor_x + 0.5, user.cursor_y + 0.5,
+					this.texture_cursor.width / zoom, this.texture_cursor.height / zoom);
+			}
 		})
+	}
+
+	drawBrush = function (gl) {
+		if (!this.texture_brush) return;
+		let brush_size = mouse.brush_size;
+		renderer.drawRect(
+			this.texture_brush.texture,
+			mouse.canvas_x - brush_size / 2.0 + 0.5,
+			mouse.canvas_y - brush_size / 2.0 + 0.5,
+			brush_size, brush_size
+		);
+	}
+
+	updateBoundary = function () {
+		let boundary = this.boundary;
+		let canvas = renderer.getCanvas();
+		boundary.center_x = -this.scrolling.x;
+		boundary.center_y = -this.scrolling.y;
+		boundary.width = canvas.width / this.scrolling.zoom;
+		boundary.height = canvas.height / this.scrolling.zoom;
 	}
 
 	draw = function () {
 		if (!this.needs_redraw)
 			return;
+
 		this.needs_redraw = false;
-		this.drawChunks();
-		this.drawCursors();
+
+		let gl = renderer.getContext();
+
+		renderer.viewportFullscreen();
+		renderer.clear(0.8, 0.8, 0.8, 1);
+
+		this.updateBoundary();
+		let boundary = this.boundary;
+
+		renderer.setOrtho(
+			boundary.center_x - boundary.width / 2.0,
+			boundary.center_x + boundary.width / 2.0,
+			boundary.center_y + boundary.height / 2.0,
+			boundary.center_y - boundary.height / 2.0
+		);
+
+		this.drawChunks(gl);
+		this.drawCursors(gl);
+		this.drawBrush(gl);
+
+		renderer.drawRect();
 	}
 
 	getScrolling = function () {
@@ -281,26 +331,9 @@ class Map {
 	}
 
 	setZoom = function (num) {
-		let scrolling = this.getScrolling();
-		let zoom = num;
-		let zoom_prev = scrolling.zoom;
-		zoom = clamp(zoom, 0.1, 64.0);
-
-		if (zoom == zoom_prev)
-			return;
-
-		let zoom_mul = zoom / zoom_prev;
-
-		scrolling.zoom = zoom;
-		scrolling.x *= zoom_mul;
-		scrolling.y *= zoom_mul;
-
-		let pixel_diff_x = this.viewport.width / zoom_prev - this.viewport.width / zoom;
-		let pixel_diff_y = this.viewport.height / zoom_prev - this.viewport.height / zoom;
-
-		scrolling.x -= (pixel_diff_x * zoom) * (mouse.x / this.viewport.width);
-		scrolling.y -= (pixel_diff_y * zoom) * (mouse.y / this.viewport.height);
-
+		if (num < 0.1) num = 0.1;
+		if (num > 80.0) num = 80.0;
+		this.scrolling.zoom = num;
 		this.triggerRerender();
 	}
 
