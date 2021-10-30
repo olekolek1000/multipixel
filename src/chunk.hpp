@@ -59,7 +59,7 @@ public:
 	bool isModified();
 
 	void setPixels(ChunkPixel *pixels, size_t count);
-	void setPixels_nolock(ChunkPixel *pixels, size_t count, bool check_overwrite = true);
+	void setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send = false);
 
 	//Set pixel and send it later (delayed send)
 	void setPixelQueued(ChunkPixel *pixel);
