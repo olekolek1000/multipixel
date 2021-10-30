@@ -17,8 +17,8 @@ DatabaseConnector::DatabaseConnector(const char *dbpath) {
 	db.create(dbpath, SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE);
 
 	{
-		SQLite::Statement query(*db, "PRAGMA synchronous=OFF");
-		query.exec();
+			//SQLite::Statement query(*db, "PRAGMA synchronous=OFF");
+			//query.exec();
 	}
 
 	{
