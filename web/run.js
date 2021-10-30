@@ -1,4 +1,4 @@
-var client;
+
 var map;
 var renderer;
 
@@ -16,31 +16,6 @@ window.onload = function () {
 	showLoginScreen();
 }
 
-//Called after connecting to the server
-function onConnect() {
-	initRenderer();
-	map = new Map();
-
-	let chat = new Chat(client);
-
-	let slider = document.getElementById("mp_slider_brush_size");
-	slider.value = 1;
-	slider.addEventListener("change", () => {
-		let size = slider.value;
-		mouse.brush_size = size;
-		client.socketSendBrushSize(size);
-	});
-
-	document.getElementById("button_zoom_1_1").addEventListener("click", () => {
-		map.setZoom(1.0);
-		map.triggerRerender();
-	});
-
-	initListeners();
-	setInterval(() => { client.socketSendPing() }, 8000);
-
-	showMultipixelScreen();
-}
 
 function onStartClick() {
 	let nick = document.getElementById("nick").value.trim()
@@ -54,6 +29,8 @@ function onStartClick() {
 	}
 	else {
 		document.getElementById("logo").outerHTML = ""
-		client = new Client("wss://oo8dev.com/ws_multipixel/", nick, onConnect);
+		let multipixel = new Multipixel("ws://localhost:59900/", nick, () => {
+			showMultipixelScreen();
+		});
 	}
 }

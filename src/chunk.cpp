@@ -30,13 +30,13 @@ u32 Chunk::getImageSizeBytes() const {
 
 void Chunk::allocateImage_nolock() {
 	if(!image) {
-		image.create(getImageSizeBytes());
+		image = createSharedVector<u8>(getImageSizeBytes());
 		new_chunk = false;
 
 		if(compressed_image) {
-			decompressLZ4(compressed_image->data(), compressed_image->size(), image.data(), image.size_bytes());
+			decompressLZ4(compressed_image->data(), compressed_image->size(), image->data(), image->size());
 		} else {
-			memset(image.data(), 255, image.size_bytes()); //White
+			memset(image->data(), 255, image->size()); //White
 		}
 	}
 }
@@ -44,7 +44,7 @@ void Chunk::allocateImage_nolock() {
 void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 	assert(chunk_pixel_pos.x < chunk_size);
 	assert(chunk_pixel_pos.y < chunk_size);
-	auto *rgb = image.data();
+	auto *rgb = image->data();
 	size_t offset = chunk_pixel_pos.y * chunk_size * 3 + chunk_pixel_pos.x * 3;
 	*r = rgb[offset + 0];
 	*g = rgb[offset + 1];
@@ -73,7 +73,7 @@ SharedVector<u8> Chunk::encodeChunkData_nolock() {
 		compressed = getEmptyChunk(this);
 	} else {
 		allocateImage_nolock();
-		compressed = compressLZ4(image.data(), image.size_bytes());
+		compressed = compressLZ4(image->data(), image->size());
 	}
 
 	this->compressed_image = compressed;
@@ -162,9 +162,46 @@ bool Chunk::isLinkedSessionsEmpty() {
 	return linked_sessions_empty;
 }
 
+void Chunk::lock() {
+	mtx_access.lock();
+}
+
+void Chunk::unlock() {
+	mtx_access.unlock();
+}
+
+void Chunk::setPixelQueued(ChunkPixel *pixel) {
+	std::lock_guard lock(mtx_access);
+	allocateImage_nolock();
+
+	auto *rgb = image->data();
+	size_t offset = pixel->pos.y * chunk_size * 3 + pixel->pos.x * 3;
+	rgb[offset + 0] = pixel->r;
+	rgb[offset + 1] = pixel->g;
+	rgb[offset + 2] = pixel->b;
+
+	queued_pixels_to_send.push_back(*pixel);
+	setModified_nolock(true);
+}
+
+void Chunk::flushQueuedPixels() {
+	std::lock_guard lock(mtx_access);
+	flushSendDelay_nolock();
+}
+
+void Chunk::flushSendDelay_nolock() {
+	if(queued_pixels_to_send.empty()) return;
+	setPixels_nolock(queued_pixels_to_send.data(), queued_pixels_to_send.size(), false);
+	queued_pixels_to_send = {};
+}
+
 void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	std::lock_guard lock(mtx_access);
+	flushSendDelay_nolock();
+	setPixels_nolock(pixels, count);
+}
 
+void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool check_overwrite) {
 	allocateImage_nolock();
 
 	//Prepare pixel_pack packet
@@ -175,14 +212,16 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	for(size_t i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 
-		getPixel_nolock(pixel.pos, &r, &g, &b);
-		if(pixel.r == r && pixel.g == g && pixel.b == b) {
-			//Pixel not changed, skip
-			continue;
+		if(check_overwrite) {
+			getPixel_nolock(pixel.pos, &r, &g, &b);
+			if(pixel.r == r && pixel.g == g && pixel.b == b) {
+				//Pixel not changed, skip
+				continue;
+			}
 		}
 
 		//Update pixel
-		auto *rgb = image.data();
+		auto *rgb = image->data();
 		size_t offset = pixel.pos.y * chunk_size * 3 + pixel.pos.x * 3;
 		rgb[offset + 0] = pixel.r;
 		rgb[offset + 1] = pixel.g;

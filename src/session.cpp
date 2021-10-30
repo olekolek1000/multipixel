@@ -101,6 +101,61 @@ bool Session::runner_tick() {
 			}
 		}
 
+		if(tool.type == ToolType::floodfill && cursor_down && !floodfill.stack.empty()) {
+			auto *cs = server->getChunkSystem();
+			u8 r, g, b;
+
+			for(u32 i = 0; i < 2000;) {
+				if(floodfill.stack.empty()) break;
+				auto cell = floodfill.stack.top();
+				floodfill.stack.pop();
+
+				if(!cs->getPixel(this, {cell.x, cell.y}, &r, &g, &b)) {
+					continue;
+				}
+
+				if(r == tool.r &&
+					 g == tool.g &&
+					 b == tool.b) {
+					continue;
+				}
+
+				if(r != floodfill.to_replace_r ||
+					 g != floodfill.to_replace_g ||
+					 b != floodfill.to_replace_b) {
+					continue;
+				}
+
+				if(abs(floodfill.start_x - cell.x) + abs(floodfill.start_y - cell.y) > 600) {
+					continue;
+				}
+
+				GlobalPixel pixel;
+				pixel.pos = {cell.x, cell.y};
+				pixel.r = tool.r;
+				pixel.g = tool.g;
+				pixel.b = tool.b;
+				cs->setPixelQueued(this, &pixel);
+				i++;
+
+				auto &top = floodfill.stack.emplace();
+				top.x = cell.x;
+				top.y = cell.y - 1;
+
+				auto &bottom = floodfill.stack.emplace();
+				bottom.x = cell.x;
+				bottom.y = cell.y + 1;
+
+				auto &left = floodfill.stack.emplace();
+				left.x = cell.x - 1;
+				left.y = cell.y;
+
+				auto &right = floodfill.stack.emplace();
+				right.x = cell.x + 1;
+				right.y = cell.y;
+			}
+		}
+
 		runner_performBoundaryTest();
 		return true;
 	}
@@ -302,12 +357,16 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 			parseCommandCursorUp(data);
 			break;
 		}
-		case ClientCmd::brush_size: {
-			parseCommandBrushSize(data);
+		case ClientCmd::tool_size: {
+			parseCommandToolSize(data);
 			break;
 		}
-		case ClientCmd::brush_color: {
-			parseCommandBrushColor(data);
+		case ClientCmd::tool_color: {
+			parseCommandToolColor(data);
+			break;
+		}
+		case ClientCmd::tool_type: {
+			parseCommandToolType(data);
 			break;
 		}
 		case ClientCmd::boundary: {
@@ -361,10 +420,11 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 		sendPacket(preparePacketUserCreate(other));
 	});
 
-	brush.r = 0;
-	brush.g = 0;
-	brush.b = 0;
-	brush.size = 1;
+	tool.r = 0;
+	tool.g = 0;
+	tool.b = 0;
+	tool.size = 1;
+	tool.type = ToolType::brush;
 }
 
 void Session::parseCommandMessage(const std::string_view data) {
@@ -379,70 +439,96 @@ void Session::parseCommandMessage(const std::string_view data) {
 }
 
 void Session::updateCursor() {
-	if(!cursor_down)
-		return; //Cursor is not down, do nothing
+	switch(tool.type) {
+		case ToolType::brush: {
+			if(!cursor_down)
+				break; //Cursor is not down, do nothing
 
-	u32 iters = VecDistance({cursorX_prev, cursorY_prev}, {cursorX, cursorY});
-	if(iters == 0)
-		iters = 1;
+			u32 iters = VecDistance({cursorX_prev, cursorY_prev}, {cursorX, cursorY});
+			if(iters == 0)
+				iters = 1;
 
-	if(iters > 300) { //Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
-		cursor_down = false;
-		return;
-	}
-
-	auto *brush_shape_outline = server->getBrushShape(brush.size, false);
-	auto *brush_shape_filled = server->getBrushShape(brush.size, true);
-
-	std::vector<GlobalPixel> pixels;
-	pixels.reserve(256);
-
-	auto addPixel = [&](s32 x, s32 y, u8 r, u8 g, u8 b) {
-		auto &cell = pixels.emplace_back();
-		cell.pos.x = x;
-		cell.pos.y = y;
-		cell.r = r;
-		cell.g = g;
-		cell.b = b;
-	};
-
-	//Draw line
-	for(u32 i = 0; i <= iters; i++) {
-		float alpha = i / float(iters);
-
-		//Lerp
-		s32 x = lerp(alpha, cursorX_prev, cursorX);
-		s32 y = lerp(alpha, cursorY_prev, cursorY);
-
-		switch(brush.size) {
-			case 1: {
-				addPixel(x, y, brush.r, brush.g, brush.b);
+			if(iters > 300) { //Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+				cursor_down = false;
 				break;
 			}
-			case 2: {
-				addPixel(x, y, brush.r, brush.g, brush.b);
-				addPixel(x - 1, y, brush.r, brush.g, brush.b);
-				addPixel(x + 1, y, brush.r, brush.g, brush.b);
-				addPixel(x, y - 1, brush.r, brush.g, brush.b);
-				addPixel(x, y + 1, brush.r, brush.g, brush.b);
-				break;
-			}
-			default: {
-				auto *shape = i == 0 ? brush_shape_filled : brush_shape_outline;
-				auto *data = shape->shape.data();
-				for(int yy = 0; yy < shape->size; yy++) {
-					for(int xx = 0; xx < shape->size; xx++) {
-						if(data[yy * shape->size + xx]) {
-							addPixel(x + xx - brush.size / 2, y + yy - brush.size / 2, brush.r, brush.g, brush.b);
+
+			auto *brush_shape_outline = server->getBrushShape(tool.size, false);
+			auto *brush_shape_filled = server->getBrushShape(tool.size, true);
+
+			std::vector<GlobalPixel> pixels;
+			pixels.reserve(256);
+
+			auto addPixel = [&](s32 x, s32 y, u8 r, u8 g, u8 b) {
+				auto &cell = pixels.emplace_back();
+				cell.pos.x = x;
+				cell.pos.y = y;
+				cell.r = r;
+				cell.g = g;
+				cell.b = b;
+			};
+
+			//Draw line
+			for(u32 i = 0; i <= iters; i++) {
+				float alpha = i / float(iters);
+
+				//Lerp
+				s32 x = lerp(alpha, cursorX_prev, cursorX);
+				s32 y = lerp(alpha, cursorY_prev, cursorY);
+
+				switch(tool.size) {
+					case 1: {
+						addPixel(x, y, tool.r, tool.g, tool.b);
+						break;
+					}
+					case 2: {
+						addPixel(x, y, tool.r, tool.g, tool.b);
+						addPixel(x - 1, y, tool.r, tool.g, tool.b);
+						addPixel(x + 1, y, tool.r, tool.g, tool.b);
+						addPixel(x, y - 1, tool.r, tool.g, tool.b);
+						addPixel(x, y + 1, tool.r, tool.g, tool.b);
+						break;
+					}
+					default: {
+						auto *shape = i == 0 ? brush_shape_filled : brush_shape_outline;
+						auto *data = shape->shape.data();
+						for(int yy = 0; yy < shape->size; yy++) {
+							for(int xx = 0; xx < shape->size; xx++) {
+								if(data[yy * shape->size + xx]) {
+									addPixel(x + xx - tool.size / 2, y + yy - tool.size / 2, tool.r, tool.g, tool.b);
+								}
+							}
 						}
+						break;
 					}
 				}
-				break;
 			}
+
+			server->getChunkSystem()->setPixels(this, pixels.data(), pixels.size());
+			break;
+		}
+		case ToolType::floodfill: {
+			if(cursor_just_clicked) {
+				floodfill.stack = {};
+				u8 r, g, b;
+				if(server->getChunkSystem()->getPixel(this, {cursorX, cursorY}, &r, &g, &b)) {
+					if(!(tool.r == r && tool.g == g && tool.b == b)) {
+						floodfill.to_replace_r = r;
+						floodfill.to_replace_g = g;
+						floodfill.to_replace_b = b;
+						floodfill.start_x = cursorX;
+						floodfill.start_y = cursorY;
+						auto &cell = floodfill.stack.emplace();
+						cell.x = cursorX;
+						cell.y = cursorY;
+					}
+				}
+			}
+			break;
 		}
 	}
 
-	server->getChunkSystem()->setPixels(this, pixels.data(), pixels.size());
+	cursor_just_clicked = false;
 }
 
 void Session::parseCommandCursorPos(const std::string_view data) {
@@ -471,6 +557,7 @@ void Session::parseCommandCursorPos(const std::string_view data) {
 
 void Session::parseCommandCursorDown(const std::string_view data) {
 	cursor_down = true;
+	cursor_just_clicked = true;
 	cursorX_prev = cursorX;
 	cursorY_prev = cursorY;
 	updateCursor();
@@ -481,7 +568,7 @@ void Session::parseCommandCursorUp(const std::string_view data) {
 	updateCursor();
 }
 
-void Session::parseCommandBrushSize(const std::string_view data) {
+void Session::parseCommandToolSize(const std::string_view data) {
 	if(data.size() != 1) {
 		kickInvalidPacket();
 		return;
@@ -490,12 +577,13 @@ void Session::parseCommandBrushSize(const std::string_view data) {
 	auto size = *(uint8_t *)data.data();
 	if(size < 1 || size > 8) {
 		kickInvalidPacket();
+		return;
 	}
 
-	brush.size = size;
+	tool.size = size;
 }
 
-void Session::parseCommandBrushColor(const std::string_view data) {
+void Session::parseCommandToolColor(const std::string_view data) {
 	struct PACKED {
 		u8 r, g, b;
 	} rgb;
@@ -507,9 +595,24 @@ void Session::parseCommandBrushColor(const std::string_view data) {
 
 	memcpy(&rgb, data.data(), data.size());
 
-	brush.r = rgb.r;
-	brush.g = rgb.g;
-	brush.b = rgb.b;
+	tool.r = rgb.r;
+	tool.g = rgb.g;
+	tool.b = rgb.b;
+}
+
+void Session::parseCommandToolType(const std::string_view data) {
+	if(data.size() != 1) {
+		kickInvalidPacket();
+		return;
+	}
+
+	auto type = *(uint8_t *)data.data();
+	if(type < 0 || type > 1) {
+		kickInvalidPacket();
+		return;
+	}
+
+	tool.type = (ToolType)type;
 }
 
 void Session::parseCommandBoundary(const std::string_view data) {
