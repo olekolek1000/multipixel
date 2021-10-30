@@ -105,26 +105,30 @@ bool Session::runner_tick() {
 			auto *cs = server->getChunkSystem();
 			u8 r, g, b;
 
-			for(u32 i = 0; i < 2000;) {
-				if(floodfill.stack.empty()) break;
-				auto cell = floodfill.stack.top();
-				floodfill.stack.pop();
-
-				if(!cs->getPixel(this, {cell.x, cell.y}, &r, &g, &b)) {
-					continue;
+			auto checkColor = [&](s32 x, s32 y) {
+				if(!cs->getPixel(this, {x, y}, &r, &g, &b)) {
+					return false;
 				}
 
 				if(r == tool.r &&
 					 g == tool.g &&
 					 b == tool.b) {
-					continue;
+					return false;
 				}
 
 				if(r != floodfill.to_replace_r ||
 					 g != floodfill.to_replace_g ||
 					 b != floodfill.to_replace_b) {
-					continue;
+					return false;
 				}
+
+				return true;
+			};
+
+			for(u32 i = 0; i < 2500;) {
+				if(floodfill.stack.empty()) break;
+				auto cell = floodfill.stack.top();
+				floodfill.stack.pop();
 
 				if(abs(floodfill.start_x - cell.x) + abs(floodfill.start_y - cell.y) > 600) {
 					continue;
@@ -136,23 +140,40 @@ bool Session::runner_tick() {
 				pixel.g = tool.g;
 				pixel.b = tool.b;
 				cs->setPixelQueued(this, &pixel);
-				i++;
 
-				auto &top = floodfill.stack.emplace();
-				top.x = cell.x;
-				top.y = cell.y - 1;
+				bool added = false;
 
-				auto &bottom = floodfill.stack.emplace();
-				bottom.x = cell.x;
-				bottom.y = cell.y + 1;
+				if(checkColor(cell.x, cell.y - 1)) {
+					auto &top = floodfill.stack.emplace();
+					top.x = cell.x;
+					top.y = cell.y - 1;
+					added = true;
+				}
 
-				auto &left = floodfill.stack.emplace();
-				left.x = cell.x - 1;
-				left.y = cell.y;
+				if(checkColor(cell.x - 1, cell.y)) {
+					auto &left = floodfill.stack.emplace();
+					left.x = cell.x - 1;
+					left.y = cell.y;
+					added = true;
+				}
 
-				auto &right = floodfill.stack.emplace();
-				right.x = cell.x + 1;
-				right.y = cell.y;
+				if(checkColor(cell.x, cell.y + 1)) {
+					auto &bottom = floodfill.stack.emplace();
+					bottom.x = cell.x;
+					bottom.y = cell.y + 1;
+					added = true;
+				}
+
+				if(checkColor(cell.x + 1, cell.y)) {
+					auto &right = floodfill.stack.emplace();
+					right.x = cell.x + 1;
+					right.y = cell.y;
+					added = true;
+				}
+
+				if(added) {
+					i++;
+				}
 			}
 		}
 
@@ -565,6 +586,7 @@ void Session::parseCommandCursorDown(const std::string_view data) {
 
 void Session::parseCommandCursorUp(const std::string_view data) {
 	cursor_down = false;
+	floodfill.stack = {};
 	updateCursor();
 }
 

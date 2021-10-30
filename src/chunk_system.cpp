@@ -66,10 +66,6 @@ void ChunkSystem::setPixelQueued(Session *session, GlobalPixel *pixel) {
 	std::lock_guard lock(mtx_access);
 
 	auto chunk_pos = globalPixelPosToChunkPos(pixel->pos);
-
-	if(!session->isChunkLinked(chunk_pos))
-		return;
-
 	auto local_pixel_pos = globalPixelPosToLocalPixelPos(pixel->pos);
 
 	auto *chunk = getChunk_nolock(chunk_pos);
@@ -342,7 +338,7 @@ bool ChunkSystem::runner_tick() {
 	while(step_ticks.onTick()) {
 		used = true;
 
-		if(ticks % 3 == 0) {
+		if(ticks % 2 == 0) {
 			std::lock_guard lock(mtx_access);
 			for(auto &i : chunks) {
 				for(auto &j : i.second) {
