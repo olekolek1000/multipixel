@@ -191,7 +191,7 @@ void Chunk::flushQueuedPixels() {
 
 void Chunk::flushSendDelay_nolock() {
 	if(queued_pixels_to_send.empty()) return;
-	setPixels_nolock(queued_pixels_to_send.data(), queued_pixels_to_send.size(), false);
+	setPixels_nolock(queued_pixels_to_send.data(), queued_pixels_to_send.size(), true);
 	queued_pixels_to_send = {};
 }
 
@@ -201,7 +201,7 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	setPixels_nolock(pixels, count);
 }
 
-void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool check_overwrite) {
+void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 	allocateImage_nolock();
 
 	//Prepare pixel_pack packet
@@ -212,20 +212,20 @@ void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool check_overwr
 	for(size_t i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 
-		if(check_overwrite) {
+		if(!only_send) {
 			getPixel_nolock(pixel.pos, &r, &g, &b);
 			if(pixel.r == r && pixel.g == g && pixel.b == b) {
 				//Pixel not changed, skip
 				continue;
 			}
-		}
 
-		//Update pixel
-		auto *rgb = image->data();
-		size_t offset = pixel.pos.y * chunk_size * 3 + pixel.pos.x * 3;
-		rgb[offset + 0] = pixel.r;
-		rgb[offset + 1] = pixel.g;
-		rgb[offset + 2] = pixel.b;
+			//Update pixel
+			auto *rgb = image->data();
+			size_t offset = pixel.pos.y * chunk_size * 3 + pixel.pos.x * 3;
+			rgb[offset + 0] = pixel.r;
+			rgb[offset + 1] = pixel.g;
+			rgb[offset + 2] = pixel.b;
+		}
 
 		//Prepare pixel data
 		u8 x = pixel.pos.x;
