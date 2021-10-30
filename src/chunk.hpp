@@ -6,6 +6,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <stack>
 #include <vector>
 
 struct ChunkSystem;
@@ -28,9 +29,11 @@ private:
 	/// @brief Dirty = modified chunk that should be saved
 	std::atomic<bool> modified = false;
 
+	std::vector<ChunkPixel> queued_pixels_to_send;
+
 	std::mutex mtx_access;
 
-	uniqdata<u8> image;
+	SharedVector<u8> image;
 	SharedVector<u8> compressed_image;
 
 	std::atomic<bool> linked_sessions_empty = true;
@@ -39,7 +42,6 @@ private:
 	void allocateImage_nolock();
 	void sendChunkDataToSession_nolock(Session *session);
 	SharedVector<u8> encodeChunkData_nolock();
-	void getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b);
 	void setModified_nolock(bool n);
 
 public:
@@ -57,5 +59,18 @@ public:
 	bool isModified();
 
 	void setPixels(ChunkPixel *pixels, size_t count);
+	void setPixels_nolock(ChunkPixel *pixels, size_t count, bool check_overwrite = true);
+
+	//Set pixel and send it later (delayed send)
+	void setPixelQueued(ChunkPixel *pixel);
+
+	void flushQueuedPixels();
+	void flushSendDelay_nolock();
+
 	Int2 getPosition() const;
+
+	void getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b);
+
+	void lock();
+	void unlock();
 };

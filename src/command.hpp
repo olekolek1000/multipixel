@@ -8,6 +8,11 @@
 #define NO_SANITIZER __attribute__((no_sanitize("undefined")))
 #define PACKED			 __attribute__((packed))
 
+enum struct ToolType {
+	brush = 0,
+	floodfill = 1
+};
+
 enum struct ClientCmd : u16 {
 	message = 1,	//utf-8 text
 	announce = 2, //utf-8 username
@@ -17,8 +22,9 @@ enum struct ClientCmd : u16 {
 	cursor_up = 102,
 	boundary = 103,
 	chunks_received = 104,
-	brush_size = 200,	 //u8 size
-	brush_color = 201, //u8 red, u8 green, u8 blue
+	tool_size = 200,	//u8 size
+	tool_color = 201, //u8 red, u8 green, u8 blue
+	tool_type = 202,	//u8 type
 };
 
 enum struct ServerCmd : u16 {

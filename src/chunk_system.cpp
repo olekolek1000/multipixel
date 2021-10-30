@@ -2,6 +2,7 @@
 #include "chunk.hpp"
 #include "server.hpp"
 #include "session.hpp"
+#include "util/timestep.hpp"
 #include "util/types.hpp"
 #include <cassert>
 #include <mutex>
@@ -13,6 +14,8 @@ ChunkSystem::ChunkSystem(Server *server)
 
 	running = true;
 	needs_garbage_collect = false;
+	step_ticks.setRate(20);
+
 	thr_runner = std::thread([this] {
 		runner();
 	});
@@ -57,6 +60,44 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 	} else {
 		return it->second.get();
 	}
+}
+
+void ChunkSystem::setPixelQueued(Session *session, GlobalPixel *pixel) {
+	std::lock_guard lock(mtx_access);
+
+	auto chunk_pos = globalPixelPosToChunkPos(pixel->pos);
+
+	if(!session->isChunkLinked(chunk_pos))
+		return;
+
+	auto local_pixel_pos = globalPixelPosToLocalPixelPos(pixel->pos);
+
+	auto *chunk = getChunk_nolock(chunk_pos);
+	ChunkPixel cp;
+	cp.pos = local_pixel_pos;
+	cp.r = pixel->r;
+	cp.g = pixel->g;
+	cp.b = pixel->b;
+	chunk->setPixelQueued(&cp);
+}
+
+bool ChunkSystem::getPixel(Session *session, Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b) {
+	std::lock_guard lock(mtx_access);
+
+	auto chunk_pos = globalPixelPosToChunkPos(global_pixel_pos);
+
+	if(!session->isChunkLinked(chunk_pos))
+		return false;
+
+	auto local_pixel_pos = globalPixelPosToLocalPixelPos(global_pixel_pos);
+
+	auto *chunk = getChunk_nolock(chunk_pos);
+	chunk->lock();
+	chunk->allocateImage_nolock();
+	chunk->getPixel_nolock(local_pixel_pos, r, g, b);
+	chunk->unlock();
+
+	return true;
 }
 
 void ChunkSystem::setPixels(Session *session, GlobalPixel *pixels, size_t count) {
@@ -296,6 +337,21 @@ bool ChunkSystem::runner_tick() {
 
 		if(saved_chunk_count || removed_chunk_count)
 			server->log("Saved %u chunks, %u total chunks loaded, %u removed (GC))", saved_chunk_count, loaded_chunk_count, removed_chunk_count);
+	}
+
+	while(step_ticks.onTick()) {
+		used = true;
+
+		if(ticks % 2 == 0) {
+			std::lock_guard lock(mtx_access);
+			for(auto &i : chunks) {
+				for(auto &j : i.second) {
+					j.second->flushQueuedPixels();
+				}
+			}
+		}
+
+		ticks++;
 	}
 
 	return used;
