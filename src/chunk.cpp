@@ -192,7 +192,7 @@ void Chunk::flushQueuedPixels() {
 void Chunk::flushSendDelay_nolock() {
 	if(queued_pixels_to_send.empty()) return;
 	setPixels_nolock(queued_pixels_to_send.data(), queued_pixels_to_send.size(), true);
-	queued_pixels_to_send = {};
+	queued_pixels_to_send.clear();
 }
 
 void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
