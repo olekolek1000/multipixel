@@ -1,6 +1,3 @@
-var renderer;
-var mouse;
-
 const chunk_size = 256;
 
 class PixelQueueCell {
@@ -16,21 +13,6 @@ class PixelQueueCell {
 		this.green = green;
 		this.blue = blue;
 	}
-}
-
-function getBody() {
-	return document.getElementById("body");
-}
-
-function initRenderer() {
-	renderer = new RenderEngine(document.getElementById("canvas_render"));
-
-	function draw() {
-		map.draw();
-		window.requestAnimationFrame(draw);
-	}
-
-	window.requestAnimationFrame(draw);
 }
 
 
@@ -131,6 +113,7 @@ class Chunk {
 }
 
 class Map {
+	multipixel;
 	needs_redraw;
 	texture_cursor = null;
 	texture_brush = null;
@@ -150,7 +133,10 @@ class Map {
 		height: 0.0
 	}
 
-	constructor() {
+	constructor(multipixel) {
+		this.multipixel = multipixel;
+		let renderer = this.multipixel.getRenderer();
+
 		renderer.loadTextureImage("cursor.png", (tex) => {
 			this.texture_cursor = tex;
 		});
@@ -168,6 +154,7 @@ class Map {
 	}
 
 	resize = function () {
+		let renderer = this.multipixel.getRenderer();
 		let canvas = renderer.getCanvas();
 		canvas.width = window.innerWidth;
 		canvas.height = window.innerHeight;
@@ -205,7 +192,7 @@ class Map {
 			return this.map[x][y];
 		}
 
-		let ch = new Chunk(renderer.getContext(), x, y);
+		let ch = new Chunk(this.multipixel.getRenderer().getContext(), x, y);
 		this.map[x][y] = ch;
 
 		//console.log("Created chunk at ", x, y);
@@ -219,7 +206,7 @@ class Map {
 
 		if (this.map[x][y] != null) {
 			let chunk = this.map[x][y];
-			chunk.destructor(renderer.getContext());
+			chunk.destructor(this.multipixel.getRenderer().getContext());
 			this.map[x][y] = null;
 		}
 
@@ -227,7 +214,7 @@ class Map {
 	}
 
 	getChunkBoundaries = function () {
-		let canvas = renderer.getCanvas();
+		let canvas = this.multipixel.getRenderer().getCanvas();
 		let boundary = this.boundary;
 
 		return {
@@ -240,6 +227,7 @@ class Map {
 
 	drawChunks = function (gl) {
 		let boundary = this.getChunkBoundaries();
+		let renderer = this.multipixel.getRenderer();
 
 		for (let y = boundary.start_y; y < boundary.end_y; y++) {
 			for (let x = boundary.start_x; x < boundary.end_x; x++) {
@@ -258,33 +246,40 @@ class Map {
 	}
 
 	drawCursors = function (gl) {
-		client.users.forEach(user => {
+		let renderer = this.multipixel.getRenderer();
+
+		this.multipixel.client.users.forEach(user => {
 			if (user == null)
 				return;
 
 			let zoom = this.scrolling.zoom;
 
 			if (this.texture_cursor) {
+				let width = this.texture_cursor.width / zoom;
+				let height = this.texture_cursor.height / zoom;
 				renderer.drawRect(
-					this.texture_cursor.texture, user.cursor_x + 0.5, user.cursor_y + 0.5,
-					this.texture_cursor.width / zoom, this.texture_cursor.height / zoom);
+					this.texture_cursor.texture, user.cursor_x + 0.5 - width / 2.0, user.cursor_y + 0.5 - height / 2.0,
+					width, height);
 			}
 		})
 	}
 
 	drawBrush = function (gl) {
 		if (!this.texture_brush) return;
-		let brush_size = mouse.brush_size;
+		let cursor = this.multipixel.getCursor();
+		let renderer = this.multipixel.getRenderer();
+		let brush_size = cursor.brush_size;
 		renderer.drawRect(
 			this.texture_brush.texture,
-			mouse.canvas_x - brush_size / 2.0 + 0.5,
-			mouse.canvas_y - brush_size / 2.0 + 0.5,
+			cursor.canvas_x - brush_size / 2.0 + 0.5,
+			cursor.canvas_y - brush_size / 2.0 + 0.5,
 			brush_size, brush_size
 		);
 	}
 
 	updateBoundary = function () {
 		let boundary = this.boundary;
+		let renderer = this.multipixel.getRenderer();
 		let canvas = renderer.getCanvas();
 		boundary.center_x = -this.scrolling.x;
 		boundary.center_y = -this.scrolling.y;
@@ -298,6 +293,7 @@ class Map {
 
 		this.needs_redraw = false;
 
+		let renderer = this.multipixel.getRenderer();
 		let gl = renderer.getContext();
 
 		renderer.viewportFullscreen();
@@ -353,7 +349,7 @@ class Map {
 		if (localY < 0)
 			localY += chunk_size;
 
-		let chunk = map.getChunk(chunkX, chunkY);
+		let chunk = this.multipixel.map.getChunk(chunkX, chunkY);
 		if (chunk) {
 			chunk.putPixel(localX, localY, red, green, blue);
 			this.triggerRerender();
@@ -377,7 +373,7 @@ class Map {
 		if (localY < 0)
 			localY += chunk_size;
 
-		let chunk = map.getChunk(chunkX, chunkY);
+		let chunk = this.multipixel.map.getChunk(chunkX, chunkY);
 		if (chunk)
 			return chunk.getPixel(localX, localY);
 

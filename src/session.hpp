@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <stack>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -21,6 +22,11 @@ struct WsMessage;
 struct LinkedChunk {
 	Chunk *chunk;
 	u32 outside_boundary_duration = 0;
+};
+
+struct FloodfillCell {
+	s32 x;
+	s32 y;
 };
 
 struct Session {
@@ -37,6 +43,7 @@ private:
 
 	//Cursor
 	bool cursor_down = false;
+	bool cursor_just_clicked = false;
 	s32 cursorX, cursorY, cursorX_prev, cursorY_prev, cursorX_sent, cursorY_sent;
 
 	//Chunk visibility boundary
@@ -62,15 +69,23 @@ private:
 	std::mutex mtx_linked_chunks;
 	std::vector<LinkedChunk> linked_chunks;
 
+	struct {
+		u8 to_replace_r, to_replace_g, to_replace_b;
+		std::stack<FloodfillCell> stack;
+		s32 start_x;
+		s32 start_y;
+	} floodfill;
+
 	bool needs_boundary_test;
 
 	EventQueue queue;
 
-	//Brush settings
+	//Tool settings
 	struct {
 		u8 size;
 		u8 r, g, b;
-	} brush;
+		ToolType type;
+	} tool;
 
 public:
 	Session(Server *server, WsConnection *connection, u16 id);
@@ -124,8 +139,9 @@ private:
 	void parseCommandCursorPos(const std::string_view data);
 	void parseCommandCursorDown(const std::string_view data);
 	void parseCommandCursorUp(const std::string_view data);
-	void parseCommandBrushSize(const std::string_view data);
-	void parseCommandBrushColor(const std::string_view data);
+	void parseCommandToolSize(const std::string_view data);
+	void parseCommandToolColor(const std::string_view data);
+	void parseCommandToolType(const std::string_view data);
 	void parseCommandBoundary(const std::string_view data);
 	void parseCommandChunksReceived(const std::string_view data);
 

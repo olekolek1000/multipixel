@@ -22,8 +22,9 @@ const ClientCmd = {
 	cursor_up: 102,
 	boundary: 103,
 	chunks_received: 104, //u32 count
-	brush_size: 200, //u8 size
-	brush_color: 201, //u8 red, u8 green, u8 blue
+	tool_size: 200, //u8 size
+	tool_color: 201, //u8 red, u8 green, u8 blue
+	tool_type: 202,//u8 type
 }
 
 const ServerCmd = {
@@ -72,6 +73,36 @@ class Client {
 	id = -1;
 	chunks_received = 0;
 
+	constructor(multipixel, address, nickname, loaded_callback) {
+		this.multipixel = multipixel;
+		this.socket = new WebSocket(address);
+		this.socket.binaryType = "arraybuffer";
+
+		let c = this;
+		this.socket.onopen = function (e) {
+			e;
+			console.log("Socket connected");
+			c.socketSendAnnouncement(nickname);
+			loaded_callback();
+
+			c.socketSendBoundary();
+		}
+
+		c = this;
+		this.socket.onmessage = function (e) {
+			c.onmessage(e);
+		}
+
+		this.socket.onclose = function (e) {
+			if (e.wasClean) {
+				console.log("Socket disconnected");
+			}
+			else {
+				console.log("Socket error: " + e.code);
+			}
+		}
+	}
+
 	setChatObject = function (chat) {
 		this.chat = chat;
 	}
@@ -102,14 +133,14 @@ class Client {
 	}
 
 	socketSendBrushSize = function (size) {
-		let buf = createMessage(ClientCmd.brush_size, size_u8);
+		let buf = createMessage(ClientCmd.tool_size, size_u8);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint8(0, size);
 		this.socket.send(buf);
 	}
 
 	socketSendBrushColor = function (red, green, blue) {
-		let buf = createMessage(ClientCmd.brush_color, size_u8 * 3);
+		let buf = createMessage(ClientCmd.tool_color, size_u8 * 3);
 		let dataview = new DataView(buf, header_offset);
 
 		dataview.setUint8(0, red);
@@ -152,11 +183,18 @@ class Client {
 	socketSendBoundary = function () {
 		let buf = createMessage(ClientCmd.boundary, size_s32 * 4);
 		let dataview = new DataView(buf, header_offset);
-		let boundary = map.getChunkBoundaries();
+		let boundary = this.multipixel.map.getChunkBoundaries();
 		dataview.setInt32(0, boundary.start_x);
 		dataview.setInt32(4, boundary.start_y);
 		dataview.setInt32(8, boundary.end_x);
 		dataview.setInt32(12, boundary.end_y);
+		this.socket.send(buf);
+	}
+
+	socketSendToolType = function (tool_id) {
+		let buf = createMessage(ClientCmd.tool_type, size_u8 * 1);
+		let dataview = new DataView(buf, header_offset);
+		dataview.setUint8(0, tool_id);
 		this.socket.send(buf);
 	}
 
@@ -172,6 +210,8 @@ class Client {
 
 		let command = headerview.getInt16(0);
 
+		let map = this.multipixel.map;
+
 		switch (command) {
 			case ServerCmd.message: {
 				let str = new TextDecoder().decode(dataview);
@@ -182,7 +222,7 @@ class Client {
 				let id = dataview.getInt16(0);
 				this.id = id;
 				console.log("This user ID: ", id);
-				refreshPlayerList();
+				this.multipixel.refreshPlayerList();
 				break;
 			}
 			case ServerCmd.kick: {
@@ -206,7 +246,7 @@ class Client {
 				let rgb_view = new DataView(uncompressed_buffer.buffer);
 				let chunk = map.getChunk(chunk_x, chunk_y);
 				if (chunk) {
-					chunk.putImage(renderer.getContext(), rgb_view);
+					chunk.putImage(this.multipixel.getRenderer().getContext(), rgb_view);
 				}
 
 				break;
@@ -265,14 +305,14 @@ class Client {
 				let id = dataview.getUint16(0);
 				let nickname = new TextDecoder().decode(new DataView(e.data, header_offset + size_u16));
 				this.users[id] = new User(id, nickname);
-				refreshPlayerList();
+				this.multipixel.refreshPlayerList();
 				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_remove: {
 				let id = dataview.getUint16(0);
 				this.users[id] = null;
-				refreshPlayerList();
+				this.multipixel.refreshPlayerList();
 				map.triggerRerender();
 				break;
 			}
@@ -292,35 +332,6 @@ class Client {
 			default: {
 				console.log("Got unknown command " + command + " from the server.");
 				break;
-			}
-		}
-	}
-
-	constructor(address, nickname, loaded_callback) {
-		this.socket = new WebSocket(address);
-		this.socket.binaryType = "arraybuffer";
-
-		let c = this;
-		this.socket.onopen = function (e) {
-			e;
-			console.log("Socket connected");
-			c.socketSendAnnouncement(nickname);
-			loaded_callback();
-
-			c.socketSendBoundary();
-		}
-
-		c = this;
-		this.socket.onmessage = function (e) {
-			c.onmessage(e);
-		}
-
-		this.socket.onclose = function (e) {
-			if (e.wasClean) {
-				console.log("Socket disconnected");
-			}
-			else {
-				console.log("Socket error: " + e.code);
 			}
 		}
 	}

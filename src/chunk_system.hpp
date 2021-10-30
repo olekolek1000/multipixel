@@ -3,6 +3,7 @@
 #include "database.hpp"
 #include "util/listener.hpp"
 #include "util/smartptr.hpp"
+#include "util/timestep.hpp"
 #include "util/types.hpp"
 #include <atomic>
 #include <map>
@@ -38,6 +39,9 @@ private:
 
 	Listener<void(Session *)> listener_session_remove;
 
+	Timestep step_ticks;
+	u32 ticks = 0;
+
 public:
 	ChunkSystem(Server *server);
 	~ChunkSystem();
@@ -47,6 +51,8 @@ public:
 	}
 
 	void setPixels(Session *session, GlobalPixel *pixels, size_t count);
+	void setPixelQueued(Session *session, GlobalPixel *pixel);
+	bool getPixel(Session *session, Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b);
 
 	///@returns chunk coordinates from global pixel position
 	Int2 globalPixelPosToChunkPos(Int2 global_pixel_pos);
