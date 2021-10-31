@@ -39,7 +39,15 @@ ChunkSystem::~ChunkSystem() {
 		thr_runner.join();
 }
 
+Chunk *ChunkSystem::getChunk(Int2 chunk_pos) {
+	std::lock_guard lock(mtx_access);
+	return getChunk_nolock(chunk_pos);
+}
+
 Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
+	if(last_accessed_chunk_cache && last_accessed_chunk_cache->position == chunk_pos)
+		return last_accessed_chunk_cache;
+
 	auto &horizontal = chunks[chunk_pos.x];
 	auto it = horizontal.find(chunk_pos.y);
 	if(it == horizontal.end()) {
@@ -56,34 +64,18 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 		//Chunk not found, create new chunk
 		auto &cell = horizontal[chunk_pos.y];
 		cell.create(this, chunk_pos, compressed_chunk_data);
+		last_accessed_chunk_cache = cell.get();
 		return cell.get();
 	} else {
+		last_accessed_chunk_cache = it->second.get();
 		return it->second.get();
 	}
 }
 
-void ChunkSystem::setPixelQueued(Session *session, GlobalPixel *pixel) {
-	std::lock_guard lock(mtx_access);
-
-	auto chunk_pos = globalPixelPosToChunkPos(pixel->pos);
-	auto local_pixel_pos = globalPixelPosToLocalPixelPos(pixel->pos);
-
-	auto *chunk = getChunk_nolock(chunk_pos);
-	ChunkPixel cp;
-	cp.pos = local_pixel_pos;
-	cp.r = pixel->r;
-	cp.g = pixel->g;
-	cp.b = pixel->b;
-	chunk->setPixelQueued(&cp);
-}
-
-bool ChunkSystem::getPixel(Session *session, Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b) {
+bool ChunkSystem::getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b) {
 	std::lock_guard lock(mtx_access);
 
 	auto chunk_pos = globalPixelPosToChunkPos(global_pixel_pos);
-
-	if(!session->isChunkLinked(chunk_pos))
-		return false;
 
 	auto local_pixel_pos = globalPixelPosToLocalPixelPos(global_pixel_pos);
 
@@ -240,6 +232,9 @@ void ChunkSystem::saveChunk_nolock(Chunk *chunk) {
 }
 
 void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
+	if(to_remove == last_accessed_chunk_cache)
+		last_accessed_chunk_cache = nullptr;
+
 	for(auto it = chunks.begin(); it != chunks.end(); it++) {
 		for(auto jt = it->second.begin(); jt != it->second.end();) {
 			if(jt->second.get() == to_remove) {

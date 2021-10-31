@@ -41,6 +41,8 @@ private:
 	u16 id;
 	std::string nickname;
 
+	Chunk *last_accessed_chunk_cache = nullptr;
+
 	//Cursor
 	bool cursor_down = false;
 	bool cursor_just_clicked = false;
@@ -120,6 +122,10 @@ private:
 	void close();
 
 	void updateCursor();
+
+	Chunk *getChunkCached_nolock(Int2 chunk_pos);
+	bool getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b);
+	void setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b);
 
 	//--------------------------------------------
 	// All methods below are run in worker thread
