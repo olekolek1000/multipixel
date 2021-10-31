@@ -39,7 +39,6 @@ private:
 	std::atomic<bool> linked_sessions_empty = true;
 	std::vector<Session *> linked_sessions;
 
-	void allocateImage_nolock();
 	void sendChunkDataToSession_nolock(Session *session);
 	SharedVector<u8> encodeChunkData_nolock();
 	void setModified_nolock(bool n);
@@ -53,6 +52,8 @@ public:
 	void linkSession(Session *session);
 	void unlinkSession(Session *session);
 	bool isLinkedSessionsEmpty();
+
+	void allocateImage_nolock();
 
 	/// @param clear_modified Set to true if encoded chunk data will be used to save, raw RGB data will be freed
 	SharedVector<u8> encodeChunkData(bool clear_modified);
