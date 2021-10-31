@@ -102,11 +102,10 @@ bool Session::runner_tick() {
 		}
 
 		if(tool.type == ToolType::floodfill && cursor_down && !floodfill.stack.empty()) {
-			auto *cs = server->getChunkSystem();
 			u8 r, g, b;
 
 			auto checkColor = [&](s32 x, s32 y) {
-				if(!cs->getPixel(this, {x, y}, &r, &g, &b)) {
+				if(!getPixelGlobal_nolock({x, y}, &r, &g, &b)) {
 					return false;
 				}
 
@@ -125,7 +124,9 @@ bool Session::runner_tick() {
 				return true;
 			};
 
-			for(u32 i = 0; i < 2500;) {
+			for(u32 i = 0; i < 20000;) {
+				std::lock_guard lock(mtx_linked_chunks); //Required by getPixelGlobal_nolock
+
 				if(floodfill.stack.empty()) break;
 				auto cell = floodfill.stack.top();
 				floodfill.stack.pop();
@@ -134,12 +135,7 @@ bool Session::runner_tick() {
 					continue;
 				}
 
-				GlobalPixel pixel;
-				pixel.pos = {cell.x, cell.y};
-				pixel.r = tool.r;
-				pixel.g = tool.g;
-				pixel.b = tool.b;
-				cs->setPixelQueued(this, &pixel);
+				setPixelQueued_nolock({cell.x, cell.y}, tool.r, tool.g, tool.b);
 
 				bool added = false;
 
@@ -286,6 +282,9 @@ void Session::linkChunk(Chunk *chunk) {
 void Session::unlinkChunk(Chunk *chunk) {
 	std::lock_guard lock(mtx_linked_chunks);
 
+	if(last_accessed_chunk_cache == chunk)
+		last_accessed_chunk_cache = nullptr;
+
 	for(auto it = linked_chunks.begin(); it != linked_chunks.end();) {
 		if(it->chunk == chunk) {
 			//Remove linked chunk
@@ -322,6 +321,51 @@ bool Session::isChunkLinked_nolock(Int2 chunk_pos) {
 			return true;
 	}
 	return false;
+}
+
+Chunk *Session::getChunkCached_nolock(Int2 chunk_pos) {
+	if(last_accessed_chunk_cache && last_accessed_chunk_cache->getPosition() == chunk_pos)
+		return last_accessed_chunk_cache;
+
+	for(auto &chunk : linked_chunks) {
+		if(chunk.chunk->getPosition() == chunk_pos) {
+			last_accessed_chunk_cache = chunk.chunk;
+			return chunk.chunk;
+		}
+	}
+
+	return nullptr;
+}
+
+bool Session::getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b) {
+	auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(global_pos);
+	auto *chunk = getChunkCached_nolock(chunk_pos);
+	if(!chunk)
+		return false;
+
+	auto local_pos = ChunkSystem::globalPixelPosToLocalPixelPos(global_pos);
+	chunk->lock();
+	chunk->allocateImage_nolock();
+	chunk->getPixel_nolock(local_pos, r, g, b);
+	chunk->unlock();
+
+	return true;
+}
+
+void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
+	auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(global_pos);
+	auto *chunk = getChunkCached_nolock(chunk_pos);
+	if(!chunk)
+		return;
+
+	auto local_pos = ChunkSystem::globalPixelPosToLocalPixelPos(global_pos);
+
+	ChunkPixel pixel;
+	pixel.pos = local_pos;
+	pixel.r = r;
+	pixel.g = g;
+	pixel.b = b;
+	chunk->setPixelQueued(&pixel);
 }
 
 void Session::kick(const char *reason) {
@@ -532,17 +576,21 @@ void Session::updateCursor() {
 			if(cursor_just_clicked) {
 				floodfill.stack = {};
 				u8 r, g, b;
-				if(server->getChunkSystem()->getPixel(this, {cursorX, cursorY}, &r, &g, &b)) {
-					if(!(tool.r == r && tool.g == g && tool.b == b)) {
-						floodfill.to_replace_r = r;
-						floodfill.to_replace_g = g;
-						floodfill.to_replace_b = b;
-						floodfill.start_x = cursorX;
-						floodfill.start_y = cursorY;
-						auto &cell = floodfill.stack.emplace();
-						cell.x = cursorX;
-						cell.y = cursorY;
-					}
+				if(!isChunkLinked(ChunkSystem::globalPixelPosToChunkPos({cursorX, cursorY})))
+					break;
+
+				if(!getPixelGlobal_nolock({cursorX, cursorY}, &r, &g, &b))
+					break;
+
+				if(!(tool.r == r && tool.g == g && tool.b == b)) {
+					floodfill.to_replace_r = r;
+					floodfill.to_replace_g = g;
+					floodfill.to_replace_b = b;
+					floodfill.start_x = cursorX;
+					floodfill.start_y = cursorY;
+					auto &cell = floodfill.stack.emplace();
+					cell.x = cursorX;
+					cell.y = cursorY;
 				}
 			}
 			break;

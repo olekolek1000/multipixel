@@ -29,6 +29,8 @@ private:
 	std::mutex mtx_access;
 	std::map<s32, std::map<s32, uniqptr<Chunk>>> chunks;
 
+	Chunk *last_accessed_chunk_cache = nullptr;
+
 	std::atomic<bool> running;
 	std::thread thr_runner;
 
@@ -51,19 +53,20 @@ public:
 	}
 
 	void setPixels(Session *session, GlobalPixel *pixels, size_t count);
-	void setPixelQueued(Session *session, GlobalPixel *pixel);
-	bool getPixel(Session *session, Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b);
+	bool getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b);
 
 	///@returns chunk coordinates from global pixel position
-	Int2 globalPixelPosToChunkPos(Int2 global_pixel_pos);
+	static Int2 globalPixelPosToChunkPos(Int2 global_pixel_pos);
 
 	///@returns local chunk pixel position (e.g. 0-255)
-	UInt2 globalPixelPosToLocalPixelPos(Int2 global_pixel_pos);
+	static UInt2 globalPixelPosToLocalPixelPos(Int2 global_pixel_pos);
 
 	void announceChunkForSession(Session *session, Int2 chunk_pos);
 	void deannounceChunkForSession(Session *session, Int2 chunk_pos);
 
 	void markGarbageCollect();
+
+	Chunk *getChunk(Int2 chunk_pos);
 
 private:
 	//Never returns null
