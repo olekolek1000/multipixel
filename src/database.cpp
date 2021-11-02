@@ -123,3 +123,43 @@ auto DatabaseConnector::getSnapshotInerval() -> s64 {
 auto DatabaseConnector::setSnapshotInerval(s64 seconds) -> void {
 	seconds_between_snapshot = seconds;
 }
+
+Transaction::~Transaction() {
+	if(!connector) return;
+	connector->transactionCommit();
+	connector = nullptr;
+}
+
+void Transaction::commit() {
+	if(!connector) return;
+	connector->transactionCommit();
+	connector = nullptr;
+}
+
+void Transaction::rollback() {
+	if(!connector) return;
+	connector->transactionRollback();
+	connector = nullptr;
+}
+
+std::shared_ptr<Transaction> DatabaseConnector::transactionBegin() {
+	auto transaction = std::make_shared<Transaction>();
+	transaction->connector = this;
+
+	{
+		SQLite::Statement query(*db, "BEGIN");
+		query.exec();
+	}
+
+	return transaction;
+}
+
+void DatabaseConnector::transactionCommit() {
+	SQLite::Statement query(*db, "COMMIT");
+	query.exec();
+}
+
+void DatabaseConnector::transactionRollback() {
+	SQLite::Statement query(*db, "ROLLBACK");
+	query.exec();
+}

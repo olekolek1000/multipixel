@@ -4,6 +4,7 @@
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 #include <cstddef>
+#include <memory>
 
 enum struct CompressionType : s32 {
 	NONE,
@@ -26,7 +27,16 @@ struct DatabaseListElement {
 	s64 modified;
 };
 
-class DatabaseConnector {
+struct DatabaseConnector;
+
+struct Transaction {
+	DatabaseConnector *connector = nullptr;
+	void commit();
+	void rollback();
+	~Transaction();
+};
+
+struct DatabaseConnector {
 public:
 	//construct connection with default file chunk.db
 	DatabaseConnector();
@@ -39,6 +49,10 @@ public:
 	auto listSnapshots(s32 x, s32 y) -> uniqdata<DatabaseListElement>;
 	auto setSnapshotInerval(s64 seconds) -> void;
 	auto getSnapshotInerval() -> s64;
+
+	std::shared_ptr<Transaction> transactionBegin();
+	void transactionCommit();
+	void transactionRollback();
 
 private:
 	auto insert(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void;
