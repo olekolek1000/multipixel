@@ -204,11 +204,14 @@ void ChunkSystem::deannounceChunkForSession_nolock(Session *session, Int2 chunk_
 }
 
 void ChunkSystem::autosave() {
+	auto start = getMillis();
 	std::lock_guard lock(mtx_access);
 
 	std::vector<Chunk *> to_autosave;
 	u32 total_chunk_count = 0;
 	u32 saved_chunk_count = 0;
+
+	auto transaction = database.transactionBegin();
 
 	for(auto &i : chunks) {
 		for(auto &j : i.second) {
@@ -222,8 +225,12 @@ void ChunkSystem::autosave() {
 		}
 	}
 
-	if(saved_chunk_count)
-		server->log("Autosaved %u chunks (%u chunks loaded)", saved_chunk_count, total_chunk_count);
+	transaction->commit();
+
+	if(saved_chunk_count) {
+		u32 dur = getMillis() - start;
+		server->log("Autosaved %u chunks in %ums (%u chunks loaded)", saved_chunk_count, dur, total_chunk_count);
+	}
 }
 
 void ChunkSystem::saveChunk_nolock(Chunk *chunk) {

@@ -1,5 +1,6 @@
 #include "command.hpp"
 #include "lz4.h"
+#include "lz4hc.h"
 #include "session.hpp"
 #include "util/buffer.hpp"
 #include <byteswap.h>
@@ -154,7 +155,7 @@ Packet preparePacketMessage(const char *message) {
 SharedVector<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {
 	auto max_dst_size = LZ4_compressBound(raw_size);
 	auto compressed = createSharedVector<u8>(max_dst_size);
-	auto compressed_data_size = LZ4_compress_default((const char *)data, (char *)compressed->data(), raw_size, max_dst_size);
+	auto compressed_data_size = LZ4_compress_HC((const char *)data, (char *)compressed->data(), raw_size, max_dst_size, LZ4HC_CLEVEL_MAX);
 	assert(compressed_data_size > 0);
 	compressed->resize(compressed_data_size);
 	compressed->shrink_to_fit();
