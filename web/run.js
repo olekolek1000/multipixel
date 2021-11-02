@@ -29,7 +29,7 @@ function onStartClick() {
 	}
 	else {
 		document.getElementById("logo").outerHTML = ""
-		let multipixel = new Multipixel("ws://localhost:59900/", nick, () => {
+		let multipixel = new Multipixel("wss://olekolek1000.com/ws_multipixel/", nick, () => {
 			showMultipixelScreen();
 		});
 	}

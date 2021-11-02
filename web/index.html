@@ -20,6 +20,7 @@
 	<script src="viewport.js"></script>
 	<script src="chat.js"></script>
 	<script src="run.js"></script>
+	<script src="timestep.js"></script>
 </head>
 
 <body id="body" bgcolor="#FFF">
@@ -39,20 +40,20 @@
 			<input id="mp_chat_input" type="text" />
 		</div>
 		<div id="mp_top_panel">
-			<span id="mp_tool_settings">
-				<div class="mp_floating_button col-select cl">
-					<input type="color" id="mp_color_selector" style="cursor:pointer;">
-					<div style="position:absolute;pointer-events: none;text-shadow:1px 1px black; color:#FFF; font-size: 20px;">+
-					</div>
+			<div class="mp_floating_button col-select cl">
+				<input type="color" id="mp_color_selector" style="cursor:pointer;">
+				<div style="position:absolute;pointer-events: none;text-shadow:1px 1px black; color:#FFF; font-size: 20px;">+
 				</div>
-				<div class="mp_floating_button col cl" id="color_history1"></div>
-				<div class="mp_floating_button col cl" id="color_history2"></div>
-				<div class="mp_floating_button button_tool button_tool_selected" id="button_tool_brush"></div>
-				<div class="mp_floating_button button_tool" id="button_tool_floodfill"></div>
-				<input type="range" min="1" max="8" value="1" id="mp_slider_brush_size">
-			</span>
-			<!-- Zoom buttons -->
+			</div>
+			<div class="mp_floating_button col cl" id="color_history1"></div>
+			<div class="mp_floating_button col cl" id="color_history2"></div>
 			<div class="mp_floating_button" id="button_zoom_1_1">1:1</div>
+			<div class="mp_floating_button button_tool button_tool_selected" id="button_tool_brush"></div>
+			<div class="mp_floating_button button_tool" id="button_tool_floodfill"></div>
+			<div class="mp_slider_desc">Size</div>
+			<input type="range" min="1" max="8" value="1" class="mp_slider" id="mp_slider_brush_size">
+			<div class="mp_slider_desc">Smoothing</div>
+			<input type="range" min="0" max="100" value="10" class="mp_slider" id="mp_slider_brush_smoothing">
 		</div>
 		<div id="mp_player_list"></div>
 	</div>

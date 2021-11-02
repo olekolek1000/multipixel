@@ -124,6 +124,9 @@ class Map {
 		x: 0,
 		y: 0,
 		zoom: 1.0,
+		zoom_smooth: 1.0,
+		zoom_smooth_prev: 1.0,
+		zoom_interpolated: 1.0
 	}
 
 	boundary = {
@@ -252,7 +255,7 @@ class Map {
 			if (user == null)
 				return;
 
-			let zoom = this.scrolling.zoom;
+			let zoom = this.scrolling.zoom_interpolated;
 
 			if (this.texture_cursor) {
 				let width = this.texture_cursor.width / zoom;
@@ -283,8 +286,14 @@ class Map {
 		let canvas = renderer.getCanvas();
 		boundary.center_x = -this.scrolling.x;
 		boundary.center_y = -this.scrolling.y;
-		boundary.width = canvas.width / this.scrolling.zoom;
-		boundary.height = canvas.height / this.scrolling.zoom;
+		boundary.width = canvas.width / this.scrolling.zoom_interpolated;
+		boundary.height = canvas.height / this.scrolling.zoom_interpolated;
+	}
+
+	tick = function () {
+		this.scrolling.zoom_smooth_prev = this.scrolling.zoom_smooth;
+		this.scrolling.zoom_smooth = lerp(0.2, this.scrolling.zoom_smooth, this.scrolling.zoom);
+
 	}
 
 	draw = function () {
@@ -298,6 +307,10 @@ class Map {
 
 		renderer.viewportFullscreen();
 		renderer.clear(0.8, 0.8, 0.8, 1);
+
+		let alpha = this.multipixel.timestep.getAlpha();
+
+		this.scrolling.zoom_interpolated = lerp(alpha, this.scrolling.zoom_smooth_prev, this.scrolling.zoom_smooth);
 
 		this.updateBoundary();
 		let boundary = this.boundary;
@@ -314,6 +327,9 @@ class Map {
 		this.drawBrush(gl);
 
 		renderer.drawRect();
+
+		if (Math.abs(this.scrolling.zoom_smooth - this.scrolling.zoom) > 0.005)
+			this.triggerRerender();
 	}
 
 	getScrolling = function () {
