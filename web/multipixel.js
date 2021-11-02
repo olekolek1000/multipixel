@@ -23,12 +23,15 @@ const ToolID = {
 
 class Cursor {
 	constructor() {
+		this.just_pressed_down = false;
 		this.x = 0.0;
 		this.y = 0.0;
 		this.x_prev = 0.0;
 		this.y_prev = 0.0;
 		this.canvas_x = 0.0;
+		this.canvas_x_smooth = 0.0;
 		this.canvas_y = 0.0;
+		this.canvas_y_smooth = 0.0;
 		this.down_left = false;
 		this.down_right = false;
 		this.brush_size = 1;
@@ -43,6 +46,7 @@ class Multipixel {
 	renderer;//class Renderer
 	cursor;//class Cursor
 	needs_boundaries_update;//bool
+	timestep;//class
 
 	constructor(host, nick, done_callback) {
 		this.client = new Client(this, host, nick, () => {
@@ -57,6 +61,7 @@ class Multipixel {
 		this.initChat();
 		this.initGUI();
 		this.initListeners();
+		this.initTimestep();
 
 		//Start rendering
 		this.draw();
@@ -65,6 +70,11 @@ class Multipixel {
 	}
 
 	draw = function () {
+		let i = 0;
+		while (this.timestep.onTick() && i < 1000) {
+			this.tick();
+			i++;
+		}
 		this.map.draw();
 		window.requestAnimationFrame(() => {
 			this.draw();
@@ -154,7 +164,28 @@ class Multipixel {
 			cursor.canvas_x = Math.floor(raw_x);
 			cursor.canvas_y = Math.floor(raw_y);
 
-			this.client.socketSendCursorPos(cursor.canvas_x, cursor.canvas_y);
+			let smooth = false;
+			let smooth_val;
+
+			if (this.cursor.down_left && this.cursor.tool_id == ToolID.brush) {
+				let value = document.getElementById("mp_slider_brush_smoothing").value;
+				if (value > 0) {
+					smooth = true;
+					smooth_val = 1.0 - value / 101.0;
+				}
+			}
+
+			if (smooth) {
+				cursor.canvas_x_smooth = lerp(smooth_val, cursor.canvas_x_smooth, cursor.canvas_x);
+				cursor.canvas_y_smooth = lerp(smooth_val, cursor.canvas_y_smooth, cursor.canvas_y);
+
+				if (cursor.just_pressed_down) {
+					cursor.canvas_x_smooth = cursor.canvas_x;
+					cursor.canvas_y_smooth = cursor.canvas_y;
+				}
+			}
+
+			this.client.socketSendCursorPos(smooth ? cursor.canvas_x_smooth : cursor.canvas_x, smooth ? cursor.canvas_y_smooth : cursor.canvas_y);
 
 			if (cursor.down_right) {
 				//Scroll
@@ -164,10 +195,12 @@ class Multipixel {
 			}
 
 			this.map.triggerRerender();
+			cursor.just_pressed_down = false;
 		});
 
 		canvas.addEventListener("mousedown", (e) => {
 			let cursor = this.getCursor();
+			cursor.just_pressed_down = true;
 			if (e.button == 0) {//Left
 				cursor.down_left = true;
 				this.client.socketSendCursorDown();
@@ -211,6 +244,11 @@ class Multipixel {
 		});
 	}
 
+	initTimestep = function () {
+		this.timestep = new Timestep();
+		this.timestep.setRate(60.0);
+	}
+
 	getRenderer = function () {
 		return this.renderer;
 	}
@@ -249,6 +287,7 @@ class Multipixel {
 	}
 
 	selectTool = function (tool_id) {
+		this.cursor.tool_id = tool_id;
 		this.client.socketSendToolType(tool_id);
 	}
 
@@ -303,5 +342,9 @@ class Multipixel {
 		if (color != null) {
 			this.currentColorUpadate(color);
 		}
+	}
+
+	tick = function () {
+		this.map.tick();
 	}
 }

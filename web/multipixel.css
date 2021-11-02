@@ -65,16 +65,59 @@
 	position: fixed;
 	top: 0;
 	left: 0;
+	padding-right: 4px;
+	display: flex;
+	align-items: center;
 }
 
-#mp_tool_settings {
-	margin-right: 4px;
+.mp_slider {
+	-webkit-appearance: none;
+	appearance: none;
+	background-color: rgb(0, 204, 255);
+	border-radius: 3px;
+	outline: none;
+	width: 80px;
+	height: 5px;
 }
 
-#mp_slider_brush_size {
-	background-color: #FFF;
-	width: 100px;
-	height: 32px;
+.mp_slider::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 14px;
+	height: 14px;
+	background: #0059ff;
+	cursor: pointer;
+	border: 1px solid white;
+	border-radius: 0;
+	transition: 0.2s;
+}
+
+.mp_slider::-moz-range-thumb {
+	width: 14px;
+	height: 14px;
+	background: #0059ff;
+	cursor: pointer;
+	border: 1px solid white;
+	border-radius: 0;
+	transition: 0.2s;
+}
+
+.mp_slider::-webkit-slider-thumb:hover {
+	width: 20px;
+	height: 20px;
+	border-radius: 5px;
+}
+
+.mp_slider::-moz-range-thumb:hover {
+	width: 20px;
+	height: 20px;
+	border-radius: 5px;
+}
+
+.mp_slider_desc {
+	color: #FFF;
+	margin-left: 5px;
+	margin-right: 5px;
 }
 
 .mp_floating_button {
