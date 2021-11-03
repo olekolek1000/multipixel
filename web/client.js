@@ -25,6 +25,7 @@ const ClientCmd = {
 	tool_size: 200, //u8 size
 	tool_color: 201, //u8 red, u8 green, u8 blue
 	tool_type: 202,//u8 type
+	undo: 203,
 }
 
 const ServerCmd = {
@@ -167,6 +168,11 @@ class Client {
 		let buf = createMessage(ClientCmd.chunks_received, size_u32);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint32(0, this.chunks_received);
+		this.socket.send(buf);
+	}
+
+	socketSendUndo = function () {
+		let buf = createMessage(ClientCmd.undo, 0);
 		this.socket.send(buf);
 	}
 
