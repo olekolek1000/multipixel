@@ -116,6 +116,12 @@ class Multipixel {
 			this.client.socketSendUndo();
 		});
 
+		document.addEventListener('keydown', (event) => {
+			if (event.ctrlKey && event.key === 'z') {
+				this.client.socketSendUndo();
+			}
+		});
+
 		let button_tool_brush = document.getElementById("button_tool_brush");
 		button_tool_brush.addEventListener("click", () => {
 			this.selectTool(ToolID.brush);
