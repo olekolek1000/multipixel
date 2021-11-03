@@ -111,6 +111,11 @@ class Multipixel {
 			this.map.triggerRerender();
 		});
 
+		let button_undo = document.getElementById("button_undo");
+		button_undo.addEventListener("click", () => {
+			this.client.socketSendUndo();
+		});
+
 		let button_tool_brush = document.getElementById("button_tool_brush");
 		button_tool_brush.addEventListener("click", () => {
 			this.selectTool(ToolID.brush);

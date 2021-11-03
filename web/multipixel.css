@@ -191,3 +191,7 @@
 #button_tool_floodfill {
 	background-image: url('img/icon_floodfill.png');
 }
+
+#button_undo {
+	background-image: url('img/icon_undo.png');
+}
