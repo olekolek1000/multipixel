@@ -29,6 +29,15 @@ struct FloodfillCell {
 	s32 y;
 };
 
+struct GlobalPixel {
+	Int2 pos;
+	u8 r, g, b;
+};
+
+struct HistoryCell {
+	std::vector<GlobalPixel> pixels;
+};
+
 struct Session {
 private:
 	bool valid = false;
@@ -68,8 +77,10 @@ private:
 	std::mutex mtx_packet_queue;
 	std::queue<Packet> packet_queue;
 
-	std::mutex mtx_linked_chunks;
+	std::mutex mtx_access;
 	std::vector<LinkedChunk> linked_chunks;
+
+	std::vector<HistoryCell> history_cells;
 
 	struct {
 		u8 to_replace_r, to_replace_g, to_replace_b;
@@ -121,12 +132,6 @@ private:
 	bool isChunkLinked_nolock(Int2 chunk_pos);
 	void close();
 
-	void updateCursor();
-
-	Chunk *getChunkCached_nolock(Int2 chunk_pos);
-	bool getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b);
-	void setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b);
-
 	//--------------------------------------------
 	// All methods below are run in worker thread
 	//--------------------------------------------
@@ -145,6 +150,7 @@ private:
 	void parseCommandCursorPos(const std::string_view data);
 	void parseCommandCursorDown(const std::string_view data);
 	void parseCommandCursorUp(const std::string_view data);
+	void parseCommandUndo(const std::string_view data);
 	void parseCommandToolSize(const std::string_view data);
 	void parseCommandToolColor(const std::string_view data);
 	void parseCommandToolType(const std::string_view data);
@@ -153,4 +159,17 @@ private:
 
 	void kick(const char *reason);
 	void kickInvalidPacket();
+
+	void updateCursor();
+
+	Chunk *getChunkCached_nolock(Int2 chunk_pos);
+	bool getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b);
+	void setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b);
+
+	void setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count);
+	void setPixelsGlobal(GlobalPixel *pixels, size_t count);
+
+	void historyCreateSnapshot();
+	void historyUndo_nolock();
+	void historyAddPixel(GlobalPixel *pixel);
 };
