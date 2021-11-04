@@ -23,13 +23,24 @@
 	<script src="timestep.js"></script>
 </head>
 
-<body id="body" bgcolor="#FFF">
+<body id="body">
 	<div id="login_screen" style="visibility: hidden;">
-		<div id="logo">
-			<img src="logo.webp" style="width: 100%; height:  auto;" />
-			<div id="center-logo">
-				<input type="text" placeholder="Nickname" maxlength="32" id="nick">
-				<input type="button" value="START" onclick="onStartClick()">
+		<div class="login_center">
+			<video width="512" height="128" autoplay muted>
+				<source src="logo.webm" type="video/webm">
+				Logo
+			</video>
+			<div class="login_desc">
+				A program that allows you to draw on an infinitely large canvas - in multiplayer!
+			</div>
+			<div class="login_input">
+				<input class="login_input_text" type="text" placeholder="Nickname" maxlength="32" id="nick">
+				<input class="login_input_button" type="button" value="START" onclick="onStartClick()">
+			</div>
+			<div class="login_credits">
+				Client made in Javascript + WebGL + WebSockets<br>
+				Server fully made in C++<br>
+				<b>Proudly created by olekolek1000 & KuczaRacza</b>
 			</div>
 		</div>
 	</div>
