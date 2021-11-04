@@ -328,7 +328,7 @@ class Map {
 
 		renderer.drawRect();
 
-		if (Math.abs(this.scrolling.zoom_smooth - this.scrolling.zoom) > 0.005)
+		if (Math.abs(this.scrolling.zoom_smooth - this.scrolling.zoom) > 0.001)
 			this.triggerRerender();
 	}
 
