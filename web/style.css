@@ -1,26 +1,57 @@
 #body {
 	margin: 0;
-	overflow: hidden;
 	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+	background-color: #0080FF;
 }
 
-#brush-size {
-	position: relative;
-	overflow: hidden;
-	float: left;
+.login_center {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 100vh;
 }
 
-#brush-size:hover {
-	overflow: visible;
+.login_input {
+	display: flex;
+	padding: 0.3cm;
+	background-color: rgb(0, 200, 255);
+	width: min-content;
+	flex-direction: row;
 }
 
-#logo {
+.login_input_text {
+	border: 1px solid black;
+	border-right: 0;
+	background-color: #FFF;
+	font-size: 0.5cm;
+	font-weight: 100;
+}
+
+.login_input_button {
+	border: 1px solid black;
+	background-color: #FFF;
+	font-size: 0.5cm;
+	font-weight: 100;
+}
+
+.login_credits, .login_desc {
+	color: #FFF;
+	text-shadow: 1px 1px black;
+}
+
+.login_desc {
+	font-size: 14px;
+	margin-bottom: 0.5cm;
+}
+
+.login_credits {
 	position: absolute;
-	top: 30%;
-	width: 20%;
-	left: 35%;
-	border-color: floralwhite;
-	border-radius: 5rem;
-	padding: 5%;
-	background-color: floralwhite;
+	bottom: 0;
+	right: 0;
+	text-align: right;
+	margin-bottom: 0.5cm;
+	margin-right: 0.5cm;
+	font-size: 12px;
+	line-height: 150%;
 }

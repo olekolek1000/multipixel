@@ -1,6 +1,5 @@
 #mp_screen {
-	width: 100vw;
-	height: 100vh;
+	overflow: hidden;
 }
 
 #canvas_render {
@@ -13,6 +12,7 @@
 #mp_player_list {
 	position: fixed;
 	right: 0;
+	top: 0;
 	text-align: right;
 	padding: 8px;
 	font-size: 0.3cm;
