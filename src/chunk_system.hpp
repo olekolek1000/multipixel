@@ -14,11 +14,6 @@ struct Server;
 struct Session;
 struct Chunk;
 
-struct GlobalPixel {
-	Int2 pos;
-	u8 r, g, b;
-};
-
 struct ChunkSystem {
 	Server *server;
 
@@ -52,7 +47,6 @@ public:
 		return 256;
 	}
 
-	void setPixels(Session *session, GlobalPixel *pixels, size_t count);
 	bool getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b);
 
 	///@returns chunk coordinates from global pixel position

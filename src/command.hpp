@@ -25,6 +25,7 @@ enum struct ClientCmd : u16 {
 	tool_size = 200,	//u8 size
 	tool_color = 201, //u8 red, u8 green, u8 blue
 	tool_type = 202,	//u8 type
+	undo = 203
 };
 
 enum struct ServerCmd : u16 {
