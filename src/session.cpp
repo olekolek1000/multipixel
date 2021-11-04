@@ -80,13 +80,13 @@ bool Session::runner_tick() {
 			//Remove chunks outside bounds and left for longer time
 			std::vector<Int2> chunks_to_unload;
 			{
-				std::lock_guard lock(mtx_linked_chunks);
+				std::lock_guard lock(mtx_access);
 				for(size_t i = 0; i < linked_chunks.size(); i++) { //Do not use iterator there
 					auto &linked_chunk = linked_chunks[i];
 					auto pos = linked_chunk.chunk->getPosition();
 					if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
 						linked_chunk.outside_boundary_duration++;
-						if(linked_chunk.outside_boundary_duration == 30 /* seconds */) {
+						if(linked_chunk.outside_boundary_duration == 20 /* seconds */) {
 							chunks_to_unload.push_back(pos);
 						}
 					} else {
@@ -125,7 +125,7 @@ bool Session::runner_tick() {
 			};
 
 			for(u32 i = 0; i < 20000;) {
-				std::lock_guard lock(mtx_linked_chunks); //Required by getPixelGlobal_nolock
+				std::lock_guard lock(mtx_access); //Required by getPixelGlobal_nolock
 
 				if(floodfill.stack.empty()) break;
 				auto cell = floodfill.stack.top();
@@ -266,7 +266,7 @@ void Session::stopRunner() {
 }
 
 void Session::linkChunk(Chunk *chunk) {
-	std::lock_guard lock(mtx_linked_chunks);
+	std::lock_guard lock(mtx_access);
 
 	for(auto &cell : linked_chunks) {
 		if(cell.chunk == chunk)
@@ -280,7 +280,7 @@ void Session::linkChunk(Chunk *chunk) {
 }
 
 void Session::unlinkChunk(Chunk *chunk) {
-	std::lock_guard lock(mtx_linked_chunks);
+	std::lock_guard lock(mtx_access);
 
 	if(last_accessed_chunk_cache == chunk)
 		last_accessed_chunk_cache = nullptr;
@@ -298,12 +298,12 @@ void Session::unlinkChunk(Chunk *chunk) {
 }
 
 bool Session::isChunkLinked(Chunk *chunk) {
-	std::lock_guard lock(mtx_linked_chunks);
+	std::lock_guard lock(mtx_access);
 	return isChunkLinked_nolock(chunk);
 }
 
 bool Session::isChunkLinked(Int2 chunk_pos) {
-	std::lock_guard lock(mtx_linked_chunks);
+	std::lock_guard lock(mtx_access);
 	return isChunkLinked_nolock(chunk_pos);
 }
 
@@ -352,6 +352,114 @@ bool Session::getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b) {
 	return true;
 }
 
+void Session::setPixelsGlobal(GlobalPixel *pixels, size_t count) {
+	std::lock_guard lock(mtx_access);
+	setPixelsGlobal_nolock(pixels, count);
+}
+
+void Session::historyCreateSnapshot() {
+	if(history_cells.size() > 10)
+		history_cells.erase(history_cells.begin());
+
+	history_cells.emplace_back();
+}
+
+void Session::historyUndo_nolock() {
+	if(history_cells.empty())
+		return; //Nothing to undo
+
+	auto &back = history_cells.back();
+	setPixelsGlobal_nolock(back.pixels.data(), back.pixels.size());
+
+	history_cells.pop_back();
+}
+
+void Session::historyAddPixel(GlobalPixel *pixel) {
+	if(history_cells.empty())
+		historyCreateSnapshot();
+
+	auto &back = history_cells.back();
+	back.pixels.push_back(*pixel);
+}
+
+void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
+	struct ChunkCacheCell {
+		Int2 chunk_pos;
+		Chunk *chunk;
+		std::vector<ChunkPixel> queued_pixels;
+		std::vector<Int2> queued_global_positions;
+	};
+
+	//Chunk "cache"
+	//Visible and affected chunks by player
+	std::vector<ChunkCacheCell> affected_chunks;
+
+	auto fetchCell = [&](Int2 chunk_pos) -> ChunkCacheCell * {
+		for(auto &cell : affected_chunks) {
+			if(cell.chunk_pos == chunk_pos) {
+				return &cell;
+			}
+		}
+
+		return nullptr;
+	};
+
+	auto cacheNewChunk = [&](Int2 chunk_pos) {
+		auto *chunk = getChunkCached_nolock(chunk_pos);
+		if(!chunk) return;
+		affected_chunks.push_back({Int2(chunk_pos), chunk});
+	};
+
+	//Generate affected chunks list
+	for(size_t i = 0; i < count; i++) {
+		auto &pixel = pixels[i];
+		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(pixel.pos);
+		if(fetchCell(chunk_pos) == nullptr) {
+			cacheNewChunk(chunk_pos);
+		}
+	}
+
+	//Send pixels to chunks
+	for(size_t i = 0; i < count; i++) {
+		auto &pixel = pixels[i];
+		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(pixel.pos);
+		auto *cell = fetchCell(chunk_pos);
+		if(!cell)
+			continue; //Skip pixel
+
+		auto &queued_pixel = cell->queued_pixels.emplace_back();
+		auto &queued_global_pos = cell->queued_global_positions.emplace_back();
+		queued_global_pos = pixel.pos;
+		queued_pixel.pos = ChunkSystem::globalPixelPosToLocalPixelPos(pixel.pos);
+		queued_pixel.r = pixel.r;
+		queued_pixel.g = pixel.g;
+		queued_pixel.b = pixel.b;
+	}
+
+	for(auto &cell : affected_chunks) {
+		if(cell.queued_pixels.empty())
+			continue;
+
+		cell.chunk->lock();
+		cell.chunk->allocateImage_nolock();
+
+		for(u32 i = 0; i < cell.queued_pixels.size(); i++) {
+			auto &queued_pixel = cell.queued_pixels[i];
+			auto &queued_global_pos = cell.queued_global_positions[i];
+
+			GlobalPixel gpixel;
+			gpixel.pos = queued_global_pos;
+			cell.chunk->getPixel_nolock(queued_pixel.pos, &gpixel.r, &gpixel.g, &gpixel.b);
+			if(gpixel.r != queued_pixel.r || gpixel.g != queued_pixel.g || gpixel.b != queued_pixel.b)
+				historyAddPixel(&gpixel);
+		}
+
+		cell.chunk->setPixels_nolock(cell.queued_pixels.data(), cell.queued_pixels.size());
+
+		cell.chunk->unlock();
+	}
+}
+
 void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
 	auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(global_pos);
 	auto *chunk = getChunkCached_nolock(chunk_pos);
@@ -359,6 +467,15 @@ void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
 		return;
 
 	auto local_pos = ChunkSystem::globalPixelPosToLocalPixelPos(global_pos);
+
+	GlobalPixel global_pixel;
+	global_pixel.pos = global_pos;
+	chunk->lock();
+	chunk->allocateImage_nolock();
+	chunk->getPixel_nolock(local_pos, &global_pixel.r, &global_pixel.g, &global_pixel.b);
+	chunk->unlock();
+	if(global_pixel.r != r || global_pixel.g != g || global_pixel.b != b)
+		historyAddPixel(&global_pixel);
 
 	ChunkPixel pixel;
 	pixel.pos = local_pos;
@@ -420,6 +537,10 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 		}
 		case ClientCmd::cursor_up: {
 			parseCommandCursorUp(data);
+			break;
+		}
+		case ClientCmd::undo: {
+			parseCommandUndo(data);
 			break;
 		}
 		case ClientCmd::tool_size: {
@@ -569,7 +690,7 @@ void Session::updateCursor() {
 				}
 			}
 
-			server->getChunkSystem()->setPixels(this, pixels.data(), pixels.size());
+			setPixelsGlobal(pixels.data(), pixels.size());
 			break;
 		}
 		case ToolType::floodfill: {
@@ -629,6 +750,7 @@ void Session::parseCommandCursorDown(const std::string_view data) {
 	cursor_just_clicked = true;
 	cursorX_prev = cursorX;
 	cursorY_prev = cursorY;
+	historyCreateSnapshot();
 	updateCursor();
 }
 
@@ -636,6 +758,11 @@ void Session::parseCommandCursorUp(const std::string_view data) {
 	cursor_down = false;
 	floodfill.stack = {};
 	updateCursor();
+}
+
+void Session::parseCommandUndo(const std::string_view data) {
+	std::lock_guard lock(mtx_access);
+	historyUndo_nolock();
 }
 
 void Session::parseCommandToolSize(const std::string_view data) {
@@ -741,7 +868,7 @@ void Session::runner_performBoundaryTest() {
 
 	std::vector<Int2> chunks_to_load;
 	{
-		std::lock_guard lock(mtx_linked_chunks);
+		std::lock_guard lock(mtx_access);
 
 		//Check which chunks aren't announced for this session
 		for(s32 y = boundary.start_y; y < boundary.end_y; y++) {
