@@ -1,6 +1,7 @@
 #include "server.hpp"
 #include "chunk_system.hpp"
 #include "command.hpp"
+#include "plugin.hpp"
 #include "session.hpp"
 #include "util/buffer.hpp"
 #include "util/mutex.hpp"
@@ -16,6 +17,8 @@
 #include <stdarg.h>
 #include <thread>
 #include <time.h>
+
+static const char *LOG_SERVER = "Server";
 
 namespace {
 	auto timer_start = std::chrono::high_resolution_clock::now();
@@ -33,8 +36,9 @@ typedef std::map<u8, uniqptr<BrushShape>> BrushShapeMap;
 
 struct Server::P {
 	uniqptr<ChunkSystem> chunk_system;
+	uniqptr<PluginManager> plugin_manager;
 
-	std::mutex mtx_brush_shapes;
+	Mutex mtx_brush_shapes;
 	BrushShapeMap brush_shapes_circle_filled;
 	BrushShapeMap brush_shapes_circle_outline;
 
@@ -44,14 +48,17 @@ struct Server::P {
 Server::Server() {
 	p.create();
 	p->chunk_system.create(this);
+	p->plugin_manager.create(this);
 }
 
 Server::~Server() {
+	p->plugin_manager.reset();
+
 	if(!p->properly_shut_down) {
-		log("Server not properly shutted down");
+		log(LOG_SERVER, "Server not properly shutted down");
 	}
 
-	log("Server stopped");
+	log(LOG_SERVER, "Cleaning up");
 }
 
 static bool got_sigint = false;
@@ -68,15 +75,29 @@ void sigint_handler(int num) {
 void Server::run(u16 port) {
 	signal(SIGINT, sigint_handler);
 
+	log(LOG_SERVER, "Starting server on port %u", port);
+
+	Mutex mtx_action;
+
 	server.run(
 			port,
-			[this](std::shared_ptr<WsMessage> ws_msg) { messageCallback(ws_msg); }, //Message callback
-			[this](WsConnection *con) { closeCallback(con); }												//Close callback
+			[&](std::shared_ptr<WsMessage> ws_msg) {
+				LockGuard lock(mtx_action);
+				messageCallback(ws_msg);
+			},												 //Message callback
+			[&](WsConnection *con) { 
+				LockGuard lock(mtx_action);closeCallback(con); } //Close callback
 	);
 
 	while(!got_sigint) {
 		freeRemovedSessions();
-		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		if(queue.size() > 0) {
+			log(LOG_SERVER, "processed");
+			LockGuard lock(mtx_action);
+			queue.process();
+		} else {
+			std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		}
 	}
 
 	//Clean shutdown
@@ -84,12 +105,12 @@ void Server::run(u16 port) {
 }
 
 void Server::shutdown() {
-	log("======== SHUTTING DOWN SERVER ========");
+	log(LOG_SERVER, "======== SHUTTING DOWN SERVER ========");
 
-	log("Disconnecting and removing sessions");
-	std::lock_guard lock(mtx_sessions);
+	log(LOG_SERVER, "Disconnecting and removing sessions");
+	LockGuard lock(mtx_sessions);
 	while(!sessions.empty()) {
-		log("%u remaining", sessions.size());
+		log(LOG_SERVER, "%u remaining", sessions.size());
 		auto *session = sessions.back().get();
 		removeSession_nolock(session->getConnection());
 	}
@@ -122,58 +143,79 @@ Session *Server::createSession_nolock(WsConnection *connection) {
 	session.create(this, connection, id);
 
 	auto *ptr = session.get();
-	session_map[connection] = ptr;
+	session_map_conn[connection] = ptr;
+	session_map_id[id] = ptr;
 
-	log("Created session with ID %u (IP: %s)", id, connection->getIP());
+	log(LOG_SERVER, "Created session with ID %u (IP: %s)", id, connection->getIP());
 
 	return ptr;
 }
 
 Session *Server::getSession_nolock(WsConnection *connection) {
-	auto it = session_map.find(connection);
-	if(it == session_map.end())
+	auto it = session_map_conn.find(connection);
+	if(it == session_map_conn.end())
+		return nullptr;
+
+	return it->second;
+}
+
+Session *Server::getSession_nolock(u16 session_id) {
+	auto it = session_map_id.find(session_id);
+	if(it == session_map_id.end())
 		return nullptr;
 
 	return it->second;
 }
 
 void Server::removeSession_nolock(WsConnection *connection) {
+	queue.process();
+
 	//Remove from map
-	auto it = session_map.find(connection);
-	assert(it != session_map.end());
-	session_map.erase(it);
+	{
+		auto it = session_map_conn.find(connection);
+		assert(it != session_map_conn.end());
+		session_map_conn.erase(it);
+	}
 
 	//Remove from vector
 	for(auto it = sessions.begin(); it != sessions.end();) {
-		if((*it)->getConnection() == connection) {
-			auto *session_to_remove = it->get();
-
-			auto packet_remove_user = preparePacketUserRemove(it->get());
-
-			//Send remove_user packet for every session (except this)
-			for(auto &session : sessions) {
-				if(session.get() == session_to_remove)
-					continue;
-
-				session->pushPacket(packet_remove_user);
-			}
-
-			log("Removing session with ID %u (Nickname %s)",
-					session_to_remove->getID(),
-					session_to_remove->getNickname().c_str());
-
-			log("Triggering session_remove dispatchers");
-
-			//Trigger session remove dispatcher
-			dispatcher_session_remove.triggerAll(session_to_remove);
-
-			log("Freeing session from memory");
-			it = sessions.erase(it);
-			log("Session freed");
-			return;
-		} else {
+		if((*it)->getConnection() != connection) {
 			it++;
+			continue;
 		}
+		auto *session_to_remove = it->get();
+
+		{
+			auto it = session_map_id.find(session_to_remove->getID());
+			assert(it != session_map_id.end());
+			session_map_id.erase(it);
+		}
+
+		auto packet_remove_user = preparePacketUserRemove(it->get());
+
+		//Send remove_user packet for every session (except this)
+		for(auto &session : sessions) {
+			if(session.get() == session_to_remove)
+				continue;
+
+			session->pushPacket(packet_remove_user);
+		}
+
+		getPluginManager()->passUserLeave(session_to_remove->getID());
+
+		log(LOG_SERVER, "Removing session with ID %u (Nickname %s)",
+				session_to_remove->getID(),
+				session_to_remove->getNickname().c_str());
+
+		log(LOG_SERVER, "Triggering session_remove dispatchers");
+
+		//Trigger session remove dispatcher
+		dispatcher_session_remove.triggerAll(session_to_remove);
+
+		log(LOG_SERVER, "Freeing session from memory");
+		it = sessions.erase(it);
+		log(LOG_SERVER, "Session freed");
+		return;
 	}
 
 	//Shouldn't go there
@@ -181,7 +223,7 @@ void Server::removeSession_nolock(WsConnection *connection) {
 }
 
 void Server::freeRemovedSessions() {
-	std::lock_guard lock(mtx_sessions);
+	LockGuard lock(mtx_sessions);
 
 	uniqdata<Session *> to_remove;
 
@@ -199,7 +241,7 @@ void Server::freeRemovedSessions() {
 }
 
 void Server::forEverySessionExcept(Session *except, std::function<void(Session *)> callback) {
-	std::lock_guard lock(mtx_sessions);
+	LockGuard lock(mtx_sessions);
 
 	//For every session
 	for(auto &session : sessions) {
@@ -213,9 +255,7 @@ void Server::forEverySessionExcept(Session *except, std::function<void(Session *
 	}
 }
 
-void Server::broadcast(const Packet &packet, Session *except) {
-	std::lock_guard lock(mtx_sessions);
-
+void Server::broadcast_nolock(const Packet &packet, Session *except) {
 	//For every session
 	for(auto &session : sessions) {
 		if(session.get() == except)
@@ -228,8 +268,13 @@ void Server::broadcast(const Packet &packet, Session *except) {
 	}
 }
 
+void Server::broadcast(const Packet &packet, Session *except) {
+	LockGuard lock(mtx_sessions);
+	broadcast_nolock(packet, except);
+}
+
 BrushShape *Server::getBrushShape(u8 size, bool filled) {
-	std::lock_guard lock(p->mtx_brush_shapes);
+	LockGuard lock(p->mtx_brush_shapes);
 
 	BrushShapeMap *map;
 	if(filled)
@@ -271,10 +316,14 @@ ChunkSystem *Server::getChunkSystem() {
 	return p->chunk_system.get();
 }
 
+PluginManager *Server::getPluginManager() {
+	return p->plugin_manager.get();
+}
+
 void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 	auto *connection = ws_msg->connection;
 
-	std::lock_guard lock(mtx_sessions);
+	LockGuard lock(mtx_sessions);
 
 	auto *session = getSession_nolock(connection);
 
@@ -289,19 +338,27 @@ void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 }
 
 void Server::closeCallback(WsConnection *connection) {
-	std::lock_guard lock(mtx_sessions);
+	LockGuard lock(mtx_sessions);
 
 	auto *session = getSession_nolock(connection);
 	if(!session) {
-		log("Got close callback, but cannot find session");
+		log(LOG_SERVER, "Got close callback, but cannot find session");
 		return;
 	}
 
 	session->stopRunner();
 }
 
-void Server::log(const char *format, ...) {
-	std::lock_guard lock(mtx_log);
+#define COLOR_RED			"\x1b[31m"
+#define COLOR_GREEN		"\x1b[32m"
+#define COLOR_YELLOW	"\x1b[33m"
+#define COLOR_BLUE		"\x1b[34m"
+#define COLOR_MAGENTA "\x1b[35m"
+#define COLOR_CYAN		"\x1b[36m"
+#define COLOR_RESET		"\x1b[0m"
+
+void Server::log(const char *name, const char *format, ...) {
+	LockGuard lock(mtx_log);
 
 	char *buf = nullptr;
 
@@ -315,6 +372,6 @@ void Server::log(const char *format, ...) {
 
 	auto *t = localtime(&time_s);
 
-	printf("[%d-%02d-%02d %02d:%02d:%02d] %s\n", t->tm_year + 1900, t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, buf);
+	printf(COLOR_BLUE "[%d-%02d-%02d %02d:%02d:%02d]" COLOR_YELLOW "[%s]" COLOR_RESET " %s\n", t->tm_year + 1900, t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, name, buf);
 	free(buf);
 }

@@ -148,8 +148,11 @@ Packet preparePacketChunkRemove(Int2 chunk_pos) {
 	return preparePacket(ServerCmd::chunk_remove, &chunk_pos_BE, sizeof(chunk_pos_BE));
 }
 
-Packet preparePacketMessage(const char *message) {
-	return preparePacket(ServerCmd::message, message, strlen(message));
+Packet preparePacketMessage(MessageType type, const char *message) {
+	Buffer buf;
+	buf.write(&type, 1);
+	buf.write(message, strlen(message));
+	return preparePacket(ServerCmd::message, buf.data(), buf.size());
 }
 
 SharedVector<u8> compressLZ4(const void *data, u32 raw_size) NO_SANITIZER {

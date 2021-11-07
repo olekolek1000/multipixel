@@ -2,6 +2,7 @@
 
 #include "database.hpp"
 #include "util/listener.hpp"
+#include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
@@ -18,10 +19,10 @@ struct ChunkSystem {
 	Server *server;
 
 private:
-	std::mutex mtx_database;
+	Mutex mtx_database;
 	DatabaseConnector database;
 
-	std::mutex mtx_access;
+	Mutex mtx_access;
 	std::map<s32, std::map<s32, uniqptr<Chunk>>> chunks;
 
 	Chunk *last_accessed_chunk_cache = nullptr;

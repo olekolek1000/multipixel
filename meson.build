@@ -3,12 +3,13 @@ project('Server', 'c', 'cpp', default_options : ['c_std=c11', 'cpp_std=c++17'])
 src_root = './src/'
 inc = [
 	include_directories(src_root),
-	include_directories(src_root + 'SQLiteCpp')
+	include_directories(src_root + 'lib/SQLiteCpp')
 ]
 
 src = [
 	src_root + 'util/types.cpp',
 	src_root + 'util/timestep.cpp',
+	src_root + 'util/logs.cpp',
 	src_root + 'main.cpp',
 	src_root + 'ws_server.cpp',
 	src_root + 'server.cpp',
@@ -17,20 +18,23 @@ src = [
 	src_root + 'database.cpp',
 	src_root + 'chunk.cpp',
 	src_root + 'chunk_system.cpp',
-	src_root + 'SQLiteCpp/Backup.cpp',
-	src_root + 'SQLiteCpp/Column.cpp',
-	src_root + 'SQLiteCpp/Database.cpp',
-	src_root + 'SQLiteCpp/Exception.cpp',
-	src_root + 'SQLiteCpp/Savepoint.cpp',
-	src_root + 'SQLiteCpp/Statement.cpp',
-	src_root + 'SQLiteCpp/Transaction.cpp'
+	src_root + 'plugin.cpp',
+	src_root + 'lib/ojson.cpp',
+	src_root + 'lib/SQLiteCpp/Backup.cpp',
+	src_root + 'lib/SQLiteCpp/Column.cpp',
+	src_root + 'lib/SQLiteCpp/Database.cpp',
+	src_root + 'lib/SQLiteCpp/Exception.cpp',
+	src_root + 'lib/SQLiteCpp/Savepoint.cpp',
+	src_root + 'lib/SQLiteCpp/Statement.cpp',
+	src_root + 'lib/SQLiteCpp/Transaction.cpp'
 ]
 
 deps = [
 	dependency('threads'),
 	dependency('websocketpp'),
 	dependency('liblz4'),
-	dependency('sqlite3')
+	dependency('sqlite3'),
+	dependency('lua')
 ]
 
 global_link_args = []

@@ -31,7 +31,7 @@ function onStartClick() {
 		document.getElementById("nick").setAttribute("placeholder", "Nickname length cannot exceed 32 characters(bytes).");
 	}
 	else {
-		let multipixel = new Multipixel("wss://olekolek1000.com/ws_multipixel/", nick, () => {
+		let multipixel = new Multipixel("ws://localhost:59900/", nick, () => {
 			showMultipixelScreen();
 		});
 	}

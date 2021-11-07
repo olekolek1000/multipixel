@@ -31,7 +31,7 @@ private:
 
 	std::vector<ChunkPixel> queued_pixels_to_send;
 
-	std::mutex mtx_access;
+	Mutex mtx_access;
 
 	SharedVector<u8> image;
 	SharedVector<u8> compressed_image;
