@@ -5,12 +5,21 @@
 #include "util/types.hpp"
 #include <memory>
 
-#define NO_SANITIZER __attribute__((no_sanitize("undefined")))
-#define PACKED			 __attribute__((packed))
+#ifdef __clang__
+#	define NO_SANITIZER __attribute__((no_sanitize("undefined")))
+#else
+#	define NO_SANITIZER
+#endif
+#define PACKED __attribute__((packed))
 
 enum struct ToolType {
 	brush = 0,
 	floodfill = 1
+};
+
+enum struct MessageType : u8 {
+	plain_text = 0,
+	html = 1
 };
 
 enum struct ClientCmd : u16 {
@@ -29,7 +38,7 @@ enum struct ClientCmd : u16 {
 };
 
 enum struct ServerCmd : u16 {
-	message = 1,						//utf-8 text
+	message = 1,						//u8 type, utf-8 text
 	your_id = 2,						//u16 id
 	kick = 3,								//utf-8 reason
 	chunk_image = 100,			//complex data
@@ -72,7 +81,7 @@ Packet preparePacketUserCreate(Session *session);
 Packet preparePacketUserRemove(Session *session);
 Packet preparePacketChunkCreate(Int2 chunk_pos);
 Packet preparePacketChunkRemove(Int2 chunk_pos);
-Packet preparePacketMessage(const char *message);
+Packet preparePacketMessage(MessageType type, const char *message);
 
 template <typename T>
 using SharedVector = std::shared_ptr<std::vector<T>>;

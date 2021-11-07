@@ -9,6 +9,8 @@
 #include <thread>
 #include <vector>
 
+static const char *LOG_CHUNK = "ChunkSystem";
+
 ChunkSystem::ChunkSystem(Server *server)
 		: server(server) {
 
@@ -21,7 +23,7 @@ ChunkSystem::ChunkSystem(Server *server)
 	});
 
 	server->dispatcher_session_remove.add(listener_session_remove, [this](Session *removing_session) {
-		std::lock_guard lock(mtx_access);
+		LockGuard lock(mtx_access);
 		//For every chunk
 		for(auto &i : chunks) {			//X
 			for(auto &j : i.second) { //Y
@@ -34,13 +36,12 @@ ChunkSystem::ChunkSystem(Server *server)
 
 ChunkSystem::~ChunkSystem() {
 	running = false;
-	server->log("Joining chunk system runner thread");
 	if(thr_runner.joinable())
 		thr_runner.join();
 }
 
 Chunk *ChunkSystem::getChunk(Int2 chunk_pos) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	return getChunk_nolock(chunk_pos);
 }
 
@@ -54,7 +55,7 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 		SharedVector<u8> compressed_chunk_data;
 		{
 			//Load chunk pixels from database
-			std::lock_guard lock(mtx_database);
+			LockGuard lock(mtx_database);
 			auto record = database.loadBytes(chunk_pos.x, chunk_pos.y);
 
 			if(!record.data || !record.data->empty())
@@ -73,7 +74,7 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 }
 
 bool ChunkSystem::getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 
 	auto chunk_pos = globalPixelPosToChunkPos(global_pixel_pos);
 
@@ -118,12 +119,12 @@ UInt2 ChunkSystem::globalPixelPosToLocalPixelPos(Int2 global_pixel_pos) {
 }
 
 void ChunkSystem::announceChunkForSession(Session *session, Int2 chunk_pos) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	announceChunkForSession_nolock(session, chunk_pos);
 }
 
 void ChunkSystem::deannounceChunkForSession(Session *session, Int2 chunk_pos) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	deannounceChunkForSession_nolock(session, chunk_pos);
 }
 
@@ -141,7 +142,7 @@ void ChunkSystem::deannounceChunkForSession_nolock(Session *session, Int2 chunk_
 
 void ChunkSystem::autosave() {
 	auto start = getMillis();
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 
 	std::vector<Chunk *> to_autosave;
 	u32 total_chunk_count = 0;
@@ -165,7 +166,7 @@ void ChunkSystem::autosave() {
 
 	if(saved_chunk_count) {
 		u32 dur = getMillis() - start;
-		server->log("Autosaved %u chunks in %ums (%u chunks loaded)", saved_chunk_count, dur, total_chunk_count);
+		server->log(LOG_CHUNK, "Autosaved %u chunks in %ums (%u chunks loaded)", saved_chunk_count, dur, total_chunk_count);
 	}
 }
 
@@ -232,7 +233,7 @@ bool ChunkSystem::runner_tick() {
 	//Atomic operation:
 	//if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
 	if(needs_garbage_collect.exchange(false)) {
-		std::lock_guard lock(mtx_access);
+		LockGuard lock(mtx_access);
 
 		bool done = false;
 
@@ -270,14 +271,14 @@ bool ChunkSystem::runner_tick() {
 		} while(!done);
 
 		if(saved_chunk_count || removed_chunk_count)
-			server->log("Saved %u chunks, %u total chunks loaded, %u removed (GC))", saved_chunk_count, loaded_chunk_count, removed_chunk_count);
+			server->log(LOG_CHUNK, "Saved %u chunks, %u total chunks loaded, %u removed (GC))", saved_chunk_count, loaded_chunk_count, removed_chunk_count);
 	}
 
 	while(step_ticks.onTick()) {
 		used = true;
 
 		if(ticks % 2 == 0) {
-			std::lock_guard lock(mtx_access);
+			LockGuard lock(mtx_access);
 			for(auto &i : chunks) {
 				for(auto &j : i.second) {
 					j.second->flushQueuedPixels();

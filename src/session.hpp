@@ -2,6 +2,7 @@
 
 #include "command.hpp"
 #include "util/event_queue.hpp"
+#include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
@@ -71,13 +72,13 @@ private:
 	std::thread thr_runner;
 
 	//Queues
-	std::mutex mtx_message_queue;
+	Mutex mtx_message_queue;
 	std::queue<std::shared_ptr<WsMessage>> message_queue;
 
-	std::mutex mtx_packet_queue;
+	Mutex mtx_packet_queue;
 	std::queue<Packet> packet_queue;
 
-	std::mutex mtx_access;
+	Mutex mtx_access;
 	std::vector<LinkedChunk> linked_chunks;
 
 	std::vector<HistoryCell> history_cells;

@@ -1,5 +1,4 @@
-#include "SQLiteCpp/Database.h"
-#include "SQLiteCpp/SQLiteCpp.h"
+
 #include "command.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
@@ -26,6 +25,10 @@ struct DatabaseListElement {
 	s64 rowid;
 	s64 modified;
 };
+
+namespace SQLite {
+	class Database;
+}
 
 struct DatabaseConnector;
 

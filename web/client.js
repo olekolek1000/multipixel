@@ -13,6 +13,11 @@ const size_s16 = 2;
 const size_s32 = 4;
 const size_s64 = 8;
 
+const MessageType = {
+	plain_text: 0,
+	html: 1
+}
+
 const ClientCmd = {
 	message: 1,			//utf-8 text
 	announce: 2,			//utf-8 username
@@ -29,7 +34,7 @@ const ClientCmd = {
 }
 
 const ServerCmd = {
-	message: 1,					 //utf-8 text
+	message: 1,					 //u8 type, utf-8 text
 	your_id: 2,					 //u16 id
 	kick: 3,						//utf-8 reason
 	chunk_image: 100,			//complex data
@@ -220,8 +225,13 @@ class Client {
 
 		switch (command) {
 			case ServerCmd.message: {
-				let str = new TextDecoder().decode(dataview);
-				this.chat.addMessage(str);
+				let type = dataview.getUint8(0);
+				let view_str = createView(1);
+				let str = new TextDecoder().decode(view_str);
+				if (type == MessageType.plain_text)
+					this.chat.addMessage(str, false);
+				else if (type == MessageType.html)
+					this.chat.addMessage(str, true);
 				break;
 			}
 			case ServerCmd.your_id: {

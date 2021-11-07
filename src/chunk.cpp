@@ -9,7 +9,7 @@ Chunk::Chunk(ChunkSystem *chunk_system, Int2 position, SharedVector<u8> compress
 		: chunk_system(chunk_system),
 			position(position),
 			chunk_size(chunk_system->getChunkSize()) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	this->compressed_image = compressed_chunk_data;
 
 	new_chunk = true;
@@ -52,11 +52,11 @@ void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 }
 
 static SharedVector<u8> compressed_empty_chunk;
-static std::mutex mtx_empty_chunk;
+static Mutex mtx_empty_chunk;
 
 //Returns LZ4-compressed empty, white chunk. Generates once.
 SharedVector<u8> getEmptyChunk(Chunk *chunk) {
-	std::lock_guard lock(mtx_empty_chunk);
+	LockGuard lock(mtx_empty_chunk);
 	if(!compressed_empty_chunk) {
 		uniqdata<u8> stub_img(chunk->getImageSizeBytes());
 		memset(stub_img.data(), 255, stub_img.size_bytes());
@@ -81,7 +81,7 @@ SharedVector<u8> Chunk::encodeChunkData_nolock() {
 }
 
 SharedVector<u8> Chunk::encodeChunkData(bool clear_modified) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	auto compressed = encodeChunkData_nolock();
 	if(clear_modified) {
 		setModified_nolock(false);
@@ -121,7 +121,7 @@ void Chunk::sendChunkDataToSession_nolock(Session *session) {
 }
 
 void Chunk::linkSession(Session *session) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 
 	//Check if session pointer already exists
 	for(auto &cell : linked_sessions) {
@@ -138,7 +138,7 @@ void Chunk::linkSession(Session *session) {
 }
 
 void Chunk::unlinkSession(Session *session) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 
 	//Find pointer
 	for(auto it = linked_sessions.begin(); it != linked_sessions.end();) {
@@ -171,7 +171,7 @@ void Chunk::unlock() {
 }
 
 void Chunk::setPixelQueued(ChunkPixel *pixel) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	allocateImage_nolock();
 
 	auto *rgb = image->data();
@@ -185,7 +185,7 @@ void Chunk::setPixelQueued(ChunkPixel *pixel) {
 }
 
 void Chunk::flushQueuedPixels() {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	flushSendDelay_nolock();
 }
 
@@ -196,7 +196,7 @@ void Chunk::flushSendDelay_nolock() {
 }
 
 void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	flushSendDelay_nolock();
 	setPixels_nolock(pixels, count);
 }

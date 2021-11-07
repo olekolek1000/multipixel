@@ -3,6 +3,7 @@
 #include "command.hpp"
 #include "util/event_queue.hpp"
 #include "util/listener.hpp"
+#include "util/mutex.hpp"
 #include "ws_server.hpp"
 #include <functional>
 #include <map>
@@ -10,6 +11,7 @@
 
 struct Session;
 struct ChunkSystem;
+struct PluginManager;
 
 u64 getMicros(); //Microseconds
 u64 getMillis(); //Milliseconds
@@ -24,19 +26,22 @@ public:
 	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 
 private:
-	std::mutex mtx_log;
+	Mutex mtx_log;
 
-	std::mutex mtx_sessions;
-	std::map<WsConnection *, Session *> session_map; //For fast session lookup
+	std::map<WsConnection *, Session *> session_map_conn; //For fast session lookup
+	std::map<u16, Session *> session_map_id;							//For fast session lookup
 	std::vector<uniqptr<Session>> sessions;
 
 	WsServer server; //Needs to be at the bottom to prevent data races
 
 public:
+	Mutex mtx_sessions;
+	EventQueue queue;
+
 	Server();
 	~Server();
 
-	void log(const char *format, ...);
+	void log(const char *name, const char *format, ...);
 
 	void run(u16 port);
 
@@ -45,13 +50,18 @@ public:
 
 	//Broadcast packet for everyone except one session (optional)
 	void broadcast(const Packet &packet, Session *except = nullptr);
+	void broadcast_nolock(const Packet &packet, Session *except = nullptr);
 
 	//Returns monochrome brush bitmap
 	BrushShape *getBrushShape(u8 size, bool filled);
 
 	ChunkSystem *getChunkSystem();
+	PluginManager *getPluginManager();
 
 	void shutdown();
+
+	Session *getSession_nolock(WsConnection *connection);
+	Session *getSession_nolock(u16 session_id);
 
 private:
 	//Remove dead sessions
@@ -62,7 +72,6 @@ private:
 
 	//Non-locking methods
 	Session *createSession_nolock(WsConnection *connection);
-	Session *getSession_nolock(WsConnection *connection);
 	void removeSession_nolock(WsConnection *connection);
 	u16 findFreeSessionID_nolock();
 
