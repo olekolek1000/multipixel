@@ -23,10 +23,13 @@ class Chat {
 		this.chat_history.append()
 	}
 
-	addMessage = function (str) {
+	addMessage = function (str, html_mode) {
 		let chat_message = document.createElement("div");
 		chat_message.classList.add("mp_chat_message");
-		chat_message.innerText = str;
+		if (html_mode)
+			chat_message.innerHTML = str;
+		else
+			chat_message.innerText = str;
 		chat_message.style.opacity = 0.0;
 		let this_removed = false;
 

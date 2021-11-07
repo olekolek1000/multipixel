@@ -2,12 +2,15 @@
 #include "chunk.hpp"
 #include "chunk_system.hpp"
 #include "command.hpp"
+#include "plugin.hpp"
 #include "server.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
 #include "ws_server.hpp"
 #include <array>
 #include <math.h>
+
+static const char *LOG_SESSION = "Session";
 
 Session::Session(Server *server, WsConnection *connection, u16 id)
 		: server(server),
@@ -80,7 +83,7 @@ bool Session::runner_tick() {
 			//Remove chunks outside bounds and left for longer time
 			std::vector<Int2> chunks_to_unload;
 			{
-				std::lock_guard lock(mtx_access);
+				LockGuard lock(mtx_access);
 				for(size_t i = 0; i < linked_chunks.size(); i++) { //Do not use iterator there
 					auto &linked_chunk = linked_chunks[i];
 					auto pos = linked_chunk.chunk->getPosition();
@@ -125,7 +128,7 @@ bool Session::runner_tick() {
 			};
 
 			for(u32 i = 0; i < 20000;) {
-				std::lock_guard lock(mtx_access); //Required by getPixelGlobal_nolock
+				LockGuard lock(mtx_access); //Required by getPixelGlobal_nolock
 
 				if(floodfill.stack.empty()) break;
 				auto cell = floodfill.stack.top();
@@ -207,7 +210,7 @@ bool Session::runner_processMessageQueue() {
 	try {
 		parseCommand(command, content);
 	} catch(std::exception &e) {
-		server->log("Session parseCommand() failure (ID %u): %s", getID(), e.what());
+		server->log(LOG_SESSION, "Session parseCommand() failure (ID %u): %s", getID(), e.what());
 	}
 
 	return true;
@@ -241,12 +244,12 @@ void Session::getMousePosition(s32 *mouseX, s32 *mouseY) {
 }
 
 void Session::pushIncomingMessage(std::shared_ptr<WsMessage> &msg) {
-	std::lock_guard lock(mtx_message_queue);
+	LockGuard lock(mtx_message_queue);
 	message_queue.push(msg);
 }
 
 void Session::pushPacket(const Packet &packet) {
-	std::lock_guard lock(mtx_packet_queue);
+	LockGuard lock(mtx_packet_queue);
 	packet_queue.push(packet);
 }
 
@@ -266,7 +269,7 @@ void Session::stopRunner() {
 }
 
 void Session::linkChunk(Chunk *chunk) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 
 	for(auto &cell : linked_chunks) {
 		if(cell.chunk == chunk)
@@ -280,7 +283,7 @@ void Session::linkChunk(Chunk *chunk) {
 }
 
 void Session::unlinkChunk(Chunk *chunk) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 
 	if(last_accessed_chunk_cache == chunk)
 		last_accessed_chunk_cache = nullptr;
@@ -298,12 +301,12 @@ void Session::unlinkChunk(Chunk *chunk) {
 }
 
 bool Session::isChunkLinked(Chunk *chunk) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	return isChunkLinked_nolock(chunk);
 }
 
 bool Session::isChunkLinked(Int2 chunk_pos) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	return isChunkLinked_nolock(chunk_pos);
 }
 
@@ -353,7 +356,7 @@ bool Session::getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b) {
 }
 
 void Session::setPixelsGlobal(GlobalPixel *pixels, size_t count) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	setPixelsGlobal_nolock(pixels, count);
 }
 
@@ -498,7 +501,7 @@ void Session::sendPacket(const Packet &packet) {
 	try {
 		getConnection()->send(packet->data(), packet->size());
 	} catch(std::exception &e) {
-		server->log("Session send() failure (ID %u): %s", getID(), e.what());
+		server->log(LOG_SESSION, "Session send() failure (ID %u): %s", getID(), e.what());
 		stopRunner();
 	}
 }
@@ -507,7 +510,7 @@ void Session::close() {
 	try {
 		connection->close();
 	} catch(std::exception &e) {
-		server->log("Session close() failure (ID %u): %s", getID(), e.what());
+		server->log(LOG_SESSION, "Session close() failure (ID %u): %s", getID(), e.what());
 	}
 }
 
@@ -567,7 +570,7 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 			break;
 		}
 		default: {
-			server->log("Got unknown command %d from IP %s (ID %u)", (int)cmd, connection->getIP(), getID());
+			server->log(LOG_SESSION, "Got unknown command %d from IP %s (ID %u)", (int)cmd, connection->getIP(), getID());
 			kick("Got unknown packet");
 			break;
 		}
@@ -583,7 +586,7 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 	auto nickname = std::string(data);
 
 	if(nickname.size() < 3 || nickname.size() > 48) { //Invalid nickname length
-		server->log("Client ID %u joined with invalid nickname", getID());
+		server->log(LOG_SESSION, "Client ID %u joined with invalid nickname", getID());
 		this->nickname = "<invalid>";
 		kick("Invalid nickname length");
 		return;
@@ -591,7 +594,7 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 
 	this->nickname = nickname;
 
-	server->log("Client ID %u announced as %s", getID(), getNickname().c_str());
+	server->log(LOG_SESSION, "Client ID %u announced as %s", getID(), getNickname().c_str());
 	valid = true;
 
 	//Send ID
@@ -604,6 +607,9 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 	//Init all alive sessions to this session
 	server->forEverySessionExcept(this, [&](Session *other) {
 		sendPacket(preparePacketUserCreate(other));
+		s32 x, y;
+		other->getMousePosition(&x, &y);
+		sendPacket(preparePacketUserCursorPos(other->getID(), x, y));
 	});
 
 	tool.r = 0;
@@ -611,6 +617,10 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 	tool.b = 0;
 	tool.size = 1;
 	tool.type = ToolType::brush;
+
+	server->queue.push([this, id = this->id] {
+		server->getPluginManager()->passUserJoin(id);
+	});
 }
 
 void Session::parseCommandMessage(const std::string_view data) {
@@ -620,8 +630,17 @@ void Session::parseCommandMessage(const std::string_view data) {
 	char buf[1024];
 	snprintf(buf, sizeof(buf), "<%s> %s", getNickname().c_str(), message.c_str());
 
-	server->log("[%s] <%s> %s", connection->getIP(), getNickname().c_str(), message.c_str());
-	server->broadcast(preparePacketMessage(buf));
+	if(message[0] == '/') { //Command
+		server->queue.push([server = this->server, id = this->id, message] {
+			server->getPluginManager()->passCommand(id, message.c_str() + 1 /* slash */);
+		});
+	} else {
+		server->log(LOG_SESSION, "[%s] <%s> %s", connection->getIP(), getNickname().c_str(), message.c_str());
+		server->broadcast(preparePacketMessage(MessageType::plain_text, buf));
+		server->queue.push([server = this->server, id = this->id, message] {
+			server->getPluginManager()->passMessage(id, message.c_str());
+		});
+	}
 }
 
 void Session::updateCursor() {
@@ -761,7 +780,7 @@ void Session::parseCommandCursorUp(const std::string_view data) {
 }
 
 void Session::parseCommandUndo(const std::string_view data) {
-	std::lock_guard lock(mtx_access);
+	LockGuard lock(mtx_access);
 	historyUndo_nolock();
 }
 
@@ -868,7 +887,7 @@ void Session::runner_performBoundaryTest() {
 
 	std::vector<Int2> chunks_to_load;
 	{
-		std::lock_guard lock(mtx_access);
+		LockGuard lock(mtx_access);
 
 		//Check which chunks aren't announced for this session
 		for(s32 y = boundary.start_y; y < boundary.end_y; y++) {
