@@ -92,7 +92,6 @@ void Server::run(u16 port) {
 	while(!got_sigint) {
 		freeRemovedSessions();
 		if(queue.size() > 0) {
-			log(LOG_SERVER, "processed");
 			LockGuard lock(mtx_action);
 			queue.process();
 		} else {
@@ -185,6 +184,8 @@ void Server::removeSession_nolock(WsConnection *connection) {
 		}
 		auto *session_to_remove = it->get();
 
+		getPluginManager()->passUserLeave(session_to_remove->getID());
+
 		{
 			auto it = session_map_id.find(session_to_remove->getID());
 			assert(it != session_map_id.end());
@@ -200,8 +201,6 @@ void Server::removeSession_nolock(WsConnection *connection) {
 
 			session->pushPacket(packet_remove_user);
 		}
-
-		getPluginManager()->passUserLeave(session_to_remove->getID());
 
 		log(LOG_SERVER, "Removing session with ID %u (Nickname %s)",
 				session_to_remove->getID(),
