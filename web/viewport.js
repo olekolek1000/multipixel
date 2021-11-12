@@ -112,6 +112,13 @@ class Chunk {
 	}
 }
 
+class TextCacheCell {
+	texture = null;
+	processed = false;
+	width = 0;
+	height = 0;
+}
+
 class Map {
 	multipixel;
 	needs_redraw;
@@ -119,6 +126,8 @@ class Map {
 	texture_brush = null;
 
 	map = [];
+
+	text_cache = [];
 
 	scrolling = {
 		x: 0,
@@ -154,6 +163,51 @@ class Map {
 
 		this.resize();
 		this.updateBoundary();
+	}
+
+	textCacheGet = function (gl, text) {
+		let cell = this.text_cache[text];
+		if (!cell)
+			this.text_cache[text] = new TextCacheCell();
+
+		cell = this.text_cache[text];
+
+		if (cell.processed) {
+			return cell;
+		}
+
+		cell.processed = true;
+
+		let canvas = document.createElement("canvas");
+		canvas.width = 256;
+		canvas.height = 24;
+		let ctx = canvas.getContext("2d");
+
+		ctx.font = "16px Helvetica";
+		for (let y = -1; y <= 1; y++) {
+			for (let x = -1; x <= 1; x++) {
+				if (x == 0 && y == 0) continue;
+				ctx.fillStyle = "#000000";
+				ctx.fillText(text, 0 + x, 16 + y);
+			}
+		}
+
+		ctx.fillStyle = "#FFFFFF";
+		ctx.fillText(text, 0, 16);
+
+		let dim = ctx.measureText(text);
+
+		cell.texture = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, cell.texture);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, dim.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, dim.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+		cell.width = dim.width;
+		cell.height = canvas.height;
+
+		return cell;
 	}
 
 	resize = function () {
@@ -267,6 +321,23 @@ class Map {
 		})
 	}
 
+	drawCursorNicknames = function (gl) {
+		let renderer = this.multipixel.getRenderer();
+
+		this.multipixel.client.users.forEach(user => {
+			if (user == null)
+				return;
+
+			let zoom = this.scrolling.zoom_interpolated;
+
+			let text = this.textCacheGet(gl, user.nickname);
+
+			let width = text.width / zoom;
+			let height = text.height / zoom;
+			renderer.drawRect(text.texture, user.cursor_x - width / 2.0, user.cursor_y - height * 1.5, width, height);
+		})
+	}
+
 	drawBrush = function (gl) {
 		if (!this.texture_brush) return;
 		let cursor = this.multipixel.getCursor();
@@ -315,16 +386,19 @@ class Map {
 		this.updateBoundary();
 		let boundary = this.boundary;
 
+		let epsilon = 0.001;
+
 		renderer.setOrtho(
-			boundary.center_x - boundary.width / 2.0,
-			boundary.center_x + boundary.width / 2.0,
-			boundary.center_y + boundary.height / 2.0,
-			boundary.center_y - boundary.height / 2.0
+			boundary.center_x - boundary.width / 2.0 + epsilon,
+			boundary.center_x + boundary.width / 2.0 + epsilon,
+			boundary.center_y + boundary.height / 2.0 + epsilon,
+			boundary.center_y - boundary.height / 2.0 + epsilon
 		);
 
 		this.drawChunks(gl);
-		this.drawCursors(gl);
 		this.drawBrush(gl);
+		this.drawCursors(gl);
+		this.drawCursorNicknames(gl);
 
 		renderer.drawRect();
 
