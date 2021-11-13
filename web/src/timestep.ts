@@ -1,8 +1,16 @@
-function lerp(alpha, prev, num) {
+export function lerp(alpha: number, prev: number, num: number) {
 	return num * alpha + prev * (1.0 - alpha);
 }
 
-class Timestep {
+export class Timestep {
+	ticks: number;
+	current_time_ms: number;
+	time_millis: number;
+	accumulator: number;
+	delta: number;
+	alpha: number;
+	speed: number;
+
 	constructor() {
 		this.ticks = 0;
 		this.current_time_ms = new Date().getTime();
@@ -20,11 +28,11 @@ class Timestep {
 		this.alpha = num;
 	}
 
-	setDelta = function (delta) {
+	setDelta = function (delta: any) {
 		this.delta = delta;
 	}
 
-	setRate = function (rate) {
+	setRate = function (rate: number) {
 		this.setDelta(1000.0 / rate);
 	}
 
@@ -36,7 +44,7 @@ class Timestep {
 		return this.time_millis;
 	}
 
-	setSpeed = function (speed) {
+	setSpeed = function (speed: any) {
 		this.speed = speed;
 	}
 

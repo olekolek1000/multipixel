@@ -1,60 +1,64 @@
-function clamp(num, min, max) {
+import { ChunkMap } from "./viewport";
+import { Client, User } from "./client";
+import { Chat } from "./chat";
+import { RenderEngine } from "./render_engine";
+import { lerp, Timestep } from "./timestep";
+
+function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
 }
 
-function getColorSelector() {
-	return document.getElementById("mp_color_selector");
+function getColorSelector(): HTMLInputElement {
+	return document.getElementById("mp_color_selector") as HTMLInputElement;
 }
 
-function dec2hex(n) {
+function dec2hex(n: number) {
 	if (n < 0) n = 0;
 	if (n > 255) n = 255;
 	return n.toString(16).padStart(2, '0');
 }
 
-function rgb2hex(red, green, blue) {
+function rgb2hex(red: number, green: number, blue: number) {
 	return '#' + dec2hex(red) + dec2hex(green) + dec2hex(blue);
 }
 
-const ToolID = {
-	brush: 0,
-	floodfill: 1
+enum ToolID {
+	Brush = 0,
+	Floodfill = 1
 }
 
-class Cursor {
-	constructor() {
-		this.just_pressed_down = false;
-		this.x = 0.0;
-		this.y = 0.0;
-		this.x_prev = 0.0;
-		this.y_prev = 0.0;
-		this.canvas_x = 0.0;
-		this.canvas_x_smooth = 0.0;
-		this.canvas_y = 0.0;
-		this.canvas_y_smooth = 0.0;
-		this.down_left = false;
-		this.down_right = false;
-		this.brush_size = 1;
-		this.tool_id = ToolID.brush;
-	}
+export class Cursor {
+	just_pressed_down: boolean = false;
+	x: number = 0.0;
+	y: number = 0.0;
+	x_prev: number = 0.0;
+	y_prev: number = 0.0;
+	canvas_x: number = 0.0;
+	canvas_x_smooth: number = 0.0;
+	canvas_y: number = 0.0;
+	canvas_y_smooth: number = 0.0;
+	down_left: boolean = false;
+	down_right: boolean = false;
+	brush_size: number = 1;
+	tool_id: number = ToolID.Brush;
 }
 
-class Multipixel {
-	client;//class Client
-	map;//class Map
-	chat;//class Chat
-	renderer;//class Renderer
-	cursor;//class Cursor
-	needs_boundaries_update;//bool
-	timestep;//class
+export class Multipixel {
+	client: Client;
+	map: ChunkMap;
+	chat: Chat;
+	renderer: RenderEngine;
+	cursor: Cursor;
+	needs_boundaries_update: boolean;
+	timestep: Timestep;
 
-	constructor(host, nick, done_callback) {
+	constructor(host: string, nick: any, done_callback: () => void) {
 		this.client = new Client(this, host, nick, () => {
 			this.onConnect(done_callback);
 		});
 	}
 
-	onConnect = function (done_callback) {
+	onConnect = function (done_callback: () => void) {
 		this.initRenderer();
 		this.initMap();
 		this.initCursor();
@@ -82,11 +86,11 @@ class Multipixel {
 	}
 
 	initRenderer = function () {
-		this.renderer = new RenderEngine(document.getElementById("canvas_render"));
+		this.renderer = new RenderEngine(document.getElementById("canvas_render") as HTMLCanvasElement);
 	}
 
 	initMap = function () {
-		this.map = new Map(this);
+		this.map = new ChunkMap(this);
 	}
 
 	initCursor = function () {
@@ -98,8 +102,8 @@ class Multipixel {
 	}
 
 	initGUI = function () {
-		let slider = document.getElementById("mp_slider_brush_size");
-		slider.value = 1;
+		let slider = document.getElementById("mp_slider_brush_size") as HTMLInputElement;
+		slider.value = "1";
 		slider.addEventListener("change", () => {
 			let size = slider.value;
 			this.getCursor().brush_size = size;
@@ -124,13 +128,13 @@ class Multipixel {
 
 		let button_tool_brush = document.getElementById("button_tool_brush");
 		button_tool_brush.addEventListener("click", () => {
-			this.selectTool(ToolID.brush);
+			this.selectTool(ToolID.Brush);
 			this.markSelectedTool(button_tool_brush);
 		});
 
 		let button_tool_floodfill = document.getElementById("button_tool_floodfill");
 		button_tool_floodfill.addEventListener("click", () => {
-			this.selectTool(ToolID.floodfill);
+			this.selectTool(ToolID.Floodfill);
 			this.markSelectedTool(button_tool_floodfill);
 		});
 
@@ -157,7 +161,7 @@ class Multipixel {
 		let canvas = this.renderer.getCanvas();
 		let body = document.getElementById("body");
 
-		canvas.addEventListener("mousemove", (e) => {
+		canvas.addEventListener("mousemove", (e: MouseEvent) => {
 			let cursor = this.getCursor();
 			cursor.x_prev = cursor.x;
 			cursor.y_prev = cursor.y;
@@ -178,8 +182,8 @@ class Multipixel {
 			let smooth = false;
 			let smooth_val;
 
-			if (this.cursor.down_left && this.cursor.tool_id == ToolID.brush) {
-				let value = document.getElementById("mp_slider_brush_smoothing").value;
+			if (this.cursor.down_left && this.cursor.tool_id == ToolID.Brush) {
+				let value = parseInt((document.getElementById("mp_slider_brush_smoothing") as HTMLInputElement).value);
 				if (value > 0) {
 					smooth = true;
 					smooth_val = 1.0 - value / 101.0;
@@ -209,29 +213,34 @@ class Multipixel {
 			cursor.just_pressed_down = false;
 		});
 
-		canvas.addEventListener("mousedown", (e) => {
+		canvas.addEventListener("mousedown", (e: MouseEvent) => {
 			let cursor = this.getCursor();
 			cursor.just_pressed_down = true;
-			if (e.button == 0) {//Left
+
+			if (e.button == 0) { // Left
 				cursor.down_left = true;
 				this.client.socketSendCursorDown();
 			}
+
 			if (e.button == 1) {
 				this.performColorPick();
 			}
-			if (e.button == 2) {//Right
+
+			if (e.button == 2) { // Right
 				cursor.down_right = true;
 			}
 		});
 
 
-		canvas.addEventListener("mouseup", (e) => {
+		canvas.addEventListener("mouseup", (e: MouseEvent) => {
 			let cursor = this.getCursor();
-			if (e.button == 0) {//Left
+
+			if (e.button == 0) { // Left
 				cursor.down_left = false;
 				this.client.socketSendCursorUp();
 			}
-			if (e.button == 2) {//Right
+
+			if (e.button == 2) { // Right
 				cursor.down_right = false;
 			}
 		});
@@ -243,7 +252,7 @@ class Multipixel {
 			this.client.socketSendCursorUp();
 		});
 
-		canvas.addEventListener("wheel", (e) => {
+		canvas.addEventListener("wheel", (e: WheelEvent) => {
 			let zoom_diff = clamp(-e.deltaY * 100.0, -1, 1) * 0.2;
 			this.map.addZoom(zoom_diff, true);
 			this.needs_boundaries_update = true;
@@ -279,7 +288,7 @@ class Multipixel {
 			buf += "You [" + t.client.id + "]<br>";
 		}
 
-		this.client.users.forEach(user => {
+		this.client.users.forEach((user: User) => {
 			if (user == null)
 				return;
 
@@ -297,12 +306,12 @@ class Multipixel {
 		player_list.innerHTML = buf;
 	}
 
-	selectTool = function (tool_id) {
+	selectTool = function (tool_id: ToolID) {
 		this.cursor.tool_id = tool_id;
 		this.client.socketSendToolType(tool_id);
 	}
 
-	markSelectedTool = function (selected_element) {
+	markSelectedTool = function (selected_element: HTMLElement) {
 		let elements = document.getElementsByClassName("button_tool");
 		for (let element of elements) {
 			element.classList.remove("button_tool_selected");
@@ -327,7 +336,7 @@ class Multipixel {
 		}
 	}
 
-	currentColorUpadate = function (color_string) {
+	currentColorUpadate = function (color_string: string) {
 		let red = parseInt("0x" + color_string.substring(1, 3));
 		let green = parseInt("0x" + color_string.substring(3, 5));
 		let blue = parseInt("0x" + color_string.substring(5, 7));
@@ -335,10 +344,10 @@ class Multipixel {
 		let cl = document.getElementsByClassName("cl");
 		for (let i = cl.length - 1; i > 0; i--) {
 			let color = cl[i - 1].getAttribute("contained-color");
-			cl[i].style.backgroundColor = color;
+			(cl[i] as HTMLElement).style.backgroundColor = color;
 			cl[i].setAttribute("contained-color", color);
 		}
-		cl[0].style.backgroundColor = color_string;
+		(cl[0] as HTMLElement).style.backgroundColor = color_string;
 		cl[0].setAttribute("contained-color", color_string);
 	}
 
@@ -348,7 +357,7 @@ class Multipixel {
 		this.currentColorUpadate(string_value);
 	}
 
-	handleColor = function (elem) {
+	handleColor = function (elem: HTMLElement) {
 		let color = elem.getAttribute("contained-color");
 		if (color != null) {
 			this.currentColorUpadate(color);
