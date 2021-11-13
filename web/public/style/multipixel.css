@@ -6,7 +6,7 @@
 	position: fixed;
 	top: 0;
 	left: 0;
-	cursor: url(cursor.png) 12 12, auto;
+	cursor: url("../img/cursor.png") 12 12, auto;
 }
 
 #mp_player_list {
@@ -185,13 +185,13 @@
 }
 
 #button_tool_brush {
-	background-image: url('img/icon_brush.png');
+	background-image: url('../img/icon_brush.png');
 }
 
 #button_tool_floodfill {
-	background-image: url('img/icon_floodfill.png');
+	background-image: url('../img/icon_floodfill.png');
 }
 
 #button_undo {
-	background-image: url('img/icon_undo.png');
+	background-image: url('../img/icon_undo.png');
 }

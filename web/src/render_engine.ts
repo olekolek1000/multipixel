@@ -1,3 +1,5 @@
+import * as glMatrix from "gl-matrix";
+
 const text_vs_standard = `
 	attribute vec3 vertpos;
 	attribute vec2 vertuv;
@@ -21,7 +23,7 @@ const text_fs_solid = `
 	}
 `;
 
-function loadShader(gl, type, source) {
+function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 	const shader = gl.createShader(type);
 	gl.shaderSource(shader, source);
 	gl.compileShader(shader);
@@ -35,7 +37,7 @@ function loadShader(gl, type, source) {
 	return shader;
 }
 
-function initShaderProgram(gl, source_vs, source_fs) {
+function initShaderProgram(gl: WebGL2RenderingContext, source_vs: string, source_fs: string) {
 	const vertexShader = loadShader(gl, gl.VERTEX_SHADER, source_vs);
 	const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, source_fs);
 
@@ -51,7 +53,7 @@ function initShaderProgram(gl, source_vs, source_fs) {
 	return shaderProgram;
 }
 
-function initBufferQuad(gl) {
+function initBufferQuad(gl: WebGL2RenderingContext) {
 	let vao = gl.createVertexArray();
 	gl.bindVertexArray(vao);
 
@@ -97,44 +99,44 @@ class Shader {
 	uniform_p;
 	uniform_m;
 
-	constructor(gl, source_vs, source_fs) {
+	constructor(gl: WebGL2RenderingContext, source_vs: string, source_fs: string) {
 		this.program = initShaderProgram(gl, source_vs, source_fs);
 		this.uniform_p = this.createUniform(gl, "P");
 		this.uniform_m = this.createUniform(gl, "M");
 	}
 
-	createUniform = function (gl, name) {
+	createUniform = function (gl: WebGL2RenderingContext, name: string) {
 		return gl.getUniformLocation(this.program, name);
 	}
 
-	bind = function (gl) {
+	bind = function (gl: WebGL2RenderingContext) {
 		gl.useProgram(this.program);
 	}
 
-	setM = function (gl, m) {
+	setM = function (gl: WebGL2RenderingContext, m: any) {
 		gl.uniformMatrix4fv(this.uniform_m, false, m);
 	}
 
-	setP = function (gl, p) {
+	setP = function (gl: WebGL2RenderingContext, p: any) {
 		gl.uniformMatrix4fv(this.uniform_p, false, p);
 	}
 }
 
-class Texture {
-	texture;
-	width;
-	height;
+export class Texture {
+	texture: WebGLTexture;
+	width: number;
+	height: number;
 }
 
-class RenderEngine {
-	canvas;
-	gl;
+export class RenderEngine {
+	canvas: HTMLCanvasElement;
+	gl: WebGL2RenderingContext;
 
 	buffer_quad;
 	shader;
 	projection;
 
-	constructor(canvas) {
+	constructor(canvas: HTMLCanvasElement) {
 		this.canvas = canvas;
 		this.gl = canvas.getContext("webgl2",
 			{
@@ -158,7 +160,7 @@ class RenderEngine {
 		this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 	}
 
-	clear = function (r, g, b, a) {
+	clear = function (r: number, g: number, b: number, a: number) {
 		this.gl.clearColor(r, g, b, a);
 		this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 	}
@@ -167,7 +169,7 @@ class RenderEngine {
 		this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 	}
 
-	setOrtho = function (left, right, bottom, top) {
+	setOrtho = function (left: number, right: number, bottom: number, top: number) {
 		glMatrix.mat4.ortho(this.projection, left, right, bottom, top, -1.0, 1.0);
 	}
 
@@ -179,7 +181,7 @@ class RenderEngine {
 		return this.gl;
 	}
 
-	drawRect = function (texture, pos_x, pos_y, width, height) {
+	drawRect = function (texture: Texture, pos_x: number, pos_y: number, width: number, height: number) {
 		const model = glMatrix.mat4.create();
 		glMatrix.mat4.translate(model, model, [pos_x, pos_y, 0.0]);
 		glMatrix.mat4.scale(model, model, [width, height, 1.0]);
@@ -193,7 +195,7 @@ class RenderEngine {
 		this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 	}
 
-	loadTextureImage = function (url, callback) {
+	loadTextureImage = function (url: string, callback: (texture: Texture) => void) {
 		let gl = this.gl;
 
 		const image = new Image();
