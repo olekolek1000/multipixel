@@ -1,14 +1,18 @@
+import { Client } from "./client";
 
-class Chat {
+export class Chat {
+	client: Client;
+	chat_input: HTMLInputElement;
+	chat_history: HTMLElement;
 
-	constructor(client) {
+	constructor(client: Client) {
 		this.client = client;
 		this.client.setChatObject(this);
 
-		this.chat_input = document.getElementById("mp_chat_input");
+		this.chat_input = (document.getElementById("mp_chat_input") as HTMLInputElement);
 		this.chat_input.value = "";
 
-		this.chat_history = document.getElementById("mp_chat_history");
+		this.chat_history = (document.getElementById("mp_chat_history") as HTMLInputElement);
 
 
 		this.chat_input.addEventListener("keypress", (e) => {
@@ -23,14 +27,14 @@ class Chat {
 		this.chat_history.append()
 	}
 
-	addMessage = function (str, html_mode) {
+	addMessage = function (str: string, html_mode: boolean) {
 		let chat_message = document.createElement("div");
 		chat_message.classList.add("mp_chat_message");
 		if (html_mode)
 			chat_message.innerHTML = str;
 		else
 			chat_message.innerText = str;
-		chat_message.style.opacity = 0.0;
+		chat_message.style.opacity = "0.0";
 		let this_removed = false;
 
 		this.chat_history.appendChild(chat_message);
@@ -40,11 +44,11 @@ class Chat {
 			anim_size *= 0.85;
 			if (anim_size < 0.01) {
 				chat_message.style.transform = "";
-				chat_message.style.opacity = 1.0;
+				chat_message.style.opacity = "1.0";
 				clearInterval(interval_anim);
 			}
 			chat_message.style.transform = "translateY(" + (anim_size * 16.0) + "px)";
-			chat_message.style.opacity = 1.0 - anim_size;
+			chat_message.style.opacity = (1.0 - anim_size).toString();
 		}, 16);
 
 		setTimeout(() => {
@@ -56,7 +60,7 @@ class Chat {
 					return;
 				}
 				opacity *= 0.9;
-				chat_message.style.opacity = opacity;
+				chat_message.style.opacity = opacity.toString();
 
 				let padding = (opacity * 4.0) + "px";
 				let margin = (1.0 - opacity) * -8.0 + "px";

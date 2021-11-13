@@ -1,3 +1,4 @@
+import { Multipixel } from "./multipixel";
 
 var map;
 var renderer;
@@ -6,7 +7,7 @@ function showLoginScreen() {
 	document.getElementById("login_screen").style.visibility = "visible";
 	document.getElementById("mp_screen").style.visibility = "hidden";
 
-	document.getElementById("nick").value = localStorage.getItem("nick");
+	(document.getElementById("nick") as HTMLInputElement).value = localStorage.getItem("nick");
 }
 
 function showMultipixelScreen() {
@@ -18,17 +19,20 @@ window.onload = function () {
 	showLoginScreen();
 }
 
+document.getElementById("button_start").onclick = onStartClick;
 
 function onStartClick() {
-	let nick = document.getElementById("nick").value.trim()
+	let nick_element = (document.getElementById("nick") as HTMLInputElement);
+	let nick = nick_element.value.trim();
+
 	localStorage.setItem("nick", nick);
 	if (nick.length == 0) {
-		document.getElementById("nick").value = ""
-		document.getElementById("nick").setAttribute("placeholder", "Nickname cannot be empty");
+		nick_element.value = ""
+		nick_element.setAttribute("placeholder", "Nickname cannot be empty");
 	}
 	else if (nick.length > 32) {
-		document.getElementById("nick").value = ""
-		document.getElementById("nick").setAttribute("placeholder", "Nickname length cannot exceed 32 characters(bytes).");
+		nick_element.value = ""
+		nick_element.setAttribute("placeholder", "Nickname length cannot exceed 32 characters(bytes).");
 	}
 	else {
 		let multipixel = new Multipixel("wss://oo8dev.com/ws_multipixel/", nick, () => {
