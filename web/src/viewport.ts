@@ -1,12 +1,18 @@
-const chunk_size = 256;
+import { User } from "./client";
+import { Multipixel } from "./multipixel";
+import { Texture } from "./render_engine";
+import { lerp } from "./timestep";
+
+export const CHUNK_SIZE = 256;
 
 class PixelQueueCell {
-	x;
-	y;
-	red;
-	green;
-	blue;
-	constructor(x, y, red, green, blue) {
+	x: number;
+	y: number;
+	red: number;
+	green: number;
+	blue: number;
+
+	constructor(x: number, y: number, red: number, green: number, blue: number) {
 		this.x = x;
 		this.y = y;
 		this.red = red;
@@ -15,23 +21,22 @@ class PixelQueueCell {
 	}
 }
 
-
 class Chunk {
-	x;//X position
-	y;//y position
+	x: number; // X position
+	y: number; // Y position
 	texture;
 	pixels;
 
-	pixel_queue = [];
+	pixel_queue: Array<PixelQueueCell> = [];
 
-	constructor(gl, x, y) {
+	constructor(gl: WebGL2RenderingContext, x: number, y: number) {
 		this.x = x;
 		this.y = y;
 
 		this.texture = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, this.texture);
 
-		this.pixels = new Uint8Array(chunk_size * chunk_size * 3);
+		this.pixels = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * 3);
 		this.updateTexture(gl);
 
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -40,24 +45,24 @@ class Chunk {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 	}
 
-	destructor = function (gl) {
+	destructor = function (gl: WebGL2RenderingContext) {
 		gl.deleteTexture(this.texture);
 		this.pixels = null;
 	}
 
-	updateTexture = function (gl) {
+	updateTexture = function (gl: WebGL2RenderingContext) {
 		gl.bindTexture(gl.TEXTURE_2D, this.texture);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, chunk_size, chunk_size, 0, gl.RGB, gl.UNSIGNED_BYTE, this.pixels);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, CHUNK_SIZE, CHUNK_SIZE, 0, gl.RGB, gl.UNSIGNED_BYTE, this.pixels);
 	}
 
-	putPixel = function (x, y, red, green, blue) {
+	putPixel = function (x: number, y: number, red: number, green: number, blue: number) {
 		this.pixel_queue.push(new PixelQueueCell(x, y, red, green, blue));
 	}
 
 	// returns array of 3 numbers (R,G,B)
-	getPixel = function (x, y) {
+	getPixel = function (x: number, y: number) {
 		let data = this.pixels;
-		let image_offset = y * chunk_size * 3 + x * 3;
+		let image_offset = y * CHUNK_SIZE * 3 + x * 3;
 		return [
 			data[image_offset + 0],
 			data[image_offset + 1],
@@ -65,19 +70,19 @@ class Chunk {
 		];
 	}
 
-	putImage = function (gl, dataview_rgb) {
+	putImage = function (gl: WebGL2RenderingContext, dataview_rgb: DataView) {
 		let offset = 0;
 
 		let data = this.pixels;
 
-		for (let y = 0; y < chunk_size; y++) {
-			for (let x = 0; x < chunk_size; x++) {
+		for (let y = 0; y < CHUNK_SIZE; y++) {
+			for (let x = 0; x < CHUNK_SIZE; x++) {
 				let red = dataview_rgb.getUint8(offset + 0);
 				let green = dataview_rgb.getUint8(offset + 1);
 				let blue = dataview_rgb.getUint8(offset + 2);
 				offset += 3;
 
-				let image_offset = y * chunk_size * 3 + x * 3;
+				let image_offset = y * CHUNK_SIZE * 3 + x * 3;
 				data[image_offset + 0] = red;
 				data[image_offset + 1] = green;
 				data[image_offset + 2] = blue;
@@ -88,7 +93,7 @@ class Chunk {
 		this.updateTexture(gl);
 	}
 
-	processPixels = function (gl) {
+	processPixels = function (gl: WebGL2RenderingContext) {
 		let count = this.pixel_queue.length;
 
 		if (count == 0)
@@ -99,7 +104,7 @@ class Chunk {
 		for (let i = 0; i < count; i++) {
 			let cell = this.pixel_queue[i];
 
-			let offset = cell.y * chunk_size * 3 + cell.x * 3;
+			let offset = cell.y * CHUNK_SIZE * 3 + cell.x * 3;
 			data[offset + 0] = cell.red;
 			data[offset + 1] = cell.green;
 			data[offset + 2] = cell.blue;
@@ -113,21 +118,21 @@ class Chunk {
 }
 
 class TextCacheCell {
-	texture = null;
+	texture: Texture = null;
 	processed = false;
 	width = 0;
 	height = 0;
 }
 
-class Map {
+export class ChunkMap {
 	multipixel;
-	needs_redraw;
-	texture_cursor = null;
-	texture_brush = null;
+	needs_redraw: boolean;
+	texture_cursor: Texture = null;
+	texture_brush: Texture = null;
 
-	map = [];
+	map: any = [];
 
-	text_cache = [];
+	text_cache: any = [];
 
 	scrolling = {
 		x: 0,
@@ -145,15 +150,15 @@ class Map {
 		height: 0.0
 	}
 
-	constructor(multipixel) {
+	constructor(multipixel: Multipixel) {
 		this.multipixel = multipixel;
 		let renderer = this.multipixel.getRenderer();
 
-		renderer.loadTextureImage("cursor.png", (tex) => {
+		renderer.loadTextureImage("public/img/cursor.png", (tex: Texture) => {
 			this.texture_cursor = tex;
 		});
 
-		renderer.loadTextureImage("brush.png", (tex) => {
+		renderer.loadTextureImage("public/img/brush.png", (tex: Texture) => {
 			this.texture_brush = tex;
 		});
 
@@ -165,7 +170,7 @@ class Map {
 		this.updateBoundary();
 	}
 
-	textCacheGet = function (gl, text) {
+	textCacheGet = function (gl: WebGL2RenderingContext, text: string) {
 		let cell = this.text_cache[text];
 		if (!cell)
 			this.text_cache[text] = new TextCacheCell();
@@ -222,7 +227,7 @@ class Map {
 		this.needs_redraw = true;
 	}
 
-	chunkExists = function (x, y) {
+	chunkExists = function (x: number, y: number) {
 		if (this.map[x] == null)
 			return false;
 
@@ -232,14 +237,14 @@ class Map {
 		return true;
 	}
 
-	getChunk = function (x, y) {
+	getChunk = function (x: number, y: number) {
 		if (!this.chunkExists(x, y))
 			return null;
 
 		return this.map[x][y];
 	}
 
-	createChunk = function (x, y) {
+	createChunk = function (x: number, y: number) {
 		if (this.map[x] == null) {
 			this.map[x] = [];
 		}
@@ -257,7 +262,7 @@ class Map {
 		return ch;
 	}
 
-	removeChunk = function (x, y) {
+	removeChunk = function (x: number, y: number) {
 		if (this.map[x] == null)
 			return;//not found
 
@@ -275,14 +280,14 @@ class Map {
 		let boundary = this.boundary;
 
 		return {
-			start_x: Math.floor((boundary.center_x - boundary.width / 2.0) / chunk_size),
-			start_y: Math.floor((boundary.center_y - boundary.height / 2.0) / chunk_size),
-			end_x: Math.floor((boundary.center_x + boundary.width / 2.0) / chunk_size) + 1,
-			end_y: Math.floor((boundary.center_y + boundary.height / 2.0) / chunk_size) + 1
+			start_x: Math.floor((boundary.center_x - boundary.width / 2.0) / CHUNK_SIZE),
+			start_y: Math.floor((boundary.center_y - boundary.height / 2.0) / CHUNK_SIZE),
+			end_x: Math.floor((boundary.center_x + boundary.width / 2.0) / CHUNK_SIZE) + 1,
+			end_y: Math.floor((boundary.center_y + boundary.height / 2.0) / CHUNK_SIZE) + 1
 		};
 	}
 
-	drawChunks = function (gl) {
+	drawChunks = function (gl: WebGL2RenderingContext) {
 		let boundary = this.getChunkBoundaries();
 		let renderer = this.multipixel.getRenderer();
 
@@ -295,17 +300,17 @@ class Map {
 				chunk.processPixels(gl);
 				renderer.drawRect(
 					chunk.texture,
-					chunk.x * chunk_size,
-					chunk.y * chunk_size,
-					chunk_size, chunk_size);
+					chunk.x * CHUNK_SIZE,
+					chunk.y * CHUNK_SIZE,
+					CHUNK_SIZE, CHUNK_SIZE);
 			}
 		}
 	}
 
-	drawCursors = function (gl) {
+	drawCursors = function (gl: WebGL2RenderingContext) {
 		let renderer = this.multipixel.getRenderer();
 
-		this.multipixel.client.users.forEach(user => {
+		this.multipixel.client.users.forEach((user: User) => {
 			if (user == null)
 				return;
 
@@ -321,10 +326,10 @@ class Map {
 		})
 	}
 
-	drawCursorNicknames = function (gl) {
+	drawCursorNicknames = function (gl: WebGL2RenderingContext) {
 		let renderer = this.multipixel.getRenderer();
 
-		this.multipixel.client.users.forEach(user => {
+		this.multipixel.client.users.forEach((user: User) => {
 			if (user == null)
 				return;
 
@@ -338,7 +343,7 @@ class Map {
 		})
 	}
 
-	drawBrush = function (gl) {
+	drawBrush = function (gl: WebGL2RenderingContext) {
 		if (!this.texture_brush) return;
 		let cursor = this.multipixel.getCursor();
 		let renderer = this.multipixel.getRenderer();
@@ -410,34 +415,34 @@ class Map {
 		return this.scrolling;
 	}
 
-	addZoom = function (num) {
+	addZoom = function (num: number) {
 		let scrolling = this.getScrolling();
 		let zoom = scrolling.zoom * (1.0 + num);
 		this.setZoom(zoom)
 	}
 
-	setZoom = function (num) {
+	setZoom = function (num: number) {
 		if (num < 0.1) num = 0.1;
 		if (num > 80.0) num = 80.0;
 		this.scrolling.zoom = num;
 		this.triggerRerender();
 	}
 
-	putPixel = function (x, y, red, green, blue) {
+	putPixel = function (x: number, y: number, red: number, green: number, blue: number) {
 		x = Math.floor(x);
 		y = Math.floor(y);
 
-		let localX = x % chunk_size;
-		let localY = y % chunk_size;
+		let localX = x % CHUNK_SIZE;
+		let localY = y % CHUNK_SIZE;
 
-		let chunkX = Math.floor(x / chunk_size);
-		let chunkY = Math.floor(y / chunk_size);
+		let chunkX = Math.floor(x / CHUNK_SIZE);
+		let chunkY = Math.floor(y / CHUNK_SIZE);
 
 		if (localX < 0)
-			localX += chunk_size;
+			localX += CHUNK_SIZE;
 
 		if (localY < 0)
-			localY += chunk_size;
+			localY += CHUNK_SIZE;
 
 		let chunk = this.multipixel.map.getChunk(chunkX, chunkY);
 		if (chunk) {
@@ -447,21 +452,21 @@ class Map {
 	}
 
 	//returns array of 3 numbers (R,G,B)
-	getPixel = function (x, y) {
+	getPixel = function (x: number, y: number) {
 		x = Math.floor(x);
 		y = Math.floor(y);
 
-		let localX = x % chunk_size;
-		let localY = y % chunk_size;
+		let localX = x % CHUNK_SIZE;
+		let localY = y % CHUNK_SIZE;
 
-		let chunkX = Math.floor(x / chunk_size);
-		let chunkY = Math.floor(y / chunk_size);
+		let chunkX = Math.floor(x / CHUNK_SIZE);
+		let chunkY = Math.floor(y / CHUNK_SIZE);
 
 		if (localX < 0)
-			localX += chunk_size;
+			localX += CHUNK_SIZE;
 
 		if (localY < 0)
-			localY += chunk_size;
+			localY += CHUNK_SIZE;
 
 		let chunk = this.multipixel.map.getChunk(chunkX, chunkY);
 		if (chunk)
