@@ -1,3 +1,7 @@
+import { Chat } from "./chat";
+import { Multipixel } from "./multipixel";
+import { CHUNK_SIZE } from "./viewport";
+
 var renderer;
 
 //Size in bytes
@@ -46,40 +50,42 @@ const ServerCmd = {
 	user_cursor_pos: 202, //u16 id, s32 x, s32 y
 }
 
-function createMessage(command_id, command_size) {
+function createMessage(command_id: number, command_size: number) {
 	let buf = new ArrayBuffer(header_offset + command_size);
 	let headerview = new DataView(buf, 0);
 	headerview.setInt16(0, command_id);
 	return buf;
 }
 
-function textToUTF8(text) {
-	return new TextEncoder("utf-8").encode(text);
+function textToUTF8(text: string) {
+	return new TextEncoder().encode(text);
 }
 
-class User {
+export class User {
 	id = 0;
 	nickname = "";
 	cursor_x = 0;
 	cursor_y = 0;
 
-	constructor(id, nickname) {
+	constructor(id: number, nickname: string) {
 		this.id = id;
 		this.nickname = nickname;
 
 	}
 };
 
-var Buffer = require('buffer').Buffer;
-var LZ4 = require('lz4');
+import { Buffer } from "buffer";
+var LZ4 = eval('require')("lz4")
 
-class Client {
-	users = [];//class User
-	socket = null;
+export class Client {
+	users: Array<User> = [];
+	socket: WebSocket = null;
 	id = -1;
 	chunks_received = 0;
+	multipixel: Multipixel;
+	chat: Chat;
 
-	constructor(multipixel, address, nickname, loaded_callback) {
+	constructor(multipixel: Multipixel, address: string | URL, nickname: string, loaded_callback: () => void) {
 		this.multipixel = multipixel;
 		this.socket = new WebSocket(address);
 		this.socket.binaryType = "arraybuffer";
@@ -109,11 +115,11 @@ class Client {
 		}
 	}
 
-	setChatObject = function (chat) {
+	setChatObject = function (chat: Chat) {
 		this.chat = chat;
 	}
 
-	socketSendAnnouncement = function (nickname) {
+	socketSendAnnouncement = function (nickname: string) {
 		let utf8 = textToUTF8(nickname);
 
 		let buf = createMessage(ClientCmd.announce, utf8.length);
@@ -126,7 +132,7 @@ class Client {
 		this.socket.send(buf);
 	}
 
-	socketSendMessage = function (text) {
+	socketSendMessage = function (text: any) {
 		let utf8 = textToUTF8(text);
 		let buf = createMessage(ClientCmd.message, utf8.length);
 		let buf_u8 = new Uint8Array(buf);
@@ -138,14 +144,14 @@ class Client {
 		this.socket.send(buf);
 	}
 
-	socketSendBrushSize = function (size) {
+	socketSendBrushSize = function (size: number) {
 		let buf = createMessage(ClientCmd.tool_size, size_u8);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint8(0, size);
 		this.socket.send(buf);
 	}
 
-	socketSendBrushColor = function (red, green, blue) {
+	socketSendBrushColor = function (red: number, green: number, blue: number) {
 		let buf = createMessage(ClientCmd.tool_color, size_u8 * 3);
 		let dataview = new DataView(buf, header_offset);
 
@@ -156,7 +162,7 @@ class Client {
 		this.socket.send(buf);
 	}
 
-	socketSendCursorPos = function (x, y) {
+	socketSendCursorPos = function (x: number, y: number) {
 		let buf = createMessage(ClientCmd.cursor_pos, size_s32 * 2);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setInt32(size_s32 * 0, x);
@@ -202,18 +208,18 @@ class Client {
 		this.socket.send(buf);
 	}
 
-	socketSendToolType = function (tool_id) {
+	socketSendToolType = function (tool_id: number) {
 		let buf = createMessage(ClientCmd.tool_type, size_u8 * 1);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint8(0, tool_id);
 		this.socket.send(buf);
 	}
 
-	onmessage = function (e) {
+	onmessage = function (e: MessageEvent<any>) {
 		let raw_data = e.data;
 		let headerview = new DataView(raw_data, 0);
 
-		function createView(offset) {
+		function createView(offset: number) {
 			return new DataView(raw_data, header_offset + offset);
 		}
 
@@ -294,8 +300,8 @@ class Client {
 					let blue = pixel_view.getUint8(offset + 4);
 					offset += 5;
 
-					let global_x = chunk_x * chunk_size + local_x;
-					let global_y = chunk_y * chunk_size + local_y;
+					let global_x = chunk_x * CHUNK_SIZE + local_x;
+					let global_y = chunk_y * CHUNK_SIZE + local_y;
 					map.putPixel(global_x, global_y, red, green, blue);
 				}
 
