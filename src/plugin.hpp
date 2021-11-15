@@ -29,4 +29,6 @@ struct PluginManager {
 	void passCommand(u16 session_id, const char *command);
 	void passUserJoin(u16 session_id);
 	void passUserLeave(u16 session_id);
+	bool passUserMouseDown(u16 session_id); //true = cancel
+	void passUserMouseUp(u16 session_id);
 };

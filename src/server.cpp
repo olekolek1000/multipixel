@@ -84,9 +84,11 @@ void Server::run(u16 port) {
 			[&](std::shared_ptr<WsMessage> ws_msg) {
 				LockGuard lock(mtx_action);
 				messageCallback(ws_msg);
-			},												 //Message callback
-			[&](WsConnection *con) { 
-				LockGuard lock(mtx_action);closeCallback(con); } //Close callback
+			}, //Message callback
+			[&](SharedWsConnection &con) {
+				LockGuard lock(mtx_action);
+				closeCallback(con);
+			} //Close callback
 	);
 
 	while(!got_sigint) {
@@ -111,7 +113,7 @@ void Server::shutdown() {
 	while(!sessions.empty()) {
 		log(LOG_SERVER, "%u remaining", sessions.size());
 		auto *session = sessions.back().get();
-		removeSession_nolock(session->getConnection());
+		removeSession_nolock(session->getConnection().get());
 	}
 
 	p->properly_shut_down = true;
@@ -135,14 +137,14 @@ u16 Server::findFreeSessionID_nolock() {
 	return id;
 }
 
-Session *Server::createSession_nolock(WsConnection *connection) {
+Session *Server::createSession_nolock(SharedWsConnection &connection) {
 	auto id = findFreeSessionID_nolock();
 
 	auto &session = sessions.emplace_back();
 	session.create(this, connection, id);
 
 	auto *ptr = session.get();
-	session_map_conn[connection] = ptr;
+	session_map_conn[connection.get()] = ptr;
 	session_map_id[id] = ptr;
 
 	log(LOG_SERVER, "Created session with ID %u (IP: %s)", id, connection->getIP());
@@ -178,7 +180,7 @@ void Server::removeSession_nolock(WsConnection *connection) {
 
 	//Remove from vector
 	for(auto it = sessions.begin(); it != sessions.end();) {
-		if((*it)->getConnection() != connection) {
+		if((*it)->getConnection().get() != connection) {
 			it++;
 			continue;
 		}
@@ -235,7 +237,7 @@ void Server::freeRemovedSessions() {
 
 	for(size_t i = 0; i < to_remove.size(); i++) {
 		auto *session = to_remove[i];
-		removeSession_nolock(session->getConnection());
+		removeSession_nolock(session->getConnection().get());
 	}
 }
 
@@ -320,11 +322,11 @@ PluginManager *Server::getPluginManager() {
 }
 
 void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
-	auto *connection = ws_msg->connection;
+	auto &connection = ws_msg->connection;
 
 	LockGuard lock(mtx_sessions);
 
-	auto *session = getSession_nolock(connection);
+	auto *session = getSession_nolock(connection.get());
 
 	if(!session)
 		session = createSession_nolock(connection);
@@ -336,10 +338,10 @@ void Server::messageCallback(std::shared_ptr<WsMessage> &ws_msg) {
 	}
 }
 
-void Server::closeCallback(WsConnection *connection) {
+void Server::closeCallback(SharedWsConnection &connection) {
 	LockGuard lock(mtx_sessions);
 
-	auto *session = getSession_nolock(connection);
+	auto *session = getSession_nolock(connection.get());
 	if(!session) {
 		log(LOG_SERVER, "Got close callback, but cannot find session");
 		return;
@@ -371,6 +373,6 @@ void Server::log(const char *name, const char *format, ...) {
 
 	auto *t = localtime(&time_s);
 
-	printf(COLOR_BLUE "[%d-%02d-%02d %02d:%02d:%02d]" COLOR_YELLOW "[%s]" COLOR_RESET " %s\n", t->tm_year + 1900, t->tm_mon, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, name, buf);
+	printf(COLOR_BLUE "[%d-%02d-%02d %02d:%02d:%02d]" COLOR_YELLOW "[%s]" COLOR_RESET " %s\n", t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, name, buf);
 	free(buf);
 }

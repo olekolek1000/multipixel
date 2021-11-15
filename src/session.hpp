@@ -1,11 +1,13 @@
 #pragma once
 
 #include "command.hpp"
+#include "src/waiter.hpp"
 #include "util/event_queue.hpp"
 #include "util/mutex.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
+#include "ws_server.hpp"
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -16,7 +18,6 @@
 #include <thread>
 
 struct Server;
-struct WsConnection;
 struct Chunk;
 struct WsMessage;
 
@@ -41,13 +42,13 @@ struct HistoryCell {
 
 struct Session {
 private:
-	bool valid = false;
+	std::atomic<bool> valid = false;
 	std::atomic<bool> perform_ticks = true;
 	std::atomic<bool> stopping = false;
 	std::atomic<bool> stopped = false;
 
 	Server *server;
-	WsConnection *connection;
+	SharedWsConnection connection;
 	u16 id;
 	std::string nickname;
 
@@ -56,7 +57,9 @@ private:
 	//Cursor
 	bool cursor_down = false;
 	bool cursor_just_clicked = false;
-	s32 cursorX, cursorY, cursorX_prev, cursorY_prev, cursorX_sent, cursorY_sent;
+	std::atomic<Int2> cursor_pos;
+	std::atomic<Int2> cursor_pos_prev;
+	std::atomic<Int2> cursor_pos_sent;
 
 	//Chunk visibility boundary
 	struct {
@@ -102,14 +105,14 @@ private:
 	} tool;
 
 public:
-	Session(Server *server, WsConnection *connection, u16 id);
+	Session(Server *server, SharedWsConnection &connection, u16 id);
 	~Session();
 
 	u16 getID();
 	const std::string &getNickname();
 	bool isValid();
 
-	WsConnection *getConnection();
+	SharedWsConnection &getConnection();
 	void getMousePosition(s32 *mouseX, s32 *mouseY);
 
 	void pushIncomingMessage(std::shared_ptr<WsMessage> &msg);
@@ -120,6 +123,7 @@ public:
 
 	/// Non-blocking
 	void stopRunner();
+	void stopRunnerWait();
 
 	void linkChunk(Chunk *chunk);
 	void unlinkChunk(Chunk *chunk);

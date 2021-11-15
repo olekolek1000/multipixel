@@ -2,11 +2,14 @@
 #include "lib/ojson.hpp"
 #include "server.hpp"
 #include "session.hpp"
+#include "src/chunk.hpp"
+#include "src/chunk_system.hpp"
 #include "util/listener.hpp"
 #include "util/logs.hpp"
 #include "util/mutex.hpp"
 #include <fstream>
 #include <stdexcept>
+#include <string>
 
 #define SOL_ALL_SAFETIES_ON 1
 #include "lib/sol/sol.hpp"
@@ -23,6 +26,8 @@ struct PluginManager::P {
 	MultiDispatcher<void(u16, const char *)> dispatcher_command; //session_id, command
 	MultiDispatcher<void(u16)> dispatcher_user_join;						 //session_id
 	MultiDispatcher<void(u16)> dispatcher_user_leave;						 //session_id
+	MultiDispatcher<bool(u16)> dispatcher_user_mouse_down;			 //cancelled(session_id)
+	MultiDispatcher<void(u16)> dispatcher_user_mouse_up;				 //session_id
 
 	std::vector<uniqptr<Plugin>> plugins;
 
@@ -150,6 +155,18 @@ void PluginManager::passUserLeave(u16 session_id) {
 	p->dispatcher_user_leave.triggerAll(session_id);
 }
 
+bool PluginManager::passUserMouseDown(u16 session_id) {
+	for(auto &l : p->dispatcher_user_mouse_down.listeners) {
+		if(l->callback(session_id))
+			return true;
+	}
+	return false;
+}
+
+void PluginManager::passUserMouseUp(u16 session_id) {
+	p->dispatcher_user_mouse_up.triggerAll(session_id);
+}
+
 //##############################################################
 //##############################################################
 //##############################################################
@@ -167,6 +184,8 @@ struct Plugin::P {
 	Listener<void(u16, const char *)> listener_command; //session_id, command
 	Listener<void(u16)> listener_user_join;							//session_id
 	Listener<void(u16)> listener_user_leave;						//session_id
+	Listener<bool(u16)> listener_user_mouse_down;				//cancelled(session_id)
+	Listener<void(u16)> listener_user_mouse_up;					//session_id
 
 	P(PluginManager *plugman, const char *name, const char *dir);
 	void callFunction(const char *name, bool required);
@@ -214,6 +233,15 @@ Plugin::P::P(PluginManager *plugman, const char *name, const char *dir)
 	loaded = true;
 }
 
+auto resGetBoolean = [](auto res, bool *result) -> bool {
+	auto type = res.get_type();
+	if(type == sol::type::boolean) {
+		*result = (bool)res;
+		return true;
+	}
+	return false;
+};
+
 void Plugin::P::populateAPI() {
 	lua.set_function("print", [this](const char *text) {
 		server->log(name.c_str(), "%s", text);
@@ -240,6 +268,20 @@ void Plugin::P::populateAPI() {
 			pm->dispatcher_user_leave.add(listener_user_leave, [func{std::move(func)}](u16 session_id) {
 				func(session_id);
 			});
+		} else if(!strcmp(event_name, "user_mouse_down")) {
+			pm->dispatcher_user_mouse_down.add(listener_user_mouse_down, [func{std::move(func)}](u16 session_id) -> bool {
+				bool result;
+				if(resGetBoolean(func(session_id), &result)) {
+					return result;
+				}
+				return false;
+			});
+		} else if(!strcmp(event_name, "user_mouse_up")) {
+			pm->dispatcher_user_mouse_up.add(listener_user_mouse_up, [func{std::move(func)}](u16 session_id) {
+				func(session_id);
+			});
+		} else {
+			server->log(name.c_str(), "Unknown event name: %s", event_name);
 		}
 	});
 
@@ -267,6 +309,29 @@ void Plugin::P::populateAPI() {
 		auto *s = server->getSession_nolock(session_id);
 		if(!s) return "";
 		return s->getNickname().c_str();
+	});
+
+	tab_server.set_function("userGetPosition", [this](u16 session_id) {
+		auto *s = server->getSession_nolock(session_id);
+		//TODO return nil if failed
+		if(!s)
+			return std::pair(0, 0);
+		s32 x, y;
+		s->getMousePosition(&x, &y);
+		return std::pair(x, y);
+	});
+
+	tab_server.set_function("mapSetPixel", [this](s32 global_x, s32 global_y, u8 r, u8 g, u8 b) {
+		Int2 global{global_x, global_y};
+		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(global);
+		auto *chunk = server->getChunkSystem()->getChunk(chunk_pos);
+		if(!chunk) return;
+		ChunkPixel pixel;
+		pixel.pos = ChunkSystem::globalPixelPosToLocalPixelPos(global);
+		pixel.r = r;
+		pixel.g = g;
+		pixel.b = b;
+		chunk->setPixelQueued(&pixel);
 	});
 }
 
