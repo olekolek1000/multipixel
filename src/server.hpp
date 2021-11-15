@@ -67,11 +67,11 @@ private:
 	//Remove dead sessions
 	void freeRemovedSessions();
 
-	void closeCallback(WsConnection *connection);
+	void closeCallback(SharedWsConnection &connection);
 	void messageCallback(std::shared_ptr<WsMessage> &ws_msg);
 
 	//Non-locking methods
-	Session *createSession_nolock(WsConnection *connection);
+	Session *createSession_nolock(SharedWsConnection &connection);
 	void removeSession_nolock(WsConnection *connection);
 	u16 findFreeSessionID_nolock();
 

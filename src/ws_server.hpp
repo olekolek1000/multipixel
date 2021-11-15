@@ -18,8 +18,10 @@ struct WsConnection {
 	const char *getIP();
 };
 
+typedef std::shared_ptr<WsConnection> SharedWsConnection;
+
 struct WsMessage {
-	WsConnection *connection;
+	SharedWsConnection connection;
 	std::string data; //Raw message data
 };
 
@@ -31,5 +33,5 @@ struct WsServer {
 	~WsServer();
 
 	/// @returns true on success
-	bool run(u16 port, std::function<void(std::shared_ptr<WsMessage>)> message_callback, std::function<void(WsConnection *)> close_callback);
+	bool run(u16 port, std::function<void(std::shared_ptr<WsMessage>)> message_callback, std::function<void(SharedWsConnection &)> close_callback);
 };
