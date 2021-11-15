@@ -16,16 +16,16 @@ struct WsServer::P {
 	ws_server server;
 	std::atomic<bool> stopped = false;
 
-	std::map<void *, uniqptr<WsConnection>> connections;
+	std::map<void *, SharedWsConnection> connections;
 
 	std::function<void(std::shared_ptr<WsMessage>)> message_callback;
-	std::function<void(WsConnection *)> close_callback;
+	std::function<void(SharedWsConnection &)> close_callback;
 
 	std::thread thr_runner;
 
 	///@returns false on failure
 	void removeConnection(const websocketpp::connection_hdl &hdl);
-	WsConnection *getConnection(const websocketpp::connection_hdl &hdl);
+	SharedWsConnection getConnection(const websocketpp::connection_hdl &hdl);
 	bool run(u16 port);
 	~P();
 };
@@ -63,11 +63,10 @@ const char *WsConnection::getIP() {
 
 void onMessage(WsServer::P *p, websocketpp::connection_hdl hdl, message_ptr data) {
 	auto msg = std::make_shared<WsMessage>();
-	auto *con = p->getConnection(hdl);
+	auto con = p->getConnection(hdl);
 
-	if(!con) {
+	if(!con)
 		return;
-	}
 
 	msg->data = data->get_raw_payload();
 	msg->connection = con;
@@ -76,7 +75,10 @@ void onMessage(WsServer::P *p, websocketpp::connection_hdl hdl, message_ptr data
 }
 
 void onClose(WsServer::P *p, websocketpp::connection_hdl hdl) {
-	auto *con = p->getConnection(hdl);
+	auto con = p->getConnection(hdl);
+	if(!con)
+		return;
+
 	p->close_callback(con);
 	p->removeConnection(hdl);
 }
@@ -93,14 +95,14 @@ void WsServer::P::removeConnection(const websocketpp::connection_hdl &hdl) {
 	connections.erase(it);
 }
 
-WsConnection *WsServer::P::getConnection(const websocketpp::connection_hdl &hdl) {
+SharedWsConnection WsServer::P::getConnection(const websocketpp::connection_hdl &hdl) {
 	auto *ptr = hdl.lock().get();
 	if(!ptr)
-		return nullptr;
+		return {};
 
 	auto &connection = connections[ptr];
 	if(!connection) {
-		connection.create();
+		connection = std::make_shared<WsConnection>();
 		connection->p->server = this;
 		connection->p->hdl = hdl;
 
@@ -116,7 +118,7 @@ WsConnection *WsServer::P::getConnection(const websocketpp::connection_hdl &hdl)
 		}
 	}
 
-	return connection.get();
+	return connection;
 }
 
 bool WsServer::P::run(u16 port) {
@@ -173,7 +175,7 @@ WsServer::WsServer() {
 WsServer::~WsServer() {
 }
 
-bool WsServer::run(u16 port, std::function<void(std::shared_ptr<WsMessage>)> message_callback, std::function<void(WsConnection *)> close_callback) {
+bool WsServer::run(u16 port, std::function<void(std::shared_ptr<WsMessage>)> message_callback, std::function<void(SharedWsConnection &)> close_callback) {
 	p->message_callback = message_callback;
 	p->close_callback = close_callback;
 	return p->run(port);

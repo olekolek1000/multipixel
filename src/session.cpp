@@ -4,24 +4,23 @@
 #include "command.hpp"
 #include "plugin.hpp"
 #include "server.hpp"
+#include "src/waiter.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
 #include "ws_server.hpp"
 #include <array>
+#include <condition_variable>
 #include <math.h>
 
 static const char *LOG_SESSION = "Session";
 
-Session::Session(Server *server, WsConnection *connection, u16 id)
+Session::Session(Server *server, SharedWsConnection &connection, u16 id)
 		: server(server),
 			connection(connection),
 			id(id),
-			cursorX(0),
-			cursorY(0),
-			cursorX_prev(0),
-			cursorY_prev(0),
-			cursorX_sent(0),
-			cursorY_sent(0),
+			cursor_pos({0, 0}),
+			cursor_pos_prev({0, 0}),
+			cursor_pos_sent({0, 0}),
 			needs_boundary_test(false) {
 	thr_runner = std::thread(&Session::runner, this);
 }
@@ -72,10 +71,12 @@ bool Session::runner_tick() {
 	while(step_runner.onTick()) {
 		auto ticks = step_runner.getTicks();
 
-		if(cursorX_sent != cursorX || cursorY_sent != cursorY) {
-			cursorX_sent = cursorX;
-			cursorY_sent = cursorY;
-			server->broadcast(preparePacketUserCursorPos(getID(), cursorX, cursorY));
+		auto sent_pos = cursor_pos_sent.load();
+		auto cursor_pos = this->cursor_pos.load();
+
+		if(sent_pos.x != cursor_pos.x || sent_pos.y != cursor_pos.y) {
+			this->cursor_pos_sent = this->cursor_pos.load();
+			server->broadcast(preparePacketUserCursorPos(getID(), cursor_pos.x, cursor_pos.y));
 		}
 
 		//Every 1s
@@ -239,8 +240,9 @@ u16 Session::getID() {
 }
 
 void Session::getMousePosition(s32 *mouseX, s32 *mouseY) {
-	*mouseX = this->cursorX;
-	*mouseY = this->cursorY;
+	auto cursor_pos = this->cursor_pos.load();
+	*mouseX = cursor_pos.x;
+	*mouseY = cursor_pos.y;
 }
 
 void Session::pushIncomingMessage(std::shared_ptr<WsMessage> &msg) {
@@ -262,10 +264,9 @@ bool Session::isStopping() {
 }
 
 void Session::stopRunner() {
-	if(!stopping) {
-		stopping = true;
-		perform_ticks = false;
-	}
+	if(stopping) return;
+	stopping = true;
+	perform_ticks = false;
 }
 
 void Session::linkChunk(Chunk *chunk) {
@@ -649,7 +650,10 @@ void Session::updateCursor() {
 			if(!cursor_down)
 				break; //Cursor is not down, do nothing
 
-			u32 iters = VecDistance({cursorX_prev, cursorY_prev}, {cursorX, cursorY});
+			auto cursor_prev = this->cursor_pos_prev.load();
+			auto cursor_pos = this->cursor_pos.load();
+
+			u32 iters = VecDistance({cursor_prev.x, cursor_prev.y}, {cursor_pos.x, cursor_pos.y});
 			if(iters == 0)
 				iters = 1;
 
@@ -678,8 +682,8 @@ void Session::updateCursor() {
 				float alpha = i / float(iters);
 
 				//Lerp
-				s32 x = lerp(alpha, cursorX_prev, cursorX);
-				s32 y = lerp(alpha, cursorY_prev, cursorY);
+				s32 x = lerp(alpha, cursor_prev.x, cursor_pos.x);
+				s32 y = lerp(alpha, cursor_prev.y, cursor_pos.y);
 
 				switch(tool.size) {
 					case 1: {
@@ -714,23 +718,25 @@ void Session::updateCursor() {
 		}
 		case ToolType::floodfill: {
 			if(cursor_just_clicked) {
+				auto cursor_pos = this->cursor_pos.load();
+
 				floodfill.stack = {};
 				u8 r, g, b;
-				if(!isChunkLinked(ChunkSystem::globalPixelPosToChunkPos({cursorX, cursorY})))
+				if(!isChunkLinked(ChunkSystem::globalPixelPosToChunkPos(cursor_pos)))
 					break;
 
-				if(!getPixelGlobal_nolock({cursorX, cursorY}, &r, &g, &b))
+				if(!getPixelGlobal_nolock(cursor_pos, &r, &g, &b))
 					break;
 
 				if(!(tool.r == r && tool.g == g && tool.b == b)) {
 					floodfill.to_replace_r = r;
 					floodfill.to_replace_g = g;
 					floodfill.to_replace_b = b;
-					floodfill.start_x = cursorX;
-					floodfill.start_y = cursorY;
+					floodfill.start_x = cursor_pos.x;
+					floodfill.start_y = cursor_pos.y;
 					auto &cell = floodfill.stack.emplace();
-					cell.x = cursorX;
-					cell.y = cursorY;
+					cell.x = cursor_pos.x;
+					cell.y = cursor_pos.y;
 				}
 			}
 			break;
@@ -756,19 +762,32 @@ void Session::parseCommandCursorPos(const std::string_view data) {
 	cursor_pos.x = frombig32(cursor_pos.x);
 	cursor_pos.y = frombig32(cursor_pos.y);
 
-	this->cursorX_prev = this->cursorX;
-	this->cursorY_prev = this->cursorY;
-	this->cursorX = cursor_pos.x;
-	this->cursorY = cursor_pos.y;
+	this->cursor_pos_prev = this->cursor_pos.load();
+	this->cursor_pos = {cursor_pos.x, cursor_pos.y};
 
 	updateCursor();
 }
 
 void Session::parseCommandCursorDown(const std::string_view data) {
+	Waiter waiter;
+	auto lk = waiter.getLock();
+	bool cancelled = false;
+
+	server->queue.push([&, this] {
+		auto *plugman = server->getPluginManager();
+		if(plugman->passUserMouseDown(id))
+			cancelled = true;
+		waiter.notify();
+	});
+
+	waiter.wait(lk);
+
+	if(cancelled)
+		return;
+
 	cursor_down = true;
 	cursor_just_clicked = true;
-	cursorX_prev = cursorX;
-	cursorY_prev = cursorY;
+	this->cursor_pos_prev = this->cursor_pos.load();
 	historyCreateSnapshot();
 	updateCursor();
 }
@@ -905,13 +924,15 @@ void Session::runner_performBoundaryTest() {
 	s64 in_queue = (s64)chunks_sent - (s64)chunks_received;
 	s32 to_send = 40 - in_queue; //Max 40 queued chunks
 
+	auto cursor_pos = this->cursor_pos.load();
+
 	for(s32 iterations = 0; iterations < to_send; iterations++) {
 		if(chunks_to_load.empty())
 			break;
 
 		//Get closest chunk (circular loading)
-		float center_x = (float)cursorX / ChunkSystem::getChunkSize();
-		float center_y = (float)cursorY / ChunkSystem::getChunkSize();
+		float center_x = (float)cursor_pos.x / ChunkSystem::getChunkSize();
+		float center_y = (float)cursor_pos.y / ChunkSystem::getChunkSize();
 		Int2 closest_position;
 		float closest_distance = __FLT_MAX__;
 		for(auto &ch : chunks_to_load) {
@@ -947,6 +968,6 @@ const std::string &Session::getNickname() {
 	return nickname;
 }
 
-WsConnection *Session::getConnection() {
+SharedWsConnection &Session::getConnection() {
 	return this->connection;
 }
