@@ -66,8 +66,7 @@
 	top: 0;
 	left: 0;
 	padding-right: 4px;
-	display: flex;
-	align-items: center;
+	display: block;
 }
 
 .mp_slider {
@@ -118,6 +117,8 @@
 	color: #FFF;
 	margin-left: 5px;
 	margin-right: 5px;
+	padding-top: 7px;
+	display: inline-block;
 }
 
 .mp_floating_button {
@@ -194,4 +195,52 @@
 
 #button_undo {
 	background-image: url('../img/icon_undo.png');
+}
+
+/* MultiPixel Color manager (MPC) - Palette and selector */
+
+#mpc_color_palette {
+	clear: left;
+	float: left;
+	margin-top: 2px;
+	margin-left: 2px;
+}
+
+.mpc_row {
+	display: flex;
+}
+
+.mpc_cell, .mpc_control {
+	width: 24px;
+	height: 16px;
+	border-radius: 3px;
+	border: 1px solid black;
+	float: left;
+	user-select: none;
+}
+
+.mpc_clear {
+	clear: left;
+}
+
+.mpc_control {
+	width: 16px;
+	height: 20px;
+	background-color: #222;
+	color: #FFF;
+	margin-left: 2px;
+	margin-top: 2px;
+	padding-left: 2px;
+	cursor: pointer;
+}
+
+.mpc_cell_selected {
+	border-bottom: 4px solid black;
+	outline: 2px solid white;
+	height: 12px;
+	outline-offset: -2px;
+}
+
+.mpc_cell_small {
+	width: 12px;
 }

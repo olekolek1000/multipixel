@@ -3,22 +3,20 @@ import { Client, User } from "./client";
 import { Chat } from "./chat";
 import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
+import { ColorPalette } from "./color";
 
 function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
 }
 
-function getColorSelector(): HTMLInputElement {
-	return document.getElementById("mp_color_selector") as HTMLInputElement;
-}
-
 function dec2hex(n: number) {
+	n = Math.round(n);
 	if (n < 0) n = 0;
 	if (n > 255) n = 255;
 	return n.toString(16).padStart(2, '0');
 }
 
-function rgb2hex(red: number, green: number, blue: number) {
+export function rgb2hex(red: number, green: number, blue: number) {
 	return '#' + dec2hex(red) + dec2hex(green) + dec2hex(blue);
 }
 
@@ -51,6 +49,7 @@ export class Multipixel {
 	cursor: Cursor;
 	needs_boundaries_update: boolean;
 	timestep: Timestep;
+	palette: ColorPalette;
 
 	constructor(host: string, nick: any, done_callback: () => void) {
 		this.client = new Client(this, host, nick, () => {
@@ -58,7 +57,7 @@ export class Multipixel {
 		});
 	}
 
-	onConnect = function (done_callback: () => void) {
+	onConnect(done_callback: () => void) {
 		this.initRenderer();
 		this.initMap();
 		this.initCursor();
@@ -73,7 +72,7 @@ export class Multipixel {
 		done_callback();
 	}
 
-	draw = function () {
+	draw() {
 		let i = 0;
 		while (this.timestep.onTick() && i < 1000) {
 			this.tick();
@@ -85,29 +84,30 @@ export class Multipixel {
 		});
 	}
 
-	initRenderer = function () {
+	initRenderer() {
 		this.renderer = new RenderEngine(document.getElementById("canvas_render") as HTMLCanvasElement);
 	}
 
-	initMap = function () {
+	initMap() {
 		this.map = new ChunkMap(this);
 	}
 
-	initCursor = function () {
+	initCursor() {
 		this.cursor = new Cursor();
 	}
 
-	initChat = function () {
+	initChat() {
 		this.chat = new Chat(this.client);
 	}
 
-	initGUI = function () {
+	initGUI() {
 		let slider = document.getElementById("mp_slider_brush_size") as HTMLInputElement;
 		slider.value = "1";
 		slider.addEventListener("change", () => {
 			let size = slider.value;
-			this.getCursor().brush_size = size;
-			this.client.socketSendBrushSize(size);
+			let num_size = Number.parseFloat(size);
+			this.getCursor().brush_size = num_size;
+			this.client.socketSendBrushSize(num_size);
 		});
 
 		document.getElementById("button_zoom_1_1").addEventListener("click", () => {
@@ -138,22 +138,10 @@ export class Multipixel {
 			this.markSelectedTool(button_tool_floodfill);
 		});
 
-		let color_history1 = document.getElementById("color_history1");
-		color_history1.addEventListener("click", () => {
-			this.handleColor(color_history1);
-		});
-
-		let color_history2 = document.getElementById("color_history2");
-		color_history2.addEventListener("click", () => {
-			this.handleColor(color_history2);
-		});
-
-		document.getElementById("mp_color_selector").addEventListener("change", () => {
-			this.colorChange();
-		});
+		this.palette = new ColorPalette(this, document.getElementById("mpc_color_palette"));
 	}
 
-	initListeners = function () {
+	initListeners() {
 		setInterval(() => { this.updateBoundary() }, 200);
 
 		setInterval(() => { this.client.socketSendPing() }, 8000);
@@ -254,7 +242,7 @@ export class Multipixel {
 
 		canvas.addEventListener("wheel", (e: WheelEvent) => {
 			let zoom_diff = clamp(-e.deltaY * 100.0, -1, 1) * 0.2;
-			this.map.addZoom(zoom_diff, true);
+			this.map.addZoom(zoom_diff);
 			this.needs_boundaries_update = true;
 		});
 
@@ -264,20 +252,20 @@ export class Multipixel {
 		});
 	}
 
-	initTimestep = function () {
+	initTimestep() {
 		this.timestep = new Timestep();
 		this.timestep.setRate(60.0);
 	}
 
-	getRenderer = function () {
+	getRenderer() {
 		return this.renderer;
 	}
 
-	getCursor = function () {
+	getCursor() {
 		return this.cursor;
 	}
 
-	refreshPlayerList = function () {
+	refreshPlayerList() {
 		let player_list = document.getElementById("mp_player_list");
 		let buf = "[Online players]<br><br>";
 
@@ -306,12 +294,12 @@ export class Multipixel {
 		player_list.innerHTML = buf;
 	}
 
-	selectTool = function (tool_id: ToolID) {
+	selectTool(tool_id: ToolID) {
 		this.cursor.tool_id = tool_id;
 		this.client.socketSendToolType(tool_id);
 	}
 
-	markSelectedTool = function (selected_element: HTMLElement) {
+	markSelectedTool(selected_element: HTMLElement) {
 		let elements = document.getElementsByClassName("button_tool");
 		for (let element of elements) {
 			element.classList.remove("button_tool_selected");
@@ -320,47 +308,18 @@ export class Multipixel {
 		selected_element.classList.add("button_tool_selected");
 	}
 
-	updateBoundary = function () {
+	updateBoundary() {
 		if (!this.needs_boundaries_update)
 			return;
 		this.needs_boundaries_update = false;
 		this.client.socketSendBoundary();
 	}
 
-	performColorPick = function () {
+	performColorPick() {
 		let cursor = this.getCursor();
 		let rgb = this.map.getPixel(cursor.canvas_x, cursor.canvas_y);
 		if (rgb) {
-			getColorSelector().value = rgb2hex(rgb[0], rgb[1], rgb[2]);
-			this.colorChange();
-		}
-	}
-
-	currentColorUpadate = function (color_string: string) {
-		let red = parseInt("0x" + color_string.substring(1, 3));
-		let green = parseInt("0x" + color_string.substring(3, 5));
-		let blue = parseInt("0x" + color_string.substring(5, 7));
-		this.client.socketSendBrushColor(red, green, blue);
-		let cl = document.getElementsByClassName("cl");
-		for (let i = cl.length - 1; i > 0; i--) {
-			let color = cl[i - 1].getAttribute("contained-color");
-			(cl[i] as HTMLElement).style.backgroundColor = color;
-			cl[i].setAttribute("contained-color", color);
-		}
-		(cl[0] as HTMLElement).style.backgroundColor = color_string;
-		cl[0].setAttribute("contained-color", color_string);
-	}
-
-	colorChange = function () {
-		let selector = getColorSelector();
-		let string_value = selector.value;
-		this.currentColorUpadate(string_value);
-	}
-
-	handleColor = function (elem: HTMLElement) {
-		let color = elem.getAttribute("contained-color");
-		if (color != null) {
-			this.currentColorUpadate(color);
+			this.palette.setColor({ r: rgb[0], g: rgb[1], b: rgb[2] });
 		}
 	}
 
