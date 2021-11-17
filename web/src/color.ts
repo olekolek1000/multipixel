@@ -59,13 +59,14 @@ class Row {
 				let mod = first ? this.color_left : this.color_right;
 
 				cell.addEventListener("click", () => {
-					if (this.color_palette.first_time || (this.color_palette.selected_column == i && this.color_palette.selected_row == this.row_index)) {
-						this.color_palette.first_time = false;
+					if (this.color_palette.selected_column == i && this.color_palette.selected_row == this.row_index) {
 						//Run color selector
 						let parent = document.getElementById("mp_top_panel")
 						let picker = new Picker({ parent: parent });
 						picker.setColor(rgb2hex(mod.r, mod.g, mod.b), true);
 						picker.setOptions({ alpha: false, popup: "bottom", editor: true });
+
+						this.color_palette.multipixel.setEventsEnabled(false);
 
 						picker.onChange = (color) => {
 							mod.r = color.rgba[0];
@@ -77,6 +78,7 @@ class Row {
 
 						picker.onClose = () => {
 							picker.destroy()
+							this.color_palette.multipixel.setEventsEnabled(true);
 						}
 					}
 					else {
@@ -113,8 +115,6 @@ export class ColorPalette {
 	column_count: number;
 	row_count: number;
 
-	first_time: boolean = true;
-
 	selected_row: number;
 	selected_column: number;
 
@@ -141,6 +141,13 @@ export class ColorPalette {
 		document.getElementById("mpc_resize_row_sub").addEventListener("click", () => {
 			this.setRowCount(this.row_count - 1);
 		});
+
+		let clr = new RGBColor();
+		clr.r = 255;
+		clr.g = 0;
+		clr.b = 0;
+		this.rows[0].color_left = clr;
+		this.setSelected(0, 0, clr);
 	}
 
 	setColumnCount(count: number) {
@@ -181,7 +188,19 @@ export class ColorPalette {
 	}
 
 	setColor(color: RGBColor) {
-		this.rows[0].color_left = color;
-		this.setSelected(0, 0, color);
+		let first = true;
+		let row = this.selected_row;
+		let column = 0;
+
+		if (this.selected_column > this.column_count / 2) {
+			column = this.column_count - 1;
+			first = false;
+		}
+
+		if (first)
+			this.rows[row].color_left = color;
+		else
+			this.rows[row].color_right = color;
+		this.setSelected(row, column, color);
 	}
 }

@@ -50,6 +50,7 @@ export class Multipixel {
 	needs_boundaries_update: boolean;
 	timestep: Timestep;
 	palette: ColorPalette;
+	events_enabled: boolean = true;
 
 	constructor(host: string, nick: any, done_callback: () => void) {
 		this.client = new Client(this, host, nick, () => {
@@ -141,6 +142,10 @@ export class Multipixel {
 		this.palette = new ColorPalette(this, document.getElementById("mpc_color_palette"));
 	}
 
+	setEventsEnabled(enabled: boolean) {
+		this.events_enabled = enabled;
+	}
+
 	initListeners() {
 		setInterval(() => { this.updateBoundary() }, 200);
 
@@ -202,6 +207,7 @@ export class Multipixel {
 		});
 
 		canvas.addEventListener("mousedown", (e: MouseEvent) => {
+			if (!this.events_enabled) return;
 			let cursor = this.getCursor();
 			cursor.just_pressed_down = true;
 
@@ -221,6 +227,7 @@ export class Multipixel {
 
 
 		canvas.addEventListener("mouseup", (e: MouseEvent) => {
+			if (!this.events_enabled) return;
 			let cursor = this.getCursor();
 
 			if (e.button == 0) { // Left
@@ -241,6 +248,7 @@ export class Multipixel {
 		});
 
 		canvas.addEventListener("wheel", (e: WheelEvent) => {
+			if (!this.events_enabled) return;
 			let zoom_diff = clamp(-e.deltaY * 100.0, -1, 1) * 0.2;
 			this.map.addZoom(zoom_diff);
 			this.needs_boundaries_update = true;
