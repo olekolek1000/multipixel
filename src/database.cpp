@@ -9,11 +9,10 @@
 #include <stdio.h>
 #include <string>
 
-DatabaseConnector::DatabaseConnector()
-		: DatabaseConnector("chunks.db") {
+DatabaseConnector::DatabaseConnector() {
 }
 
-DatabaseConnector::DatabaseConnector(const char *dbpath) {
+void DatabaseConnector::init(const char *dbpath) {
 	db.create(dbpath, SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE);
 
 	{
@@ -21,13 +20,13 @@ DatabaseConnector::DatabaseConnector(const char *dbpath) {
 		query.exec();
 	}
 
-	//X index
+	// X index
 	{
 		SQLite::Statement query(*db, "CREATE INDEX IF NOT EXISTS index_x on chunk_data(x)");
 		query.exec();
 	}
 
-	//Y index
+	// Y index
 	{
 		SQLite::Statement query(*db, "CREATE INDEX IF NOT EXISTS index_y on chunk_data(y)");
 		query.exec();
@@ -43,7 +42,7 @@ auto DatabaseConnector::saveBytes(s32 x, s32 y, const void *data, size_t size, C
 	query_select.bind(2, y);
 
 	if(query_select.executeStep()) {
-		//Chunk already exists, update chunk
+		// Chunk already exists, update chunk
 		s64 timestamp = query_select.getColumn(0);
 
 		if(time(nullptr) - timestamp > seconds_between_snapshot) {
@@ -59,7 +58,7 @@ auto DatabaseConnector::saveBytes(s32 x, s32 y, const void *data, size_t size, C
 			query_update.exec();
 		}
 	} else {
-		//Chunk does not exist, create chunk
+		// Chunk does not exist, create chunk
 		insert(x, y, data, size, type);
 	}
 }
