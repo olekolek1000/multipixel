@@ -22,5 +22,5 @@ server.addEvent("user_join", function(session_id)
 end)
 
 server.addEvent("user_leave", function(session_id)
-	server.chatBroadcast("User"..server.userGetName(session_id).." left.");
+	server.chatBroadcast("User "..server.userGetName(session_id).." left.");
 end)

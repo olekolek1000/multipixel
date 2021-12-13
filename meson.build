@@ -12,6 +12,7 @@ src = [
 	src_root + 'util/logs.cpp',
 	src_root + 'main.cpp',
 	src_root + 'ws_server.cpp',
+	src_root + 'room.cpp',
 	src_root + 'server.cpp',
 	src_root + 'session.cpp',
 	src_root + 'command.cpp',

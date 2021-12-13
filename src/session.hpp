@@ -4,6 +4,7 @@
 #include "src/waiter.hpp"
 #include "util/event_queue.hpp"
 #include "util/mutex.hpp"
+#include "util/optional.hpp"
 #include "util/smartptr.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
@@ -20,6 +21,7 @@
 struct Server;
 struct Chunk;
 struct WsMessage;
+struct Room;
 
 struct LinkedChunk {
 	Chunk *chunk;
@@ -40,7 +42,7 @@ struct HistoryCell {
 	std::vector<GlobalPixel> pixels;
 };
 
-struct Session {
+struct Session : std::enable_shared_from_this<Session> {
 private:
 	std::atomic<bool> valid = false;
 	std::atomic<bool> perform_ticks = true;
@@ -49,32 +51,34 @@ private:
 
 	Server *server;
 	SharedWsConnection connection;
-	u16 id;
+	Optional<SessionID> id;
 	std::string nickname;
+
+	Room *room = nullptr;
 
 	Chunk *last_accessed_chunk_cache = nullptr;
 
-	//Cursor
+	// Cursor
 	bool cursor_down = false;
 	bool cursor_just_clicked = false;
 	std::atomic<Int2> cursor_pos;
 	std::atomic<Int2> cursor_pos_prev;
 	std::atomic<Int2> cursor_pos_sent;
 
-	//Chunk visibility boundary
+	// Chunk visibility boundary
 	struct {
 		s32 start_x, start_y, end_x, end_y;
 	} boundary;
 
-	//Number of chunks received by client
+	// Number of chunks received by client
 	u32 chunks_received = 0;
-	//Number of chunks sent by server
+	// Number of chunks sent by server
 	u32 chunks_sent = 0;
 
 	Timestep step_runner;
 	std::thread thr_runner;
 
-	//Queues
+	// Queues
 	Mutex mtx_message_queue;
 	std::queue<std::shared_ptr<WsMessage>> message_queue;
 
@@ -97,7 +101,7 @@ private:
 
 	EventQueue queue;
 
-	//Tool settings
+	// Tool settings
 	struct {
 		u8 size;
 		u8 r, g, b;
@@ -105,16 +109,18 @@ private:
 	} tool;
 
 public:
-	Session(Server *server, SharedWsConnection &connection, u16 id);
+	Session(Server *server, SharedWsConnection &connection);
 	~Session();
 
-	u16 getID();
+	void setID(SessionID id);
+	Optional<SessionID> getID();
 	const std::string &getNickname();
 	bool isValid();
 
 	SharedWsConnection &getConnection();
 	void getMousePosition(s32 *mouseX, s32 *mouseY);
 
+	// Returns queued packet count
 	void pushIncomingMessage(std::shared_ptr<WsMessage> &msg);
 	void pushPacket(const Packet &packet);
 
@@ -130,8 +136,11 @@ public:
 	bool isChunkLinked(Chunk *chunk);
 	bool isChunkLinked(Int2 chunk_pos);
 
+	Room *getRoom() const;
+	inline bool hasRoom() const { return getRoom() != nullptr; }
+
 private:
-	//Send packet with exception handler
+	// Send packet with exception handler
 	void sendPacket(const Packet &packet);
 	bool isChunkLinked_nolock(Chunk *chunk);
 	bool isChunkLinked_nolock(Int2 chunk_pos);

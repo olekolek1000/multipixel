@@ -11,13 +11,13 @@ enum struct CompressionType : s32 {
 };
 
 struct DatabaseRecord {
-	//compresion type enum
+	// compresion type enum
 	CompressionType compression_type;
-	//unix timestamp
+	// unix timestamp
 	s64 created;
-	//unix timestamp
+	// unix timestamp
 	s64 modified;
-	//blob from sqlite
+	// blob from sqlite
 	SharedVector<u8> data;
 };
 
@@ -41,12 +41,10 @@ struct Transaction {
 
 struct DatabaseConnector {
 public:
-	//construct connection with default file chunk.db
+	void init(const char *dbpath);
 	DatabaseConnector();
-	//construct connection
-	DatabaseConnector(const char *dbpath);
 	~DatabaseConnector();
-	//saves blob to db ; creates snaphot automatically
+	// saves blob to db ; creates snaphot automatically
 	auto saveBytes(s32 x, s32 y, const void *data, size_t size, CompressionType type) -> void;
 	auto loadBytes(s32 x, s32 y) -> DatabaseRecord;
 	auto listSnapshots(s32 x, s32 y) -> uniqdata<DatabaseListElement>;

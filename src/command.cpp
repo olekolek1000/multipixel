@@ -66,7 +66,7 @@ Packet preparePacket(ServerCmd cmd, Datasize **datas) {
 
 	u32 total_size = 0;
 
-	//Count size
+	// Count size
 	u32 index = 0;
 	while(true) {
 		auto *datasize = datas[index];
@@ -81,7 +81,7 @@ Packet preparePacket(ServerCmd cmd, Datasize **datas) {
 	packet->resize(sizeof(ServerCmd) + total_size);
 	*(ServerCmd *)packet->data() = (ServerCmd)tobig16((u16)cmd);
 
-	//Fill packet data
+	// Fill packet data
 	index = 0;
 	u32 offset = 0;
 	while(true) {
@@ -104,14 +104,14 @@ Packet preparePacket(ServerCmd cmd, const void *data, u32 size) {
 	return preparePacket(cmd, datas);
 }
 
-Packet preparePacketUserCursorPos(u16 session_id, s32 x, s32 y) {
+Packet preparePacketUserCursorPos(SessionID session_id, s32 x, s32 y) {
 	struct PACKED {
 		u16 id;
 		s32 x;
 		s32 y;
 	} data;
 
-	data.id = tobig16(session_id);
+	data.id = tobig16(session_id.get());
 	data.x = tobig32(x);
 	data.y = tobig32(y);
 
@@ -119,7 +119,7 @@ Packet preparePacketUserCursorPos(u16 session_id, s32 x, s32 y) {
 }
 
 Packet preparePacketUserCreate(Session *session) {
-	u16 id_BE = tobig16(session->getID());
+	u16 id_BE = tobig16(session->getID()->get());
 	auto nickname = session->getNickname();
 
 	Buffer buf;
@@ -130,7 +130,7 @@ Packet preparePacketUserCreate(Session *session) {
 }
 
 Packet preparePacketUserRemove(Session *session) {
-	u16 id_BE = tobig16(session->getID());
+	u16 id_BE = tobig16(session->getID()->get());
 	return preparePacket(ServerCmd::user_remove, &id_BE, sizeof(id_BE));
 }
 

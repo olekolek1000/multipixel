@@ -1,7 +1,27 @@
 #body {
 	margin: 0;
 	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+@keyframes background_shift {
+	from {
+		background-position-x: 0px;
+		background-position-y: 0px;
+	}
+	to {
+		background-position-x: 32px;
+		background-position-y: 32px;
+	}
+}
+
+#login_screen {
 	background-color: #0080FF;
+	background-image: url("../img/motif.png");
+	animation-name: background_shift;
+	animation-play-state: running;
+	animation-iteration-count: infinite;
+	animation-duration: 1s;
+	animation-timing-function: linear;
 }
 
 .login_center {
@@ -14,44 +34,61 @@
 
 .login_input {
 	display: flex;
-	padding: 0.3cm;
+	padding: 0.2cm;
 	background-color: rgb(0, 200, 255);
 	width: min-content;
-	flex-direction: row;
+	flex-direction: column;
+	border-radius: 4px;
+}
+
+/* Shadow */
+
+.login_input_text, .login_input_button, .login_input {
+	box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 .login_input_text {
-	border: 1px solid black;
+	border: 0;
+	border-radius: 4px;
 	border-right: 0;
 	background-color: #FFF;
 	font-size: 0.5cm;
-	font-weight: 100;
+	margin: 0.2cm;
 }
 
 .login_input_button {
-	border: 1px solid black;
+	border: 0;
+	border-radius: 4px;
 	background-color: #FFF;
 	font-size: 0.5cm;
-	font-weight: 100;
+	margin: 0.2cm;
 }
 
-.login_credits, .login_desc {
+.login_credits, .login_desc, .login_info {
 	color: #FFF;
 	text-shadow: 1px 1px black;
 }
 
 .login_desc {
-	font-size: 14px;
+	margin-bottom: 0.3cm;
+}
+
+.login_info, .login_credits {
+	line-height: 150%;
+	bottom: 0;
 	margin-bottom: 0.5cm;
 }
 
 .login_credits {
 	position: absolute;
-	bottom: 0;
 	right: 0;
 	text-align: right;
-	margin-bottom: 0.5cm;
 	margin-right: 0.5cm;
-	font-size: 12px;
-	line-height: 150%;
+}
+
+.login_info {
+	position: absolute;
+	left: 0;
+	text-align: left;
+	margin-left: 0.5cm;
 }
