@@ -7,74 +7,60 @@
 #include "ws_server.hpp"
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
+
+#define COLOR_RED			"\x1b[31m"
+#define COLOR_GREEN		"\x1b[32m"
+#define COLOR_YELLOW	"\x1b[33m"
+#define COLOR_BLUE		"\x1b[34m"
+#define COLOR_MAGENTA "\x1b[35m"
+#define COLOR_CYAN		"\x1b[36m"
+#define COLOR_RESET		"\x1b[0m"
 
 struct Session;
 struct ChunkSystem;
+struct Room;
 struct PluginManager;
 
-u64 getMicros(); //Microseconds
-u64 getMillis(); //Milliseconds
-
-struct BrushShape {
-	u8 size; //Width and height
-	uniqdata<u8> shape;
-};
+u64 getMicros(); // Microseconds
+u64 getMillis(); // Milliseconds
 
 struct Server {
-public:
-	MultiDispatcher<void(Session *)> dispatcher_session_remove;
+	WsServer server; // Needs to be at the bottom to prevent data races
 
 private:
-	Mutex mtx_log;
-
-	std::map<WsConnection *, Session *> session_map_conn; //For fast session lookup
-	std::map<u16, Session *> session_map_id;							//For fast session lookup
-	std::vector<uniqptr<Session>> sessions;
-
-	WsServer server; //Needs to be at the bottom to prevent data races
+	std::map<WsConnection *, Session *> session_map_conn; // For fast session lookup
+	std::vector<std::shared_ptr<Session>> sessions;
+	std::vector<uniqptr<Room>> rooms;
 
 public:
 	Mutex mtx_sessions;
-	EventQueue queue;
+	Mutex mtx_log;
+	Mutex mtx_rooms;
 
 	Server();
 	~Server();
 
 	void log(const char *name, const char *format, ...);
-
 	void run(u16 port);
-
-	//Locking function, do not operate on heavy loads
-	void forEverySessionExcept(Session *except, std::function<void(Session *)> callback);
-
-	//Broadcast packet for everyone except one session (optional)
-	void broadcast(const Packet &packet, Session *except = nullptr);
-	void broadcast_nolock(const Packet &packet, Session *except = nullptr);
-
-	//Returns monochrome brush bitmap
-	BrushShape *getBrushShape(u8 size, bool filled);
-
-	ChunkSystem *getChunkSystem();
-	PluginManager *getPluginManager();
-
 	void shutdown();
 
-	Session *getSession_nolock(WsConnection *connection);
-	Session *getSession_nolock(u16 session_id);
+	void forEverySessionExcept(Session *except, std::function<void(Session *)> callback);
+	void broadcastGlobal(const Packet &packet, Session *except = nullptr);
+	void broadcastGlobal_nolock(const Packet &packet, Session *except = nullptr);
+
+	void removeSession(WsConnection *connection);
+
+	Room *getOrCreateRoom(std::string_view room_name);
 
 private:
-	//Remove dead sessions
-	void freeRemovedSessions();
-
 	void closeCallback(SharedWsConnection &connection);
 	void messageCallback(std::shared_ptr<WsMessage> &ws_msg);
 
-	//Non-locking methods
+	// Non-locking methods
 	Session *createSession_nolock(SharedWsConnection &connection);
 	void removeSession_nolock(WsConnection *connection);
-	u16 findFreeSessionID_nolock();
 
-	struct P;
-	uniqptr<P> p;
+	Session *getSession_nolock(WsConnection *connection);
 };

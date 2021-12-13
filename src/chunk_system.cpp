@@ -1,5 +1,6 @@
 #include "chunk_system.hpp"
 #include "chunk.hpp"
+#include "room.hpp"
 #include "server.hpp"
 #include "session.hpp"
 #include "util/timestep.hpp"
@@ -11,22 +12,27 @@
 
 static const char *LOG_CHUNK = "ChunkSystem";
 
-ChunkSystem::ChunkSystem(Server *server)
-		: server(server) {
+ChunkSystem::ChunkSystem(Room *room)
+		: room(room) {
 
 	running = true;
 	needs_garbage_collect = false;
 	step_ticks.setRate(20);
 
+	// Init database
+	char db_path[256];
+	snprintf(db_path, sizeof(db_path), "rooms/%s.db", room->getName().c_str());
+	database.init(db_path);
+
 	thr_runner = std::thread([this] {
 		runner();
 	});
 
-	server->dispatcher_session_remove.add(listener_session_remove, [this](Session *removing_session) {
+	room->dispatcher_session_remove.add(listener_session_remove, [this](Session *removing_session) {
 		LockGuard lock(mtx_access);
-		//For every chunk
-		for(auto &i : chunks) {			//X
-			for(auto &j : i.second) { //Y
+		// For every chunk
+		for(auto &i : chunks) {			// X
+			for(auto &j : i.second) { // Y
 				auto *chunk = j.second.get();
 				deannounceChunkForSession_nolock(removing_session, chunk->getPosition());
 			}
@@ -54,7 +60,7 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 	if(it == horizontal.end()) {
 		SharedVector<u8> compressed_chunk_data;
 		{
-			//Load chunk pixels from database
+			// Load chunk pixels from database
 			LockGuard lock(mtx_database);
 			auto record = database.loadBytes(chunk_pos.x, chunk_pos.y);
 
@@ -62,7 +68,7 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 				compressed_chunk_data = record.data;
 		}
 
-		//Chunk not found, create new chunk
+		// Chunk not found, create new chunk
 		auto &cell = horizontal[chunk_pos.y];
 		cell.create(this, chunk_pos, compressed_chunk_data);
 		last_accessed_chunk_cache = cell.get();
@@ -112,7 +118,7 @@ UInt2 ChunkSystem::globalPixelPosToLocalPixelPos(Int2 global_pixel_pos) {
 	s32 x = modulo(global_pixel_pos.x, chunk_size);
 	s32 y = modulo(global_pixel_pos.y, chunk_size);
 
-	//Can be removed later
+	// Can be removed later
 	assert(x >= 0 && y >= 0 && x < chunk_size && y < chunk_size);
 
 	return {(u32)x, (u32)y};
@@ -166,7 +172,7 @@ void ChunkSystem::autosave() {
 
 	if(saved_chunk_count) {
 		u32 dur = getMillis() - start;
-		server->log(LOG_CHUNK, "Autosaved %u chunks in %ums (%u chunks loaded)", saved_chunk_count, dur, total_chunk_count);
+		room->log(LOG_CHUNK, "Autosaved %u chunks in %ums (%u chunks loaded)", saved_chunk_count, dur, total_chunk_count);
 	}
 }
 
@@ -184,7 +190,7 @@ void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
 			if(jt->second.get() == to_remove) {
 				it->second.erase(jt);
 
-				//Remove empty map row
+				// Remove empty map row
 				if(it->second.empty())
 					it = chunks.erase(it);
 
@@ -207,7 +213,7 @@ void ChunkSystem::runner() {
 	while(running) {
 		bool used = runner_tick();
 		if(!used) {
-			//Idle
+			// Idle
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
 	}
@@ -220,7 +226,7 @@ bool ChunkSystem::runner_tick() {
 
 	auto millis = getMillis();
 
-	if(last_autosave_timestamp + 30000 < millis) { //Autosave
+	if(last_autosave_timestamp + 30000 < millis) { // Autosave
 		autosave();
 		last_autosave_timestamp = millis;
 	}
@@ -230,14 +236,14 @@ bool ChunkSystem::runner_tick() {
 		last_garbage_collect_timestamp = millis;
 	}
 
-	//Atomic operation:
-	//if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
+	// Atomic operation:
+	// if(needs_garbage_collect) { needs_garbage_collect = false; (...) }
 	if(needs_garbage_collect.exchange(false)) {
 		LockGuard lock(mtx_access);
 
 		bool done = false;
 
-		//Informational use only
+		// Informational use only
 		u32 saved_chunk_count = 0;
 		u32 removed_chunk_count = 0;
 		u32 loaded_chunk_count = 0;
@@ -247,13 +253,13 @@ bool ChunkSystem::runner_tick() {
 
 			loaded_chunk_count = 0;
 
-			//Iterate all loaded chunks as long as all chunks are deallocated
+			// Iterate all loaded chunks as long as all chunks are deallocated
 			for(auto &i : chunks) {
 				loaded_chunk_count += i.second.size();
 				for(auto &j : i.second) {
 					auto *chunk = j.second.get();
 					if(chunk->isLinkedSessionsEmpty()) {
-						//Save chunk data to database (only if modified)
+						// Save chunk data to database (only if modified)
 						if(chunk->isModified()) {
 							saved_chunk_count++;
 							saveChunk_nolock(chunk);
@@ -271,7 +277,7 @@ bool ChunkSystem::runner_tick() {
 		} while(!done);
 
 		if(saved_chunk_count || removed_chunk_count)
-			server->log(LOG_CHUNK, "Saved %u chunks, %u total chunks loaded, %u removed (GC))", saved_chunk_count, loaded_chunk_count, removed_chunk_count);
+			room->log(LOG_CHUNK, "Saved %u chunks, %u total chunks loaded, %u removed (GC))", saved_chunk_count, loaded_chunk_count, removed_chunk_count);
 	}
 
 	while(step_ticks.onTick()) {

@@ -22,32 +22,32 @@ const MessageType = {
 	html: 1
 }
 
-const ClientCmd = {
-	message: 1,			//utf-8 text
-	announce: 2,			//utf-8 username
-	ping: 4, //ping no args
-	cursor_pos: 100, //s32 x, s32 y
-	cursor_down: 101,
-	cursor_up: 102,
-	boundary: 103,
-	chunks_received: 104, //u32 count
-	tool_size: 200, //u8 size
-	tool_color: 201, //u8 red, u8 green, u8 blue
-	tool_type: 202,//u8 type
-	undo: 203,
+enum ClientCmd {
+	message = 1,	// utf-8 text
+	announce = 2, // u8 room_name_size, utf-8 room_name, u8 nickname_size, utf-8 nickname
+	ping = 4,
+	cursor_pos = 100, // s32 x, s32 y
+	cursor_down = 101,
+	cursor_up = 102,
+	boundary = 103,
+	chunks_received = 104,
+	tool_size = 200,	// u8 size
+	tool_color = 201, // u8 red, u8 green, u8 blue
+	tool_type = 202,	// u8 type
+	undo = 203
 }
 
-const ServerCmd = {
-	message: 1,					 //u8 type, utf-8 text
-	your_id: 2,					 //u16 id
-	kick: 3,						//utf-8 reason
-	chunk_image: 100,			//complex data
-	chunk_pixel_pack: 101, //complex data
-	chunk_create: 110,			//s32 chunkX, s32 chunkY
-	chunk_remove: 111,			//s32 chunkX, s32 chunkY
-	user_create: 200,		 //u16 id, utf-8 nickname
-	user_remove: 201,		 //u16 id
-	user_cursor_pos: 202, //u16 id, s32 x, s32 y
+enum ServerCmd {
+	message = 1,						// u8 type, utf-8 text
+	your_id = 2,						// u16 id
+	kick = 3,								// utf-8 reason
+	chunk_image = 100,			// complex data
+	chunk_pixel_pack = 101, // complex data
+	chunk_create = 110,			// s32 chunkX, s32 chunkY
+	chunk_remove = 111,			// s32 chunkX, s32 chunkY
+	user_create = 200,			// u16 id, utf-8 nickname
+	user_remove = 201,			// u16 id
+	user_cursor_pos = 202,	// u16 id, s32 x, s32 y
 }
 
 function createMessage(command_id: number, command_size: number) {
@@ -77,6 +77,7 @@ export class User {
 import { Buffer } from "buffer";
 var LZ4 = eval('require')("lz4")
 
+
 export class Client {
 	users: Array<User> = [];
 	socket: WebSocket = null;
@@ -85,7 +86,7 @@ export class Client {
 	multipixel: Multipixel;
 	chat: Chat;
 
-	constructor(multipixel: Multipixel, address: string | URL, nickname: string, loaded_callback: () => void) {
+	constructor(multipixel: Multipixel, address: string | URL, nickname: string, room_name: string, loaded_callback: () => void) {
 		this.multipixel = multipixel;
 		this.socket = new WebSocket(address);
 		this.socket.binaryType = "arraybuffer";
@@ -94,7 +95,7 @@ export class Client {
 		this.socket.onopen = function (e) {
 			e;
 			console.log("Socket connected");
-			c.socketSendAnnouncement(nickname);
+			c.socketSendAnnouncement(room_name, nickname);
 			loaded_callback();
 
 			c.socketSendBoundary();
@@ -119,14 +120,32 @@ export class Client {
 		this.chat = chat;
 	}
 
-	socketSendAnnouncement = function (nickname: string) {
-		let utf8 = textToUTF8(nickname);
 
-		let buf = createMessage(ClientCmd.announce, utf8.length);
+
+	socketSendAnnouncement = function (room_name: string, nickname: string) {
+		let room_name_utf8 = textToUTF8(room_name);
+		let room_name_utf8_size = room_name_utf8.length;
+
+		let nickname_utf8 = textToUTF8(nickname);
+		let nickname_utf8_size = nickname_utf8.length;
+
+		let buf = createMessage(ClientCmd.announce,
+			1 + room_name_utf8_size + 1 + nickname_utf8_size);
+
 		let buf_u8 = new Uint8Array(buf);
 
-		for (let i = 0; i < utf8.length; i++) {
-			buf_u8[i + header_offset] = utf8[i];
+		let offset = header_offset;
+
+		//Fill room name
+		buf_u8[offset++] = room_name_utf8_size;
+		for (let i = 0; i < room_name_utf8_size; i++) {
+			buf_u8[offset++] = room_name_utf8[i];
+		}
+
+		//Fill nickname
+		buf_u8[offset++] = nickname_utf8_size;
+		for (let i = 0; i < nickname_utf8_size; i++) {
+			buf_u8[offset++] = nickname_utf8[i];
 		}
 
 		this.socket.send(buf);
