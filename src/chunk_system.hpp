@@ -11,12 +11,12 @@
 #include <mutex>
 #include <thread>
 
-struct Server;
+struct Room;
 struct Session;
 struct Chunk;
 
 struct ChunkSystem {
-	Server *server;
+	Room *room;
 
 private:
 	Mutex mtx_database;
@@ -41,7 +41,7 @@ private:
 	u32 ticks = 0;
 
 public:
-	ChunkSystem(Server *server);
+	ChunkSystem(Room *room);
 	~ChunkSystem();
 
 	static u32 getChunkSize() {
@@ -64,10 +64,10 @@ public:
 	Chunk *getChunk(Int2 chunk_pos);
 
 private:
-	//Never returns null
+	// Never returns null
 	Chunk *getChunk_nolock(Int2 chunk_pos);
 
-	//Save chunk to database and free it
+	// Save chunk to database and free it
 	void removeChunk_nolock(Chunk *to_remove);
 
 	void runner();

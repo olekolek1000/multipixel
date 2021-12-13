@@ -2,9 +2,12 @@
 #include "chunk.hpp"
 #include "chunk_system.hpp"
 #include "command.hpp"
+#include "lib/ojson.hpp"
 #include "plugin.hpp"
+#include "room.hpp"
 #include "server.hpp"
 #include "src/waiter.hpp"
+#include "util/binary_reader.hpp"
 #include "util/timestep.hpp"
 #include "util/types.hpp"
 #include "ws_server.hpp"
@@ -14,10 +17,9 @@
 
 static const char *LOG_SESSION = "Session";
 
-Session::Session(Server *server, SharedWsConnection &connection, u16 id)
+Session::Session(Server *server, SharedWsConnection &connection)
 		: server(server),
 			connection(connection),
-			id(id),
 			cursor_pos({0, 0}),
 			cursor_pos_prev({0, 0}),
 			cursor_pos_sent({0, 0}),
@@ -32,9 +34,11 @@ Session::~Session() {
 		thr_runner.join();
 
 	while(!linked_chunks.empty()) {
-		fprintf(stderr, "Session linked chunks NOT empty");
+		fprintf(stderr, "Session linked chunks NOT empty\n");
 		abort();
 	}
+
+	server->log(LOG_SESSION, "Session freed");
 }
 
 void Session::runner() {
@@ -76,16 +80,16 @@ bool Session::runner_tick() {
 
 		if(sent_pos.x != cursor_pos.x || sent_pos.y != cursor_pos.y) {
 			this->cursor_pos_sent = this->cursor_pos.load();
-			server->broadcast(preparePacketUserCursorPos(getID(), cursor_pos.x, cursor_pos.y));
+			room->broadcast(preparePacketUserCursorPos(getID().value(), cursor_pos.x, cursor_pos.y));
 		}
 
-		//Every 1s
+		// Every 1s
 		if(ticks % 20 == 0) {
-			//Remove chunks outside bounds and left for longer time
+			// Remove chunks outside bounds and left for longer time
 			std::vector<Int2> chunks_to_unload;
 			{
 				LockGuard lock(mtx_access);
-				for(size_t i = 0; i < linked_chunks.size(); i++) { //Do not use iterator there
+				for(size_t i = 0; i < linked_chunks.size(); i++) { // Do not use iterator there
 					auto &linked_chunk = linked_chunks[i];
 					auto pos = linked_chunk.chunk->getPosition();
 					if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
@@ -99,9 +103,9 @@ bool Session::runner_tick() {
 				}
 			}
 
-			//Deannounce chunks from list
+			// Deannounce chunks from list
 			for(auto &pos : chunks_to_unload) {
-				server->getChunkSystem()->deannounceChunkForSession(this, pos);
+				getRoom()->getChunkSystem()->deannounceChunkForSession(this, pos);
 			}
 		}
 
@@ -129,7 +133,7 @@ bool Session::runner_tick() {
 			};
 
 			for(u32 i = 0; i < 20000;) {
-				LockGuard lock(mtx_access); //Required by getPixelGlobal_nolock
+				LockGuard lock(mtx_access); // Required by getPixelGlobal_nolock
 
 				if(floodfill.stack.empty()) break;
 				auto cell = floodfill.stack.top();
@@ -190,7 +194,7 @@ bool Session::runner_processMessageQueue() {
 		return false;
 	}
 
-	//Grab next incoming message
+	// Grab next incoming message
 	auto msg = message_queue.front();
 	message_queue.pop();
 	mtx_message_queue.unlock();
@@ -200,18 +204,18 @@ bool Session::runner_processMessageQueue() {
 		return false;
 	}
 
-	//Command ID
+	// Command ID
 	u16 command_BE;
 	memcpy(&command_BE, msg->data.data(), sizeof(u16));
 	auto command = (ClientCmd)frombig16(command_BE);
 
-	//Content without command (header)
+	// Content without command (header)
 	std::string_view content(msg->data.data() + sizeof(ClientCmd), msg->data.size() - sizeof(ClientCmd));
 
 	try {
 		parseCommand(command, content);
 	} catch(std::exception &e) {
-		server->log(LOG_SESSION, "Session parseCommand() failure (ID %u): %s", getID(), e.what());
+		server->log(LOG_SESSION, "Session parseCommand(): %s", e.what());
 	}
 
 	return true;
@@ -224,18 +228,26 @@ bool Session::runner_processPacketQueue() {
 		return false;
 	}
 
-	//Grab next packet
+	// Grab next packet
 	auto packet = packet_queue.front();
 	packet_queue.pop();
 	mtx_packet_queue.unlock();
 
-	//Send packet to client
+	// Send packet to client
 	sendPacket(packet);
 
 	return true;
 }
 
-u16 Session::getID() {
+void Session::setID(SessionID id) {
+	this->id = id;
+}
+
+Room *Session::getRoom() const {
+	return this->room;
+}
+
+Optional<SessionID> Session::getID() {
 	return this->id;
 }
 
@@ -248,6 +260,12 @@ void Session::getMousePosition(s32 *mouseX, s32 *mouseY) {
 void Session::pushIncomingMessage(std::shared_ptr<WsMessage> &msg) {
 	LockGuard lock(mtx_message_queue);
 	message_queue.push(msg);
+
+	// Rate limiting
+	auto queue_size = message_queue.size();
+	if(queue_size > 1000) {
+		kick("Packet flood (or lag) detected");
+	}
 }
 
 void Session::pushPacket(const Packet &packet) {
@@ -274,7 +292,7 @@ void Session::linkChunk(Chunk *chunk) {
 
 	for(auto &cell : linked_chunks) {
 		if(cell.chunk == chunk)
-			return; //Already linked
+			return; // Already linked
 	}
 
 	pushPacket(preparePacketChunkCreate(chunk->getPosition()));
@@ -291,7 +309,7 @@ void Session::unlinkChunk(Chunk *chunk) {
 
 	for(auto it = linked_chunks.begin(); it != linked_chunks.end();) {
 		if(it->chunk == chunk) {
-			//Remove linked chunk
+			// Remove linked chunk
 			pushPacket(preparePacketChunkRemove(chunk->getPosition()));
 			it = linked_chunks.erase(it);
 			return;
@@ -370,7 +388,7 @@ void Session::historyCreateSnapshot() {
 
 void Session::historyUndo_nolock() {
 	if(history_cells.empty())
-		return; //Nothing to undo
+		return; // Nothing to undo
 
 	auto &back = history_cells.back();
 	setPixelsGlobal_nolock(back.pixels.data(), back.pixels.size());
@@ -394,8 +412,8 @@ void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
 		std::vector<Int2> queued_global_positions;
 	};
 
-	//Chunk "cache"
-	//Visible and affected chunks by player
+	// Chunk "cache"
+	// Visible and affected chunks by player
 	std::vector<ChunkCacheCell> affected_chunks;
 
 	auto fetchCell = [&](Int2 chunk_pos) -> ChunkCacheCell * {
@@ -414,7 +432,7 @@ void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
 		affected_chunks.push_back({Int2(chunk_pos), chunk});
 	};
 
-	//Generate affected chunks list
+	// Generate affected chunks list
 	for(size_t i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(pixel.pos);
@@ -423,13 +441,13 @@ void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
 		}
 	}
 
-	//Send pixels to chunks
+	// Send pixels to chunks
 	for(size_t i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(pixel.pos);
 		auto *cell = fetchCell(chunk_pos);
 		if(!cell)
-			continue; //Skip pixel
+			continue; // Skip pixel
 
 		auto &queued_pixel = cell->queued_pixels.emplace_back();
 		auto &queued_global_pos = cell->queued_global_positions.emplace_back();
@@ -502,7 +520,7 @@ void Session::sendPacket(const Packet &packet) {
 	try {
 		getConnection()->send(packet->data(), packet->size());
 	} catch(std::exception &e) {
-		server->log(LOG_SESSION, "Session send() failure (ID %u): %s", getID(), e.what());
+		server->log(LOG_SESSION, "Session send() failure: %s", e.what());
 		stopRunner();
 	}
 }
@@ -511,13 +529,13 @@ void Session::close() {
 	try {
 		connection->close();
 	} catch(std::exception &e) {
-		server->log(LOG_SESSION, "Session close() failure (ID %u): %s", getID(), e.what());
+		server->log(LOG_SESSION, "Session close() failure: %s", e.what());
 	}
 }
 
 void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 	if(!valid && cmd != ClientCmd::announce) {
-		//ClientCmd::announce should be the first message sent by client
+		// ClientCmd::announce should be the first message sent by client
 		kick("Announcement packet expected");
 		return;
 	}
@@ -571,7 +589,7 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 			break;
 		}
 		default: {
-			server->log(LOG_SESSION, "Got unknown command %d from IP %s (ID %u)", (int)cmd, connection->getIP(), getID());
+			server->log(LOG_SESSION, "Got unknown command %d", (int)cmd);
 			kick("Got unknown packet");
 			break;
 		}
@@ -584,62 +602,128 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 		return;
 	}
 
-	auto nickname = std::string(data);
+	BinaryReader reader(data.data(), data.size());
 
-	if(nickname.size() < 3 || nickname.size() > 48) { //Invalid nickname length
-		server->log(LOG_SESSION, "Client ID %u joined with invalid nickname", getID());
-		this->nickname = "<invalid>";
-		kick("Invalid nickname length");
+	u8 room_name_size;
+	u8 nickname_size;
+	std::string room_name;
+
+	bool valid_announcement = false;
+	do {
+		if(!reader.read(&room_name_size, sizeof(u8)))
+			break;
+
+		if(room_name_size < 3 || room_name_size > 32) {
+			server->log(LOG_SESSION, "Client joined with invalid room name length");
+			kick("Invalid room name length");
+			return;
+		}
+
+		room_name.resize(room_name_size);
+		if(!reader.read(room_name.data(), room_name_size))
+			break;
+
+		// Check if room name has valid characters
+		for(auto &ch : room_name) {
+			if(!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_')) {
+				server->log(LOG_SESSION, "Client entered forbidden characters in room name");
+				kick("Room name can be only alphanumeric (a-z), (A-Z), (0-9), \"_\", \"-\"");
+				return;
+			}
+		}
+
+		if(!reader.read(&nickname_size, sizeof(u8)))
+			break;
+
+		if(nickname_size < 3 || nickname_size > 32) {
+			server->log(LOG_SESSION, "Client joined with invalid nickname length");
+			kick("Invalid nickname length");
+			break;
+		}
+
+		nickname.resize(nickname_size);
+
+		if(!reader.read(nickname.data(), nickname_size))
+			break;
+
+		// Filter out nickname characters
+		for(auto &ch : nickname) {
+			switch(ch) {
+				case '<':
+				case '>':
+				case '&': {
+					ch = '_';
+					break;
+				}
+			}
+		}
+
+		valid_announcement = true;
+	} while(false);
+
+	if(!valid_announcement) {
+		kick("Invalid announcement");
 		return;
 	}
 
-	this->nickname = nickname;
+	this->room = server->getOrCreateRoom(room_name);
+	if(!room) {
+		server->log(LOG_SESSION, "Failed to load room \"%s\" for username \"%s\"", room_name.c_str(), getNickname().c_str());
+		kick("Failed to load room");
+	}
 
-	server->log(LOG_SESSION, "Client ID %u announced as %s", getID(), getNickname().c_str());
-	valid = true;
+	// ID is set for this client at this line
+	if(!room->addSession(shared_from_this())) {
+		server->log(LOG_SESSION, "Failed to add session");
+		kick("Failed to add you to the room");
+	}
 
-	//Send ID
-	u16 id = tobig16(getID());
+	// Send ID of this session (Should be generated at this moment (Room::addSession did that))
+	u16 id = tobig16(getID()->get());
 	sendPacket(preparePacket(ServerCmd::your_id, &id, sizeof(id)));
 
-	//Announce all other sessions (except this session) that this session is alive
-	server->broadcast(preparePacketUserCreate(this), this);
+	valid = true;
 
-	//Init all alive sessions to this session
-	server->forEverySessionExcept(this, [&](Session *other) {
+	// Announce all other sessions (except this session) that this session is alive
+	room->broadcast(preparePacketUserCreate(this), this);
+
+	// Init all alive sessions to this session
+	room->forEverySessionExcept(this, [&](Session *other) {
 		sendPacket(preparePacketUserCreate(other));
 		s32 x, y;
 		other->getMousePosition(&x, &y);
-		sendPacket(preparePacketUserCursorPos(other->getID(), x, y));
+		sendPacket(preparePacketUserCursorPos(other->getID().value(), x, y));
 	});
 
+	// Set default tool options
 	tool.r = 0;
 	tool.g = 0;
 	tool.b = 0;
 	tool.size = 1;
 	tool.type = ToolType::brush;
 
-	server->queue.push([this, id = this->id] {
-		server->getPluginManager()->passUserJoin(id);
+	// Inform all plugins that this user joined the room
+	room->queue.push([this, id = this->id.value()] {
+		room->getPluginManager()->passUserJoin(id);
 	});
 }
 
 void Session::parseCommandMessage(const std::string_view data) {
-	//Copy data to string
+	// Copy data to string
 	std::string message = std::string(data);
 
 	char buf[1024];
 	snprintf(buf, sizeof(buf), "<%s> %s", getNickname().c_str(), message.c_str());
 
-	if(message[0] == '/') { //Command
-		server->queue.push([server = this->server, id = this->id, message] {
-			server->getPluginManager()->passCommand(id, message.c_str() + 1 /* slash */);
+	if(message[0] == '/') { // Command
+		room->queue.push([room = this->room, id = this->id.value(), message] {
+			room->getPluginManager()->passCommand(id, message.c_str() + 1 /* slash */);
 		});
 	} else {
-		server->log(LOG_SESSION, "[%s] <%s> %s", connection->getIP(), getNickname().c_str(), message.c_str());
-		server->broadcast(preparePacketMessage(MessageType::plain_text, buf));
-		server->queue.push([server = this->server, id = this->id, message] {
-			server->getPluginManager()->passMessage(id, message.c_str());
+		room->log(LOG_SESSION, "[%s] <%s> %s", connection->getIP(), getNickname().c_str(), message.c_str());
+		room->broadcast(preparePacketMessage(MessageType::plain_text, buf));
+		room->queue.push([room = this->room, id = this->id.value(), message] {
+			room->getPluginManager()->passMessage(id, message.c_str());
 		});
 	}
 }
@@ -648,7 +732,7 @@ void Session::updateCursor() {
 	switch(tool.type) {
 		case ToolType::brush: {
 			if(!cursor_down)
-				break; //Cursor is not down, do nothing
+				break; // Cursor is not down, do nothing
 
 			auto cursor_prev = this->cursor_pos_prev.load();
 			auto cursor_pos = this->cursor_pos.load();
@@ -657,13 +741,13 @@ void Session::updateCursor() {
 			if(iters == 0)
 				iters = 1;
 
-			if(iters > 300) { //Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+			if(iters > 300) { // Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 				cursor_down = false;
 				break;
 			}
 
-			auto *brush_shape_outline = server->getBrushShape(tool.size, false);
-			auto *brush_shape_filled = server->getBrushShape(tool.size, true);
+			auto *brush_shape_outline = room->getBrushShape(tool.size, false);
+			auto *brush_shape_filled = room->getBrushShape(tool.size, true);
 
 			std::vector<GlobalPixel> pixels;
 			pixels.reserve(256);
@@ -677,11 +761,11 @@ void Session::updateCursor() {
 				cell.b = b;
 			};
 
-			//Draw line
+			// Draw line
 			for(u32 i = 0; i <= iters; i++) {
 				float alpha = i / float(iters);
 
-				//Lerp
+				// Lerp
 				s32 x = lerp(alpha, cursor_prev.x, cursor_pos.x);
 				s32 y = lerp(alpha, cursor_prev.y, cursor_pos.y);
 
@@ -773,16 +857,17 @@ void Session::parseCommandCursorDown(const std::string_view data) {
 	auto lk = waiter.getLock();
 	bool cancelled = false;
 
-	server->queue.push([&, this] {
-		auto *plugman = server->getPluginManager();
-		if(plugman->passUserMouseDown(id))
+	// Wait for all plugins for accepting MouseDown event (blocking!)
+	room->queue.push([&, this] {
+		auto *plugman = room->getPluginManager();
+		if(plugman->passUserMouseDown(getID().value()))
 			cancelled = true;
 		waiter.notify();
 	});
 
 	waiter.wait(lk);
 
-	if(cancelled)
+	if(cancelled) // Cancel mouseDown event
 		return;
 
 	cursor_down = true;
@@ -873,7 +958,7 @@ void Session::parseCommandBoundary(const std::string_view data) {
 	if(end_x < start_x)
 		end_x = start_x;
 
-	//Chunk limit
+	// Chunk limit
 	end_x = std::min(end_x, start_x + 100);
 	end_y = std::min(end_y, start_y + 100);
 
@@ -898,7 +983,7 @@ void Session::parseCommandChunksReceived(const std::string_view data) {
 
 void Session::runner_performBoundaryTest() {
 	if(processed_input_message)
-		return; //Process new chunks only when all client input messages are read
+		return; // Process new chunks only when all client input messages are read
 
 	if(!needs_boundary_test)
 		return;
@@ -908,7 +993,7 @@ void Session::runner_performBoundaryTest() {
 	{
 		LockGuard lock(mtx_access);
 
-		//Check which chunks aren't announced for this session
+		// Check which chunks aren't announced for this session
 		for(s32 y = boundary.start_y; y < boundary.end_y; y++) {
 			for(s32 x = boundary.start_x; x < boundary.end_x; x++) {
 				if(!isChunkLinked_nolock({x, y})) {
@@ -918,11 +1003,11 @@ void Session::runner_performBoundaryTest() {
 		}
 	}
 
-	//No chunks to load
+	// No chunks to load
 	if(chunks_to_load.empty()) return;
 
 	s64 in_queue = (s64)chunks_sent - (s64)chunks_received;
-	s32 to_send = 40 - in_queue; //Max 40 queued chunks
+	s32 to_send = 40 - in_queue; // Max 40 queued chunks
 
 	auto cursor_pos = this->cursor_pos.load();
 
@@ -930,7 +1015,7 @@ void Session::runner_performBoundaryTest() {
 		if(chunks_to_load.empty())
 			break;
 
-		//Get closest chunk (circular loading)
+		// Get closest chunk (circular loading)
 		float center_x = (float)cursor_pos.x / ChunkSystem::getChunkSize();
 		float center_y = (float)cursor_pos.y / ChunkSystem::getChunkSize();
 		Int2 closest_position;
@@ -943,7 +1028,7 @@ void Session::runner_performBoundaryTest() {
 			}
 		}
 
-		//Remove closest chunks_to_load cell (mark as loaded)
+		// Remove closest chunks_to_load cell (mark as loaded)
 		for(auto it = chunks_to_load.begin(); it != chunks_to_load.end();) {
 			if(*it == closest_position) {
 				it = chunks_to_load.erase(it);
@@ -952,9 +1037,9 @@ void Session::runner_performBoundaryTest() {
 			}
 		}
 
-		//Announce chunk
+		// Announce chunk
 		chunks_sent++;
-		server->getChunkSystem()->announceChunkForSession(this, closest_position);
+		room->getChunkSystem()->announceChunkForSession(this, closest_position);
 	}
 
 	needs_boundary_test = !chunks_to_load.empty();
