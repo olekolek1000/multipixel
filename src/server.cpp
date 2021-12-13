@@ -91,13 +91,20 @@ void Server::run(u16 port) {
 			} //Close callback
 	);
 
+	Timestep step;
+	step.setRate(20);
+
 	while(!got_sigint) {
 		freeRemovedSessions();
 		if(queue.size() > 0) {
 			LockGuard lock(mtx_action);
 			queue.process();
 		} else {
-			std::this_thread::sleep_for(std::chrono::milliseconds(20));
+			if(step.onTick()) {
+				getPluginManager()->passTick();
+			} else {
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			}
 		}
 	}
 
