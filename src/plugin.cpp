@@ -28,6 +28,7 @@ struct PluginManager::P {
 	MultiDispatcher<void(u16)> dispatcher_user_leave;						 //session_id
 	MultiDispatcher<bool(u16)> dispatcher_user_mouse_down;			 //cancelled(session_id)
 	MultiDispatcher<void(u16)> dispatcher_user_mouse_up;				 //session_id
+	MultiDispatcher<void()> dispatcher_tick;
 
 	std::vector<uniqptr<Plugin>> plugins;
 
@@ -167,6 +168,10 @@ void PluginManager::passUserMouseUp(u16 session_id) {
 	p->dispatcher_user_mouse_up.triggerAll(session_id);
 }
 
+void PluginManager::passTick() {
+	p->dispatcher_tick.triggerAll();
+}
+
 //##############################################################
 //##############################################################
 //##############################################################
@@ -186,6 +191,7 @@ struct Plugin::P {
 	Listener<void(u16)> listener_user_leave;						//session_id
 	Listener<bool(u16)> listener_user_mouse_down;				//cancelled(session_id)
 	Listener<void(u16)> listener_user_mouse_up;					//session_id
+	Listener<void()> listener_tick;
 
 	P(PluginManager *plugman, const char *name, const char *dir);
 	void callFunction(const char *name, bool required);
@@ -223,7 +229,7 @@ Plugin::P::P(PluginManager *plugman, const char *name, const char *dir)
 	char init_path[256];
 	snprintf(init_path, sizeof(init_path), "%s/init.lua", dir);
 
-	lua.open_libraries(sol::lib::base, sol::lib::package);
+	lua.open_libraries(sol::lib::base, sol::lib::package, sol::lib::table, sol::lib::io);
 	populateAPI();
 
 	lua.script_file(init_path);
@@ -252,7 +258,11 @@ void Plugin::P::populateAPI() {
 	tab_server.set_function("addEvent", [this](const char *event_name, sol::function func) {
 		auto *pm = plugman->p.get();
 
-		if(!strcmp(event_name, "message")) {
+		if(!strcmp(event_name, "tick")) {
+			pm->dispatcher_tick.add(listener_tick, [func{std::move(func)}] {
+				func();
+			});
+		} else if(!strcmp(event_name, "message")) {
 			pm->dispatcher_message.add(listener_message, [func{std::move(func)}](u16 session_id, const char *message) {
 				func(session_id, message);
 			});
