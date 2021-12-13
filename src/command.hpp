@@ -1,9 +1,12 @@
 #pragma once
 
 #include "util/buffer.hpp"
+#include "util/id.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 #include <memory>
+
+DECLARE_ID(SessionID, u16);
 
 #ifdef __clang__
 #	define NO_SANITIZER __attribute__((no_sanitize("undefined")))
@@ -23,31 +26,31 @@ enum struct MessageType : u8 {
 };
 
 enum struct ClientCmd : u16 {
-	message = 1,	//utf-8 text
-	announce = 2, //utf-8 username
+	message = 1,	// utf-8 text
+	announce = 2, // u8 room_name_size, utf-8 room_name, u8 nickname_size, utf-8 nickname
 	ping = 4,
-	cursor_pos = 100, //s32 x, s32 y
+	cursor_pos = 100, // s32 x, s32 y
 	cursor_down = 101,
 	cursor_up = 102,
 	boundary = 103,
 	chunks_received = 104,
-	tool_size = 200,	//u8 size
-	tool_color = 201, //u8 red, u8 green, u8 blue
-	tool_type = 202,	//u8 type
+	tool_size = 200,	// u8 size
+	tool_color = 201, // u8 red, u8 green, u8 blue
+	tool_type = 202,	// u8 type
 	undo = 203
 };
 
 enum struct ServerCmd : u16 {
-	message = 1,						//u8 type, utf-8 text
-	your_id = 2,						//u16 id
-	kick = 3,								//utf-8 reason
-	chunk_image = 100,			//complex data
-	chunk_pixel_pack = 101, //complex data
-	chunk_create = 110,			//s32 chunkX, s32 chunkY
-	chunk_remove = 111,			//s32 chunkX, s32 chunkY
-	user_create = 200,			//u16 id, utf-8 nickname
-	user_remove = 201,			//u16 id
-	user_cursor_pos = 202,	//u16 id, s32 x, s32 y
+	message = 1,						// u8 type, utf-8 text
+	your_id = 2,						// u16 id
+	kick = 3,								// utf-8 reason
+	chunk_image = 100,			// complex data
+	chunk_pixel_pack = 101, // complex data
+	chunk_create = 110,			// s32 chunkX, s32 chunkY
+	chunk_remove = 111,			// s32 chunkX, s32 chunkY
+	user_create = 200,			// u16 id, utf-8 nickname
+	user_remove = 201,			// u16 id
+	user_cursor_pos = 202,	// u16 id, s32 x, s32 y
 };
 
 u16 frombig16(u16 in);
@@ -76,7 +79,7 @@ struct Datasize {
 
 Packet preparePacket(ServerCmd cmd, Datasize **datas);
 Packet preparePacket(ServerCmd cmd, const void *data, u32 size);
-Packet preparePacketUserCursorPos(u16 session_id, s32 x, s32 y);
+Packet preparePacketUserCursorPos(SessionID session_id, s32 x, s32 y);
 Packet preparePacketUserCreate(Session *session);
 Packet preparePacketUserRemove(Session *session);
 Packet preparePacketChunkCreate(Int2 chunk_pos);

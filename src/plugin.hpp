@@ -1,9 +1,11 @@
 #pragma once
 
+#include "session.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
 
 struct Server;
+struct Room;
 struct PluginManager;
 
 struct Plugin {
@@ -20,15 +22,15 @@ struct PluginManager {
 	struct P;
 	uniqptr<P> p;
 
-	Server *server;
+	Room *room;
 
-	PluginManager(Server *server);
+	PluginManager(Room *room);
 	~PluginManager();
 
-	void passMessage(u16 session_id, const char *message);
-	void passCommand(u16 session_id, const char *command);
-	void passUserJoin(u16 session_id);
-	void passUserLeave(u16 session_id);
-	bool passUserMouseDown(u16 session_id); //true = cancel
-	void passUserMouseUp(u16 session_id);
+	void passMessage(SessionID session_id, const char *message);
+	void passCommand(SessionID session_id, const char *command);
+	void passUserJoin(SessionID session_id);
+	void passUserLeave(SessionID session_id);
+	bool passUserMouseDown(SessionID session_id); // true = cancel
+	void passUserMouseUp(SessionID session_id);
 };

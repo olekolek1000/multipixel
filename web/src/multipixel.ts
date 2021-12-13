@@ -52,8 +52,9 @@ export class Multipixel {
 	palette: ColorPalette;
 	events_enabled: boolean = true;
 
-	constructor(host: string, nick: any, done_callback: () => void) {
-		this.client = new Client(this, host, nick, () => {
+	constructor(host: string, nickname: string, room_name: string, done_callback: () => void) {
+		document.title = "#" + room_name + " - MultiPixel";
+		this.client = new Client(this, host, nickname, room_name, () => {
 			this.onConnect(done_callback);
 		});
 	}
@@ -110,6 +111,8 @@ export class Multipixel {
 			this.getCursor().brush_size = num_size;
 			this.client.socketSendBrushSize(num_size);
 		});
+
+		(document.getElementById("mp_slider_brush_smoothing") as HTMLInputElement).value = "0.0";
 
 		document.getElementById("button_zoom_1_1").addEventListener("click", () => {
 			this.map.setZoom(1.0);

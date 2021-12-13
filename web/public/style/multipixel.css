@@ -16,19 +16,17 @@
 	text-align: right;
 	padding: 8px;
 	font-size: 0.3cm;
-	background-color: rgba(80, 80, 80, 0.8);
-	border-bottom: 1px solid black;
-	border-left: 1px solid black;
+	background-color: rgba(255, 255, 255, 0.8);
+	border-radius: 0% 0% 0% 8px;
 	color: #FFF;
 	text-shadow: 1px 1px #000;
 }
 
 #mp_chat_box {
 	position: fixed;
-	background-color: rgba(80, 80, 80, 0.8);
-	border-top: 1px solid black;
-	border-right: 1px solid black;
+	background-color: rgba(255, 255, 255, 0.8);
 	text-shadow: 1px 1px #000;
+	border-radius: 0 4px 0 0;
 	bottom: 0;
 	left: 0;
 }
@@ -50,7 +48,7 @@
 }
 
 #mp_chat_input {
-	background-color: rgba(0, 0, 0, 0.5);
+	background-color: rgba(220, 220, 220, 1.0);
 	border: 0;
 	margin: 2px;
 	width: 256px;
@@ -59,21 +57,20 @@
 }
 
 #mp_top_panel {
-	background-color: rgba(80, 80, 80, 0.8);
-	border-bottom: 1px solid black;
-	border-right: 1px solid black;
+	background-color: rgba(255, 255, 255, 0.8);
 	position: fixed;
 	top: 0;
 	left: 0;
 	padding-right: 4px;
+	border-radius: 0 0 4px 0;
 	display: block;
 }
 
 .mp_slider {
 	-webkit-appearance: none;
 	appearance: none;
-	background-color: rgb(0, 204, 255);
-	border-radius: 3px;
+	background-color: rgb(200, 200, 200);
+	border-radius: 4px;
 	outline: none;
 	width: 80px;
 	height: 5px;
@@ -84,20 +81,18 @@
 	appearance: none;
 	width: 14px;
 	height: 14px;
-	background: #0059ff;
+	background: #adadad;
 	cursor: pointer;
-	border: 1px solid white;
-	border-radius: 0;
+	border-radius: 50%;
 	transition: 0.2s;
 }
 
 .mp_slider::-moz-range-thumb {
 	width: 14px;
 	height: 14px;
-	background: #0059ff;
+	background: #adadad;
 	cursor: pointer;
-	border: 1px solid white;
-	border-radius: 0;
+	border-radius: 50%;
 	transition: 0.2s;
 }
 
@@ -113,12 +108,19 @@
 	border-radius: 5px;
 }
 
-.mp_slider_desc {
-	color: #FFF;
+.mp_slider_container {
+	color: #333;
 	margin-left: 5px;
 	margin-right: 5px;
-	padding-top: 7px;
-	display: inline-block;
+	clear: left;
+	float: left;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+.mp_slider_title {
+	font-weight: bold;
+	font-size: 10px;
 }
 
 .mp_floating_button {
@@ -129,8 +131,7 @@
 	min-width: 32px;
 	min-height: 32px;
 	float: left;
-	border: 1px solid black;
-	background-color: rgba(255, 255, 255, 0.8);
+	background-color: rgba(220, 220, 220, 1.0);
 	margin-left: 2px;
 	margin-top: 2px;
 	font-size: 0.8em;
@@ -179,10 +180,23 @@
 .button_tool {
 	background-size: 32px;
 	background-position: center;
+	border-radius: 20%;
+	opacity: 0.7;
+}
+
+.button_tool:hover {
+	background-color: #FFF;
+	opacity: 1.0;
 }
 
 .button_tool_selected {
-	background-color: rgb(0, 174, 255);
+	background-color: #FFF;
+	border: 1px solid #888;
+	opacity: 1.0;
+}
+
+#button_zoom_1_1 {
+	background-image: url('../img/one_to_one.png');
 }
 
 #button_tool_brush {
@@ -213,10 +227,15 @@
 .mpc_cell, .mpc_control {
 	width: 24px;
 	height: 16px;
-	border-radius: 3px;
-	border: 1px solid black;
+	border-radius: 4px;
 	float: left;
 	user-select: none;
+	outline: 1px solid rgba(0, 0, 0, 0.3);
+	outline-offset: -1px;
+}
+
+.mpc_inline {
+	float: right;
 }
 
 .mpc_clear {
@@ -226,8 +245,8 @@
 .mpc_control {
 	width: 16px;
 	height: 20px;
-	background-color: #222;
-	color: #FFF;
+	background-color: rgb(220, 220, 220);
+	color: #333;
 	margin-left: 2px;
 	margin-top: 2px;
 	padding-left: 2px;
