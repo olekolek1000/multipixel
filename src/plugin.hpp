@@ -33,4 +33,5 @@ struct PluginManager {
 	void passUserLeave(SessionID session_id);
 	bool passUserMouseDown(SessionID session_id); // true = cancel
 	void passUserMouseUp(SessionID session_id);
+	void passTick();
 };
