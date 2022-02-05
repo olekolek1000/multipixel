@@ -51,6 +51,7 @@ Room::~Room() {
 }
 
 bool Room::tick() {
+	getPluginManager()->passTick();
 	freeRemovedSessions();
 	if(queue.size() > 0) {
 		queue.process();
