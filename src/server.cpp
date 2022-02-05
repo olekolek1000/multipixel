@@ -74,19 +74,18 @@ void Server::run(u16 port) {
 			} // Close callback
 	);
 
+	Timestep step;
+	step.setRate(20);
+
 	while(!got_sigint) {
-		bool busy = false;
-		{
+		if(step.onTick()) {
 			LockGuard lock(mtx_action);
 			LockGuard lock2(mtx_rooms);
 			for(auto &room : rooms) {
-				if(room->tick())
-					busy = true;
+				room->tick();
 			}
-		}
-
-		if(!busy) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		} else {
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
 	}
 
