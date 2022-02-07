@@ -35,11 +35,11 @@ Tools:
 - Up to 18446744073709551616 pixels ((2^32)*256) in one room
 - LZ4 chunk compression
 - WebSockets
+- SQLite3 room storage
 
 #
 
 ## Technical features (Client)
-- SQLite3 room storage
 - Written in Typescript
 - Powered by WebGL 2
 - LZ4 chunk decompression
