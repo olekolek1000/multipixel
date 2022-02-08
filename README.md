@@ -32,7 +32,7 @@ Tools:
 ## Technical features (Server)
 - Full multithreading (per-session)
 - Up to 65535 clients supported
-- Up to 18446744073709551616 pixels ((2^32)*256) in one room
+- Up to 18446744073709551616 pixels ((2^32)*(2^32)) in one room
 - LZ4 chunk compression
 - WebSockets
 - SQLite3 room storage
