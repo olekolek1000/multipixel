@@ -12,7 +12,8 @@
 #include <stdexcept>
 #include <string>
 
-#define SOL_ALL_SAFETIES_ON 1
+#define SOL_ALL_SAFETIES_ON							1
+#define SOL_EXCEPTIONS_SAFE_PROPAGATION 1
 #include "lib/sol/sol.hpp"
 
 static const char *LOG_PMAN = "PluginManager";
@@ -230,7 +231,7 @@ Plugin::P::P(PluginManager *plugman, const char *name, const char *dir)
 	char init_path[256];
 	snprintf(init_path, sizeof(init_path), "%s/init.lua", dir);
 
-	lua.open_libraries(sol::lib::base, sol::lib::package, sol::lib::table, sol::lib::io);
+	lua.open_libraries(sol::lib::base, sol::lib::package, sol::lib::table, sol::lib::io, sol::lib::string);
 	populateAPI();
 
 	lua.script_file(init_path);
@@ -249,6 +250,16 @@ auto resGetBoolean = [](auto res, bool *result) -> bool {
 	return false;
 };
 
+template <typename... Args>
+static auto executeFunction(const sol::function &func, Args... args) {
+	auto ret = func(args...);
+	if(!ret.valid()) {
+		sol::error err = ret;
+		throwf("Failed to call function: %s", err.what());
+	}
+	return ret;
+}
+
 void Plugin::P::populateAPI() {
 	lua.set_function("print", [this](const char *text) {
 		room->log(name.c_str(), "%s", text);
@@ -261,35 +272,35 @@ void Plugin::P::populateAPI() {
 
 		if(!strcmp(event_name, "tick")) {
 			pm->dispatcher_tick.add(listener_tick, [func{std::move(func)}] {
-				func();
+				executeFunction(func);
 			});
 		} else if(!strcmp(event_name, "message")) {
 			pm->dispatcher_message.add(listener_message, [func{std::move(func)}](SessionID session_id, const char *message) {
-				func(session_id.get(), message);
+				executeFunction(func, session_id.get(), message);
 			});
 		} else if(!strcmp(event_name, "command")) {
 			pm->dispatcher_command.add(listener_command, [func{std::move(func)}](SessionID session_id, const char *command) {
-				func(session_id.get(), command);
+				executeFunction(func, session_id.get(), command);
 			});
 		} else if(!strcmp(event_name, "user_join")) {
 			pm->dispatcher_user_join.add(listener_user_join, [func{std::move(func)}](SessionID session_id) {
-				func(session_id.get());
+				executeFunction(func, session_id.get());
 			});
 		} else if(!strcmp(event_name, "user_leave")) {
 			pm->dispatcher_user_leave.add(listener_user_leave, [func{std::move(func)}](SessionID session_id) {
-				func(session_id.get());
+				executeFunction(func, session_id.get());
 			});
 		} else if(!strcmp(event_name, "user_mouse_down")) {
 			pm->dispatcher_user_mouse_down.add(listener_user_mouse_down, [func{std::move(func)}](SessionID session_id) -> bool {
 				bool result;
-				if(resGetBoolean(func(session_id.get()), &result)) {
+				if(resGetBoolean(executeFunction(func, session_id.get()), &result)) {
 					return result;
 				}
 				return false;
 			});
 		} else if(!strcmp(event_name, "user_mouse_up")) {
 			pm->dispatcher_user_mouse_up.add(listener_user_mouse_up, [func{std::move(func)}](SessionID session_id) {
-				func(session_id.get());
+				executeFunction(func, session_id.get());
 			});
 		} else {
 			room->log(name.c_str(), "Unknown event name: %s", event_name);
@@ -343,6 +354,56 @@ void Plugin::P::populateAPI() {
 		pixel.g = g;
 		pixel.b = b;
 		chunk->setPixelQueued(&pixel);
+	});
+
+	tab_server.set_function("mapBlitGray", [this](s32 posX, s32 posY, u32 width, u32 height, const std::string &data) {
+		if(data.size() != width * height) {
+			throwf("mapBlitGray: Data size mismatch");
+		}
+
+		uniqdata<GlobalPixel> pixels(width * height);
+
+		Int2 global;
+		u32 offset = 0;
+		for(u32 y = 0; y < height; y++) {
+			for(u32 x = 0; x < width; x++) {
+				global.x = posX + x;
+				global.y = posY + y;
+
+				auto &pixel = pixels[offset];
+				pixel.pos = global;
+				pixel.r = pixel.g = pixel.b = data[offset];
+				offset++;
+			}
+		}
+
+		room->setPixels_nolock(pixels.data(), pixels.size());
+	});
+
+	tab_server.set_function("mapBlitRGB", [this](s32 posX, s32 posY, u32 width, u32 height, const std::string &data) {
+		if(data.size() != width * height * 3) {
+			throwf("mapBlitRGB: Data size mismatch");
+		}
+
+		uniqdata<GlobalPixel> pixels(width * height);
+
+		Int2 global;
+		u32 offset = 0;
+		for(u32 y = 0; y < height; y++) {
+			for(u32 x = 0; x < width; x++) {
+				global.x = posX + x;
+				global.y = posY + y;
+
+				auto &pixel = pixels[offset];
+				pixel.pos = global;
+				pixel.r = data[offset * 3 + 0];
+				pixel.g = data[offset * 3 + 1];
+				pixel.b = data[offset * 3 + 2];
+				offset++;
+			}
+		}
+
+		room->setPixels_nolock(pixels.data(), pixels.size());
 	});
 }
 

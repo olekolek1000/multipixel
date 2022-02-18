@@ -2,6 +2,7 @@
 #include "chunk_system.hpp"
 #include "plugin.hpp"
 #include "server.hpp"
+#include "src/chunk.hpp"
 #include <math.h>
 #include <stdarg.h>
 
@@ -271,5 +272,42 @@ void Room::forEverySessionExcept(Session *except, std::function<void(Session *)>
 			continue;
 
 		callback(session.get());
+	}
+}
+
+void Room::setPixels_nolock(GlobalPixel *pixels, u32 count) {
+	Chunk *chunk_cache = nullptr;
+	std::vector<ChunkPixel> *data_cache = nullptr;
+	Int2 chunk_cache_pos = {INT32_MIN, INT32_MIN};
+
+	std::map<Chunk *, std::vector<ChunkPixel>> chunk_data;
+
+	for(u32 i = 0; i < count; i++) {
+		auto &pixel = pixels[i];
+		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(pixel.pos);
+
+		Chunk *chunk;
+		std::vector<ChunkPixel> *data;
+		if(chunk_pos == chunk_cache_pos) {
+			chunk = chunk_cache;
+			data = data_cache;
+		} else {
+			chunk = getChunkSystem()->getChunk(chunk_pos);
+			if(!chunk) continue;
+			data = &chunk_data[chunk];
+			chunk_cache = chunk;
+			data_cache = data;
+		}
+
+		ChunkPixel chunk_pixel;
+		chunk_pixel.pos = ChunkSystem::globalPixelPosToLocalPixelPos(pixel.pos);
+		chunk_pixel.r = pixel.r;
+		chunk_pixel.g = pixel.g;
+		chunk_pixel.b = pixel.b;
+		data->push_back(chunk_pixel);
+	}
+
+	for(auto &data : chunk_data) {
+		data.first->setPixels(data.second.data(), data.second.size());
 	}
 }
