@@ -25,6 +25,17 @@ s32 frombig32(s32 in) {
 	return bswap_32(in);
 }
 
+float frombig32(float in) {
+	float ret;
+	auto *a = (u8 *)&in;
+	auto *b = (u8 *)&ret;
+	b[0] = a[3];
+	b[1] = a[2];
+	b[2] = a[1];
+	b[3] = a[0];
+	return ret;
+}
+
 u32 frombig64(u64 in) {
 	return bswap_64(in);
 }
@@ -47,6 +58,17 @@ u32 tobig32(u32 in) {
 
 s32 tobig32(s32 in) {
 	return bswap_32(in);
+}
+
+float tobig32(float in) {
+	float ret;
+	auto *a = (u8 *)&in;
+	auto *b = (u8 *)&ret;
+	b[0] = a[3];
+	b[1] = a[2];
+	b[2] = a[1];
+	b[3] = a[0];
+	return ret;
 }
 
 u64 tobig64(u64 in) {

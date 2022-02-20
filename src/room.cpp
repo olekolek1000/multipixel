@@ -1,6 +1,7 @@
 #include "room.hpp"
 #include "chunk_system.hpp"
 #include "plugin.hpp"
+#include "preview_system.hpp"
 #include "server.hpp"
 #include "src/chunk.hpp"
 #include <math.h>
@@ -13,6 +14,7 @@ static const char *LOG_ROOM = "RoomManager";
 struct Room::P {
 	std::string name;
 
+	uniqptr<PreviewSystem> preview_system;
 	uniqptr<ChunkSystem> chunk_system;
 	uniqptr<PluginManager> plugin_manager;
 
@@ -29,9 +31,21 @@ Room::Room(Server *server, std::string_view name) {
 	this->server = server;
 	p->name = name;
 
+	// Init database
+	char db_path[256];
+	snprintf(db_path, sizeof(db_path), "rooms/%s.db", getName().c_str());
+	database.init(db_path);
+
 	// Init chunk system and plugin manager
 	p->chunk_system.create(this);
 	p->plugin_manager.create(this);
+	p->preview_system.create(this);
+
+	database.lock();
+	database.foreachChunk([this](Int2 pos) {
+		p->preview_system->addToQueueFront(pos);
+	});
+	database.unlock();
 }
 
 Room::~Room() {
@@ -53,6 +67,7 @@ Room::~Room() {
 
 bool Room::tick() {
 	getPluginManager()->passTick();
+	getPreviewSystem()->tick();
 	freeRemovedSessions();
 	if(queue.size() > 0) {
 		queue.process();
@@ -189,11 +204,15 @@ BrushShape *Room::getBrushShape(u8 size, bool filled) {
 	}
 }
 
-ChunkSystem *Room::getChunkSystem() {
+PreviewSystem *Room::getPreviewSystem() const {
+	return p->preview_system.get();
+}
+
+ChunkSystem *Room::getChunkSystem() const {
 	return p->chunk_system.get();
 }
 
-PluginManager *Room::getPluginManager() {
+PluginManager *Room::getPluginManager() const {
 	return p->plugin_manager.get();
 }
 

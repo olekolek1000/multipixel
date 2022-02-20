@@ -4,6 +4,7 @@
 #include "command.hpp"
 #include "lib/ojson.hpp"
 #include "plugin.hpp"
+#include "preview_system.hpp"
 #include "room.hpp"
 #include "server.hpp"
 #include "src/waiter.hpp"
@@ -16,6 +17,8 @@
 #include <math.h>
 
 static const char *LOG_SESSION = "Session";
+
+#define MIN_ZOOM 0.45
 
 Session::Session(Server *server, SharedWsConnection &connection)
 		: server(server),
@@ -92,9 +95,9 @@ bool Session::runner_tick() {
 				for(size_t i = 0; i < linked_chunks.size(); i++) { // Do not use iterator there
 					auto &linked_chunk = linked_chunks[i];
 					auto pos = linked_chunk.chunk->getPosition();
-					if(pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
+					if(boundary.zoom <= MIN_ZOOM || pos.y < boundary.start_y || pos.y > boundary.end_y || pos.x < boundary.start_x || pos.x > boundary.end_x) {
 						linked_chunk.outside_boundary_duration++;
-						if(linked_chunk.outside_boundary_duration == 20 /* seconds */) {
+						if(linked_chunk.outside_boundary_duration == 5 /* seconds */) {
 							chunks_to_unload.push_back(pos);
 						}
 					} else {
@@ -585,6 +588,10 @@ void Session::parseCommand(ClientCmd cmd, const std::string_view data) {
 			parseCommandChunksReceived(data);
 			break;
 		}
+		case ClientCmd::preview_request: {
+			parseCommandPreviewRequest(data);
+			break;
+		}
 		case ClientCmd::ping: {
 			break;
 		}
@@ -936,13 +943,14 @@ void Session::parseCommandToolType(const std::string_view data) {
 }
 
 void Session::parseCommandBoundary(const std::string_view data) {
-	struct PACKED boundary_t {
+	struct PACKED data_t {
 		s32 start_x, start_y, end_x, end_y;
+		float zoom;
 	};
 
-	auto *bnd = (boundary_t *)data.data();
+	auto *bnd = (data_t *)data.data();
 
-	if(data.size() != sizeof(boundary_t)) {
+	if(data.size() != sizeof(data_t)) {
 		kickInvalidPacket();
 		return;
 	}
@@ -951,6 +959,7 @@ void Session::parseCommandBoundary(const std::string_view data) {
 	auto start_y = frombig32(bnd->start_y);
 	auto end_x = frombig32(bnd->end_x);
 	auto end_y = frombig32(bnd->end_y);
+	auto zoom = frombig32(bnd->zoom);
 
 	if(end_y < start_y)
 		end_y = start_y;
@@ -966,6 +975,7 @@ void Session::parseCommandBoundary(const std::string_view data) {
 	boundary.start_y = start_y;
 	boundary.end_x = end_x;
 	boundary.end_y = end_y;
+	boundary.zoom = zoom;
 
 	needs_boundary_test = true;
 }
@@ -981,16 +991,56 @@ void Session::parseCommandChunksReceived(const std::string_view data) {
 	this->chunks_received = chunks_received;
 }
 
+void Session::parseCommandPreviewRequest(const std::string_view data) {
+	struct PACKED data_t {
+		s32 preview_x;
+		s32 preview_y;
+		u8 zoom;
+	};
+	auto *n = (data_t *)data.data();
+
+	if(data.size() != sizeof(data_t)) {
+		kickInvalidPacket();
+		return;
+	}
+
+	auto preview_x = frombig32(n->preview_x);
+	auto preview_y = frombig32(n->preview_y);
+
+	// room->log(LOG_SESSION, "request %d %d zoom %u", preview_x, preview_y, n->zoom);
+
+	auto *preview_system = room->getPreviewSystem();
+	auto compressed_data = preview_system->requestData(preview_x, preview_y, n->zoom);
+	if(!compressed_data)
+		return;
+
+	Datasize data_preview_x(&n->preview_x, sizeof(s32));
+	Datasize data_preview_y(&n->preview_y, sizeof(s32));
+	Datasize data_zoom(&n->zoom, sizeof(u8));
+	Datasize data_compressed(compressed_data->data(), compressed_data->size());
+
+	Datasize *datasizes[] = {
+			&data_preview_x,
+			&data_preview_y,
+			&data_zoom,
+			&data_compressed,
+			nullptr};
+
+	sendPacket(preparePacket(ServerCmd::preview_image, datasizes));
+}
+
 void Session::runner_performBoundaryTest() {
 	if(processed_input_message)
 		return; // Process new chunks only when all client input messages are read
 
 	if(!needs_boundary_test)
 		return;
+
 	needs_boundary_test = false;
 
 	std::vector<Int2> chunks_to_load;
-	{
+
+	if(boundary.zoom > MIN_ZOOM) {
 		LockGuard lock(mtx_access);
 
 		// Check which chunks aren't announced for this session

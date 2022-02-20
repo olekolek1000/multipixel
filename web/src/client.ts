@@ -1,6 +1,6 @@
 import { Chat } from "./chat";
 import { Multipixel } from "./multipixel";
-import { CHUNK_SIZE } from "./viewport";
+import { CHUNK_SIZE } from "./chunk_map";
 
 var renderer;
 
@@ -17,6 +17,8 @@ const size_s16 = 2;
 const size_s32 = 4;
 const size_s64 = 8;
 
+const size_float = 4;
+
 const MessageType = {
 	plain_text: 0,
 	html: 1
@@ -31,9 +33,10 @@ enum ClientCmd {
 	cursor_up = 102,
 	boundary = 103,
 	chunks_received = 104,
-	tool_size = 200,	// u8 size
-	tool_color = 201, // u8 red, u8 green, u8 blue
-	tool_type = 202,	// u8 type
+	preview_request = 105, // s32 previewX, s32 previewY, u8 zoom
+	tool_size = 200,			 // u8 size
+	tool_color = 201,			 // u8 red, u8 green, u8 blue
+	tool_type = 202,			 // u8 type
 	undo = 203
 }
 
@@ -45,10 +48,11 @@ enum ServerCmd {
 	chunk_pixel_pack = 101, // complex data
 	chunk_create = 110,			// s32 chunkX, s32 chunkY
 	chunk_remove = 111,			// s32 chunkX, s32 chunkY
-	user_create = 200,			// u16 id, utf-8 nickname
-	user_remove = 201,			// u16 id
-	user_cursor_pos = 202,	// u16 id, s32 x, s32 y
-}
+	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, complex data
+	user_create = 1000,			// u16 id, utf-8 nickname
+	user_remove = 1001,			// u16 id
+	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
+};
 
 function createMessage(command_id: number, command_size: number) {
 	let buf = new ArrayBuffer(header_offset + command_size);
@@ -215,13 +219,26 @@ export class Client {
 	}
 
 	socketSendBoundary() {
-		let buf = createMessage(ClientCmd.boundary, size_s32 * 4);
+		let buf = createMessage(ClientCmd.boundary, size_s32 * 4 + size_float);
 		let dataview = new DataView(buf, header_offset);
 		let boundary = this.multipixel.map.getChunkBoundariesReal();
-		dataview.setInt32(0, boundary.start_x);
-		dataview.setInt32(4, boundary.start_y);
-		dataview.setInt32(8, boundary.end_x);
-		dataview.setInt32(12, boundary.end_y);
+		let zoom = this.multipixel.map.getZoom();
+
+		let offset = 0;
+		dataview.setInt32(offset, boundary.start_x); offset += 4;
+		dataview.setInt32(offset, boundary.start_y); offset += 4;
+		dataview.setInt32(offset, boundary.end_x); offset += 4;
+		dataview.setInt32(offset, boundary.end_y); offset += 4;
+		dataview.setFloat32(offset, zoom); offset += 4;
+		this.socket!.send(buf);
+	}
+
+	socketSendPreviewRequest(x: number, y: number, zoom: number) {
+		let buf = createMessage(ClientCmd.preview_request, size_s32 * 2 + size_s8);
+		let dataview = new DataView(buf, header_offset);
+		dataview.setInt32(0, x);
+		dataview.setInt32(4, y);
+		dataview.setUint8(8, zoom);
 		this.socket!.send(buf);
 	}
 
@@ -277,9 +294,9 @@ export class Client {
 				let chunk_y = dataview.getInt32(offset); offset += 4;
 				let raw_size = dataview.getUint32(offset); offset += 4;
 
-				let uncompressed_buffer = new Buffer(raw_size);
+				let uncompressed_buffer = Buffer.alloc(raw_size);
 				let compressed_data = raw_data.slice(header_offset + offset);
-				let decoded_bytes = LZ4.decodeBlock(new Buffer(compressed_data), uncompressed_buffer);
+				let decoded_bytes = LZ4.decodeBlock(Buffer.from(compressed_data), uncompressed_buffer);
 				decoded_bytes;
 
 				let rgb_view = new DataView(uncompressed_buffer.buffer);
@@ -300,7 +317,7 @@ export class Client {
 
 				let uncompressed_buffer = Buffer.alloc(raw_size);
 				let compressed_data = raw_data.slice(header_offset + offset);
-				let decoded_bytes = LZ4.decodeBlock(new Buffer(compressed_data), uncompressed_buffer);
+				let decoded_bytes = LZ4.decodeBlock(Buffer.from(compressed_data), uncompressed_buffer);
 				decoded_bytes;
 
 				let pixel_view = new DataView(uncompressed_buffer.buffer);
@@ -338,6 +355,20 @@ export class Client {
 				let chunkY = dataview.getInt32(4);
 				map.removeChunk(chunkX, chunkY);
 				map.triggerRerender();
+				break;
+			}
+			case ServerCmd.preview_image: {
+				let offset = 0;
+				let previewX = dataview.getInt32(offset); offset += 4;
+				let previewY = dataview.getInt32(offset); offset += 4;
+				let zoom = dataview.getUint8(offset); offset += 1;
+
+				let rgb = Buffer.alloc(CHUNK_SIZE * CHUNK_SIZE * 3);
+				let compressed = raw_data.slice(header_offset + offset);
+				LZ4.decodeBlock(Buffer.from(compressed), rgb);
+
+				let preview = this.multipixel.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);
+				preview.setData(new Uint8Array(rgb));
 				break;
 			}
 			case ServerCmd.user_create: {
