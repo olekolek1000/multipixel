@@ -25,11 +25,16 @@ const text_fs_solid = `
 
 function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 	const shader = gl.createShader(type);
+	if (!shader) {
+		console.log("gl.createShader failed");
+		return null;
+	}
+
 	gl.shaderSource(shader, source);
 	gl.compileShader(shader);
 
 	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-		alert('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+		console.log("Failed to compile shader: " + gl.getShaderInfoLog(shader));
 		gl.deleteShader(shader);
 		return null;
 	}
@@ -41,19 +46,31 @@ function initShaderProgram(gl: WebGL2RenderingContext, source_vs: string, source
 	const vertexShader = loadShader(gl, gl.VERTEX_SHADER, source_vs);
 	const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, source_fs);
 
+	if (!vertexShader || !fragmentShader)
+		return null;
+
 	const shaderProgram = gl.createProgram();
+	if (!shaderProgram)
+		return null;
+
 	gl.attachShader(shaderProgram, vertexShader);
 	gl.attachShader(shaderProgram, fragmentShader);
 	gl.linkProgram(shaderProgram);
 	if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-		alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+		console.log("Failed to initialize shader program: " + gl.getProgramInfoLog(shaderProgram));
 		return null;
 	}
 
 	return shaderProgram;
 }
 
-function initBufferQuad(gl: WebGL2RenderingContext) {
+class RObject {
+	vao!: WebGLVertexArrayObject;
+	position!: WebGLBuffer;
+	uv!: WebGLBuffer;
+}
+
+function initBufferQuad(gl: WebGL2RenderingContext): RObject {
 	let vao = gl.createVertexArray();
 	gl.bindVertexArray(vao);
 
@@ -87,54 +104,56 @@ function initBufferQuad(gl: WebGL2RenderingContext) {
 	gl.enableVertexAttribArray(1);
 	gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
 
-	return {
-		vao: vao,
-		position: positionBuffer,
-		uv: uvBuffer,
-	};
+	let robject = new RObject();
+	robject.vao = vao!;
+	robject.position = positionBuffer!;
+	robject.uv = uvBuffer!;
+	return robject;
 }
 
 class Shader {
-	program;
+	program: WebGLProgram | null;
 	uniform_p;
 	uniform_m;
 
 	constructor(gl: WebGL2RenderingContext, source_vs: string, source_fs: string) {
 		this.program = initShaderProgram(gl, source_vs, source_fs);
+		if (!this.program)
+			return;
 		this.uniform_p = this.createUniform(gl, "P");
 		this.uniform_m = this.createUniform(gl, "M");
 	}
 
-	createUniform = function (gl: WebGL2RenderingContext, name: string) {
-		return gl.getUniformLocation(this.program, name);
+	createUniform(gl: WebGL2RenderingContext, name: string) {
+		return gl.getUniformLocation(this.program!, name);
 	}
 
-	bind = function (gl: WebGL2RenderingContext) {
+	bind(gl: WebGL2RenderingContext) {
 		gl.useProgram(this.program);
 	}
 
-	setM = function (gl: WebGL2RenderingContext, m: any) {
-		gl.uniformMatrix4fv(this.uniform_m, false, m);
+	setM(gl: WebGL2RenderingContext, m: any) {
+		gl.uniformMatrix4fv(this.uniform_m!, false, m);
 	}
 
-	setP = function (gl: WebGL2RenderingContext, p: any) {
-		gl.uniformMatrix4fv(this.uniform_p, false, p);
+	setP(gl: WebGL2RenderingContext, p: any) {
+		gl.uniformMatrix4fv(this.uniform_p!, false, p);
 	}
 }
 
 export class Texture {
-	texture: WebGLTexture;
-	width: number;
-	height: number;
+	texture!: WebGLTexture;
+	width: number = 0;
+	height: number = 0;
 }
 
 export class RenderEngine {
 	canvas: HTMLCanvasElement;
 	gl: WebGL2RenderingContext;
+	projection = glMatrix.mat4.create();
 
-	buffer_quad;
+	buffer_quad!: RObject;
 	shader;
-	projection;
 
 	constructor(canvas: HTMLCanvasElement) {
 		this.canvas = canvas;
@@ -143,65 +162,67 @@ export class RenderEngine {
 				antialias: false,
 				alpha: false,
 				premultipliedAlpha: false
-			});
+			})!;
 
 		if (!this.gl) {
-			alert("WebGL not supported");
+			alert("WebGL2 not supported.\nPlease enable WebGL in browser settings or update your graphics card/browser.");
 			return;
 		}
 
 		this.buffer_quad = initBufferQuad(this.gl);
 		this.shader = new Shader(this.gl, text_vs_standard, text_fs_solid);
 
-		this.projection = glMatrix.mat4.create();
-
 		this.gl.disable(this.gl.DEPTH_TEST);
 		this.gl.enable(this.gl.BLEND);
 		this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
 	}
 
-	clear = function (r: number, g: number, b: number, a: number) {
+	clear(r: number, g: number, b: number, a: number) {
 		this.gl.clearColor(r, g, b, a);
 		this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 	}
 
-	viewportFullscreen = function () {
+	viewportFullscreen() {
 		this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 	}
 
-	setOrtho = function (left: number, right: number, bottom: number, top: number) {
+	setOrtho(left: number, right: number, bottom: number, top: number) {
 		glMatrix.mat4.ortho(this.projection, left, right, bottom, top, -1.0, 1.0);
 	}
 
-	getCanvas = function () {
+	getCanvas() {
 		return this.canvas;
 	}
 
-	getContext = function () {
+	getContext() {
 		return this.gl;
 	}
 
-	drawRect = function (texture: Texture, pos_x: number, pos_y: number, width: number, height: number) {
+	drawRect(texture: Texture, pos_x: number, pos_y: number, width: number, height: number) {
 		const model = glMatrix.mat4.create();
 		glMatrix.mat4.translate(model, model, [pos_x, pos_y, 0.0]);
 		glMatrix.mat4.scale(model, model, [width, height, 1.0]);
 
-		this.shader.bind(this.gl);
-		this.shader.setP(this.gl, this.projection);
-		this.shader.setM(this.gl, model)
+		this.shader!.bind(this.gl);
+		this.shader!.setP(this.gl, this.projection);
+		this.shader!.setM(this.gl, model)
 
 		this.gl.bindVertexArray(this.buffer_quad.vao);
-		this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+		this.gl.bindTexture(this.gl.TEXTURE_2D, texture.texture);
 		this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
 	}
 
-	loadTextureImage = function (url: string, callback: (texture: Texture) => void) {
+	loadTextureImage(url: string, callback: (texture: Texture) => void) {
 		let gl = this.gl;
 
 		const image = new Image();
 
 		image.onload = function () {
 			const tex = gl.createTexture();
+
+			if (!tex)
+				return;
+
 			gl.bindTexture(gl.TEXTURE_2D, tex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);

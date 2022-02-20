@@ -3,56 +3,47 @@ export function lerp(alpha: number, prev: number, num: number) {
 }
 
 export class Timestep {
-	ticks: number;
-	current_time_ms: number;
-	time_millis: number;
-	accumulator: number;
-	delta: number;
-	alpha: number;
-	speed: number;
+	ticks: number = 0;
+	current_time_ms: number = new Date().getTime();
+	time_millis: number = 0;
+	accumulator: number = 0.0;
+	delta: number = 0.0;
+	alpha: number = 0.0;
+	speed: number = 1.0;
+	loopnum: number = 0;
 
-	constructor() {
-		this.ticks = 0;
-		this.current_time_ms = new Date().getTime();
-		this.time_millis = 0;
-		this.accumulator = 0.0;
-		this.delta = 0.0;
-		this.alpha = 0.0;
-		this.speed = 1.0;
-	}
-
-	calculateAlpha = function () {
+	calculateAlpha() {
 		let num = this.accumulator / this.delta;
 		if (num < 0.0) num = 0.0;
 		if (num > 1.0) num = 1.0;
 		this.alpha = num;
 	}
 
-	setDelta = function (delta: any) {
+	setDelta(delta: any) {
 		this.delta = delta;
 	}
 
-	setRate = function (rate: number) {
+	setRate(rate: number) {
 		this.setDelta(1000.0 / rate);
 	}
 
-	getAlpha = function () {
+	getAlpha() {
 		return this.alpha;
 	}
 
-	getTimeMillis = function () {
+	getTimeMillis() {
 		return this.time_millis;
 	}
 
-	setSpeed = function (speed: any) {
+	setSpeed(speed: any) {
 		this.speed = speed;
 	}
 
-	getSpeed = function () {
+	getSpeed() {
 		return this.speed;
 	}
 
-	onTick = function () {
+	onTick() {
 		let cur_time = new Date().getTime();
 		let frametime = cur_time - this.current_time_ms;
 		this.time_millis += frametime;
@@ -80,11 +71,11 @@ export class Timestep {
 		}
 	}
 
-	reset = function () {
+	reset() {
 		this.current_time_ms = new Date().getTime();
 	}
 
-	getTicks = function () {
+	getTicks() {
 		return this.ticks;
 	}
 }
