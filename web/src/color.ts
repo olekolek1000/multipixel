@@ -15,7 +15,7 @@ class RGBColor {
 }
 
 class Row {
-	row: HTMLElement;
+	row!: HTMLElement;
 	color_palette: ColorPalette;
 	color_left: RGBColor;
 	color_right: RGBColor;
@@ -61,7 +61,7 @@ class Row {
 				cell.addEventListener("click", () => {
 					if (this.color_palette.selected_column == i && this.color_palette.selected_row == this.row_index) {
 						//Run color selector
-						let parent = document.getElementById("mp_top_panel")
+						let parent = document.getElementById("mp_top_panel") as HTMLElement;
 						let picker = new Picker({ parent: parent });
 						picker.setColor(rgb2hex(mod.r, mod.g, mod.b), true);
 						picker.setOptions({ alpha: false, popup: "bottom", editor: true });
@@ -112,11 +112,11 @@ export class ColorPalette {
 	multipixel: Multipixel;
 
 	rows: Array<Row>;
-	column_count: number;
-	row_count: number;
+	column_count: number = 1;
+	row_count: number = 1;
 
-	selected_row: number;
-	selected_column: number;
+	selected_row: number = 0;
+	selected_column: number = 0;
 
 	constructor(multipixel: Multipixel, parent: HTMLElement) {
 		this.parent = parent;
@@ -126,19 +126,19 @@ export class ColorPalette {
 		this.setColumnCount(10);
 		this.setRowCount(4);
 
-		document.getElementById("mpc_resize_col_add").addEventListener("click", () => {
+		document.getElementById("mpc_resize_col_add")!.addEventListener("click", () => {
 			this.setColumnCount(this.column_count + 1);
 		});
 
-		document.getElementById("mpc_resize_col_sub").addEventListener("click", () => {
+		document.getElementById("mpc_resize_col_sub")!.addEventListener("click", () => {
 			this.setColumnCount(this.column_count - 1);
 		});
 
-		document.getElementById("mpc_resize_row_add").addEventListener("click", () => {
+		document.getElementById("mpc_resize_row_add")!.addEventListener("click", () => {
 			this.setRowCount(this.row_count + 1);
 		});
 
-		document.getElementById("mpc_resize_row_sub").addEventListener("click", () => {
+		document.getElementById("mpc_resize_row_sub")!.addEventListener("click", () => {
 			this.setRowCount(this.row_count - 1);
 		});
 

@@ -1,29 +1,39 @@
 import { Multipixel } from "./multipixel";
 
+function getLoginScreen() {
+	return document.getElementById("login_screen") as HTMLElement;
+}
+
+function getMultipixelScreen() {
+	return document.getElementById("mp_screen") as HTMLElement;
+}
+
 function showLoginScreen() {
-	document.getElementById("login_screen").style.visibility = "visible";
-	document.getElementById("mp_screen").style.visibility = "hidden";
+	getLoginScreen().style.visibility = "visible";
+	getMultipixelScreen().style.visibility = "hidden";
 
-	let nick_name_element = (document.getElementById("nickname") as HTMLInputElement);
-	let room_name_element = (document.getElementById("room_name") as HTMLInputElement);
+	let nick_name = document.getElementById("nickname") as HTMLInputElement;
+	nick_name.value = localStorage.getItem("nickname") as string;
 
-	nick_name_element.value = localStorage.getItem("nickname");
-	room_name_element.value = localStorage.getItem("room_name");
+	let room_name = document.getElementById("room_name") as HTMLInputElement;
+	room_name.value = localStorage.getItem("room_name") as string;
 
-	if (room_name_element.value.length == 0)
-		room_name_element.value = "main";
+	if (room_name.value.length == 0)
+		room_name.value = "main";
+
+	let button_start = document.getElementById("button_start") as HTMLElement;
+	button_start.addEventListener("click", onStartClick);
 }
 
 function showMultipixelScreen() {
-	document.getElementById("login_screen").style.visibility = "hidden";
-	document.getElementById("mp_screen").style.visibility = "visible";
+	getLoginScreen().style.visibility = "hidden";
+	getMultipixelScreen().style.visibility = "visible";
 }
 
 window.onload = function () {
 	showLoginScreen();
 }
 
-document.getElementById("button_start").onclick = onStartClick;
 
 function onStartClick() {
 	let nick_name_element = (document.getElementById("nickname") as HTMLInputElement);
