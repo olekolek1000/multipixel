@@ -27,7 +27,7 @@ export class Chat {
 		this.chat_history.append()
 	}
 
-	addMessage = function (str: string, html_mode: boolean) {
+	addMessage(str: string, html_mode: boolean) {
 		let chat_message = document.createElement("div");
 		chat_message.classList.add("mp_chat_message");
 		if (html_mode)

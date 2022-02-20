@@ -43,14 +43,14 @@ export class Cursor {
 
 export class Multipixel {
 	client: Client;
-	map: ChunkMap;
-	chat: Chat;
-	renderer: RenderEngine;
-	cursor: Cursor;
-	needs_boundaries_update: boolean;
-	timestep: Timestep;
-	palette: ColorPalette;
+	map!: ChunkMap;
+	chat!: Chat;
+	renderer!: RenderEngine;
+	cursor!: Cursor;
+	timestep!: Timestep;
+	palette!: ColorPalette;
 	events_enabled: boolean = true;
+	needs_boundaries_update: boolean = true;
 
 	constructor(host: string, nickname: string, room_name: string, done_callback: () => void) {
 		document.title = "#" + room_name + " - MultiPixel";
@@ -114,12 +114,13 @@ export class Multipixel {
 
 		(document.getElementById("mp_slider_brush_smoothing") as HTMLInputElement).value = "0.0";
 
-		document.getElementById("button_zoom_1_1").addEventListener("click", () => {
+		let button_zoom_1_1 = document.getElementById("button_zoom_1_1") as HTMLElement;
+		button_zoom_1_1.addEventListener("click", () => {
 			this.map.setZoom(1.0);
 			this.map.triggerRerender();
 		});
 
-		let button_undo = document.getElementById("button_undo");
+		let button_undo = document.getElementById("button_undo") as HTMLElement;
 		button_undo.addEventListener("click", () => {
 			this.client.socketSendUndo();
 		});
@@ -130,19 +131,19 @@ export class Multipixel {
 			}
 		});
 
-		let button_tool_brush = document.getElementById("button_tool_brush");
+		let button_tool_brush = document.getElementById("button_tool_brush") as HTMLElement;
 		button_tool_brush.addEventListener("click", () => {
 			this.selectTool(ToolID.Brush);
 			this.markSelectedTool(button_tool_brush);
 		});
 
-		let button_tool_floodfill = document.getElementById("button_tool_floodfill");
+		let button_tool_floodfill = document.getElementById("button_tool_floodfill") as HTMLElement;
 		button_tool_floodfill.addEventListener("click", () => {
 			this.selectTool(ToolID.Floodfill);
 			this.markSelectedTool(button_tool_floodfill);
 		});
 
-		this.palette = new ColorPalette(this, document.getElementById("mpc_color_palette"));
+		this.palette = new ColorPalette(this, document.getElementById("mpc_color_palette") as HTMLElement);
 	}
 
 	setEventsEnabled(enabled: boolean) {
@@ -155,7 +156,7 @@ export class Multipixel {
 		setInterval(() => { this.client.socketSendPing() }, 8000);
 
 		let canvas = this.renderer.getCanvas();
-		let body = document.getElementById("body");
+		let body = document.getElementById("body") as HTMLElement;
 
 		canvas.addEventListener("mousemove", (e: MouseEvent) => {
 			let cursor = this.getCursor();
@@ -166,7 +167,7 @@ export class Multipixel {
 
 			let canvas = this.renderer.getCanvas();
 
-			let boundary = this.map.boundary;
+			let boundary = this.map.boundary_visual;
 			let scrolling = this.map.scrolling;
 
 			let raw_x = boundary.center_x - boundary.width / 2.0 + (cursor.x / canvas.width) * boundary.width;
@@ -176,7 +177,7 @@ export class Multipixel {
 			cursor.canvas_y = Math.floor(raw_y);
 
 			let smooth = false;
-			let smooth_val;
+			let smooth_val = 1.0;
 
 			if (this.cursor.down_left && this.cursor.tool_id == ToolID.Brush) {
 				let value = parseInt((document.getElementById("mp_slider_brush_smoothing") as HTMLInputElement).value);
@@ -215,8 +216,13 @@ export class Multipixel {
 			cursor.just_pressed_down = true;
 
 			if (e.button == 0) { // Left
-				cursor.down_left = true;
-				this.client.socketSendCursorDown();
+				if (this.map.getZoom() < 1.0) {
+					this.map.setZoom(1.0);
+				}
+				else {
+					cursor.down_left = true;
+					this.client.socketSendCursorDown();
+				}
 			}
 
 			if (e.button == 1) {
@@ -277,7 +283,7 @@ export class Multipixel {
 	}
 
 	refreshPlayerList() {
-		let player_list = document.getElementById("mp_player_list");
+		let player_list = document.getElementById("mp_player_list") as HTMLElement;
 		let buf = "[Online players]<br><br>";
 
 		let self_shown = false;
@@ -312,7 +318,7 @@ export class Multipixel {
 
 	markSelectedTool(selected_element: HTMLElement) {
 		let elements = document.getElementsByClassName("button_tool");
-		for (let element of elements) {
+		for (const element of elements) {
 			element.classList.remove("button_tool_selected");
 		}
 
@@ -334,7 +340,7 @@ export class Multipixel {
 		}
 	}
 
-	tick = function () {
+	tick() {
 		this.map.tick();
 	}
 }

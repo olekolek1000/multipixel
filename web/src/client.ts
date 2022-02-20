@@ -79,12 +79,12 @@ var LZ4 = eval('require')("lz4")
 
 
 export class Client {
-	users: Array<User> = [];
-	socket: WebSocket = null;
-	id = -1;
-	chunks_received = 0;
 	multipixel: Multipixel;
-	chat: Chat;
+	users: Array<User> = [];
+	socket: WebSocket | null = null;
+	chunks_received = 0;
+	id: number = -1;
+	chat: Chat | null = null;
 
 	constructor(multipixel: Multipixel, address: string | URL, nickname: string, room_name: string, loaded_callback: () => void) {
 		this.multipixel = multipixel;
@@ -116,13 +116,11 @@ export class Client {
 		}
 	}
 
-	setChatObject = function (chat: Chat) {
+	setChatObject(chat: Chat) {
 		this.chat = chat;
 	}
 
-
-
-	socketSendAnnouncement = function (room_name: string, nickname: string) {
+	socketSendAnnouncement(room_name: string, nickname: string) {
 		let room_name_utf8 = textToUTF8(room_name);
 		let room_name_utf8_size = room_name_utf8.length;
 
@@ -148,10 +146,10 @@ export class Client {
 			buf_u8[offset++] = nickname_utf8[i];
 		}
 
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendMessage = function (text: any) {
+	socketSendMessage(text: any) {
 		let utf8 = textToUTF8(text);
 		let buf = createMessage(ClientCmd.message, utf8.length);
 		let buf_u8 = new Uint8Array(buf);
@@ -160,17 +158,17 @@ export class Client {
 			buf_u8[i + header_offset] = utf8[i];
 		}
 
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendBrushSize = function (size: number) {
+	socketSendBrushSize(size: number) {
 		let buf = createMessage(ClientCmd.tool_size, size_u8);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint8(0, size);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendBrushColor = function (red: number, green: number, blue: number) {
+	socketSendBrushColor(red: number, green: number, blue: number) {
 		let buf = createMessage(ClientCmd.tool_color, size_u8 * 3);
 		let dataview = new DataView(buf, header_offset);
 
@@ -178,63 +176,63 @@ export class Client {
 		dataview.setUint8(1, green);
 		dataview.setUint8(2, blue);
 
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendCursorPos = function (x: number, y: number) {
+	socketSendCursorPos(x: number, y: number) {
 		let buf = createMessage(ClientCmd.cursor_pos, size_s32 * 2);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setInt32(size_s32 * 0, x);
 		dataview.setInt32(size_s32 * 1, y);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendPing = function () {
+	socketSendPing() {
 		let buf = createMessage(ClientCmd.ping, 0);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendChunksReceived = function () {
+	socketSendChunksReceived() {
 		let buf = createMessage(ClientCmd.chunks_received, size_u32);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint32(0, this.chunks_received);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendUndo = function () {
+	socketSendUndo() {
 		let buf = createMessage(ClientCmd.undo, 0);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendCursorDown = function () {
+	socketSendCursorDown() {
 		let buf = createMessage(ClientCmd.cursor_down, 0);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendCursorUp = function () {
+	socketSendCursorUp() {
 		let buf = createMessage(ClientCmd.cursor_up, 0);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendBoundary = function () {
+	socketSendBoundary() {
 		let buf = createMessage(ClientCmd.boundary, size_s32 * 4);
 		let dataview = new DataView(buf, header_offset);
-		let boundary = this.multipixel.map.getChunkBoundaries();
+		let boundary = this.multipixel.map.getChunkBoundariesReal();
 		dataview.setInt32(0, boundary.start_x);
 		dataview.setInt32(4, boundary.start_y);
 		dataview.setInt32(8, boundary.end_x);
 		dataview.setInt32(12, boundary.end_y);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	socketSendToolType = function (tool_id: number) {
+	socketSendToolType(tool_id: number) {
 		let buf = createMessage(ClientCmd.tool_type, size_u8 * 1);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint8(0, tool_id);
-		this.socket.send(buf);
+		this.socket!.send(buf);
 	}
 
-	onmessage = function (e: MessageEvent<any>) {
+	onmessage(e: MessageEvent<any>) {
 		let raw_data = e.data;
 		let headerview = new DataView(raw_data, 0);
 
@@ -254,9 +252,9 @@ export class Client {
 				let view_str = createView(1);
 				let str = new TextDecoder().decode(view_str);
 				if (type == MessageType.plain_text)
-					this.chat.addMessage(str, false);
+					this.chat!.addMessage(str, false);
 				else if (type == MessageType.html)
-					this.chat.addMessage(str, true);
+					this.chat!.addMessage(str, true);
 				break;
 			}
 			case ServerCmd.your_id: {
@@ -270,7 +268,7 @@ export class Client {
 				let str = "Kicked. Reason: " + new TextDecoder().decode(dataview);
 				console.log(str);
 				alert(str);
-				this.socket.close();
+				this.socket!.close();
 				break;
 			}
 			case ServerCmd.chunk_image: {
@@ -352,7 +350,7 @@ export class Client {
 			}
 			case ServerCmd.user_remove: {
 				let id = dataview.getUint16(0);
-				this.users[id] = null;
+				delete this.users[id];
 				this.multipixel.refreshPlayerList();
 				map.triggerRerender();
 				break;
