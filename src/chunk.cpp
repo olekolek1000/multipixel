@@ -1,14 +1,15 @@
 #include "chunk.hpp"
 #include "chunk_system.hpp"
 #include "command.hpp"
+#include "preview_system.hpp"
+#include "room.hpp"
 #include "server.hpp"
 #include "session.hpp"
 #include <cassert>
 
 Chunk::Chunk(ChunkSystem *chunk_system, Int2 position, SharedVector<u8> compressed_chunk_data)
 		: chunk_system(chunk_system),
-			position(position),
-			chunk_size(chunk_system->getChunkSize()) {
+			position(position) {
 	LockGuard lock(mtx_access);
 	this->compressed_image = compressed_chunk_data;
 
@@ -25,7 +26,7 @@ Chunk::~Chunk() {
 }
 
 u32 Chunk::getImageSizeBytes() const {
-	return chunk_size * chunk_size * 3; /*RGB*/
+	return ChunkSystem::getChunkSize() * ChunkSystem::getChunkSize() * 3; /*RGB*/
 }
 
 void Chunk::allocateImage_nolock() {
@@ -36,16 +37,16 @@ void Chunk::allocateImage_nolock() {
 		if(compressed_image) {
 			decompressLZ4(compressed_image->data(), compressed_image->size(), image->data(), image->size());
 		} else {
-			memset(image->data(), 255, image->size()); //White
+			memset(image->data(), 255, image->size()); // White
 		}
 	}
 }
 
 void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
-	assert(chunk_pixel_pos.x < chunk_size);
-	assert(chunk_pixel_pos.y < chunk_size);
+	assert(chunk_pixel_pos.x < ChunkSystem::getChunkSize());
+	assert(chunk_pixel_pos.y < ChunkSystem::getChunkSize());
 	auto *rgb = image->data();
-	size_t offset = chunk_pixel_pos.y * chunk_size * 3 + chunk_pixel_pos.x * 3;
+	size_t offset = chunk_pixel_pos.y * ChunkSystem::getChunkSize() * 3 + chunk_pixel_pos.x * 3;
 	*r = rgb[offset + 0];
 	*g = rgb[offset + 1];
 	*b = rgb[offset + 2];
@@ -54,7 +55,7 @@ void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
 static SharedVector<u8> compressed_empty_chunk;
 static Mutex mtx_empty_chunk;
 
-//Returns LZ4-compressed empty, white chunk. Generates once.
+// Returns LZ4-compressed empty, white chunk. Generates once.
 SharedVector<u8> getEmptyChunk(Chunk *chunk) {
 	LockGuard lock(mtx_empty_chunk);
 	if(!compressed_empty_chunk) {
@@ -69,7 +70,7 @@ SharedVector<u8> Chunk::encodeChunkData_nolock() {
 	SharedVector<u8> compressed;
 
 	if(new_chunk) {
-		//Return compressed empty chunk
+		// Return compressed empty chunk
 		compressed = getEmptyChunk(this);
 	} else {
 		allocateImage_nolock();
@@ -86,6 +87,9 @@ SharedVector<u8> Chunk::encodeChunkData(bool clear_modified) {
 	if(clear_modified) {
 		setModified_nolock(false);
 		image.reset();
+
+		auto *preview_system = chunk_system->room->getPreviewSystem();
+		preview_system->addToQueueFront({position.x / 2, position.y / 2});
 	}
 	return compressed;
 }
@@ -94,10 +98,10 @@ void Chunk::sendChunkDataToSession_nolock(Session *session) {
 	SharedVector<u8> compressed_data;
 
 	if(compressed_image) {
-		//Grab from cache
+		// Grab from cache
 		compressed_data = compressed_image;
 	} else {
-		//Recompress chunk data
+		// Recompress chunk data
 		compressed_data = encodeChunkData_nolock();
 	}
 
@@ -123,7 +127,7 @@ void Chunk::sendChunkDataToSession_nolock(Session *session) {
 void Chunk::linkSession(Session *session) {
 	LockGuard lock(mtx_access);
 
-	//Check if session pointer already exists
+	// Check if session pointer already exists
 	for(auto &cell : linked_sessions) {
 		if(cell == session)
 			return;
@@ -131,7 +135,7 @@ void Chunk::linkSession(Session *session) {
 
 	linked_sessions_empty = false;
 
-	//Add session pointer
+	// Add session pointer
 	linked_sessions.push_back(session);
 
 	sendChunkDataToSession_nolock(session);
@@ -140,10 +144,10 @@ void Chunk::linkSession(Session *session) {
 void Chunk::unlinkSession(Session *session) {
 	LockGuard lock(mtx_access);
 
-	//Find pointer
+	// Find pointer
 	for(auto it = linked_sessions.begin(); it != linked_sessions.end();) {
 		if(*it == session) {
-			//Remove session pointer
+			// Remove session pointer
 			it = linked_sessions.erase(it);
 			break;
 		} else {
@@ -175,7 +179,7 @@ void Chunk::setPixelQueued(ChunkPixel *pixel) {
 	allocateImage_nolock();
 
 	auto *rgb = image->data();
-	size_t offset = pixel->pos.y * chunk_size * 3 + pixel->pos.x * 3;
+	size_t offset = pixel->pos.y * ChunkSystem::getChunkSize() * 3 + pixel->pos.x * 3;
 	rgb[offset + 0] = pixel->r;
 	rgb[offset + 1] = pixel->g;
 	rgb[offset + 2] = pixel->b;
@@ -204,7 +208,7 @@ void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 	allocateImage_nolock();
 
-	//Prepare pixel_pack packet
+	// Prepare pixel_pack packet
 	Buffer buf_pixels;
 	u32 pixel_count = 0;
 
@@ -215,19 +219,19 @@ void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 		if(!only_send) {
 			getPixel_nolock(pixel.pos, &r, &g, &b);
 			if(pixel.r == r && pixel.g == g && pixel.b == b) {
-				//Pixel not changed, skip
+				// Pixel not changed, skip
 				continue;
 			}
 
-			//Update pixel
+			// Update pixel
 			auto *rgb = image->data();
-			size_t offset = pixel.pos.y * chunk_size * 3 + pixel.pos.x * 3;
+			size_t offset = pixel.pos.y * ChunkSystem::getChunkSize() * 3 + pixel.pos.x * 3;
 			rgb[offset + 0] = pixel.r;
 			rgb[offset + 1] = pixel.g;
 			rgb[offset + 2] = pixel.b;
 		}
 
-		//Prepare pixel data
+		// Prepare pixel data
 		u8 x = pixel.pos.x;
 		u8 y = pixel.pos.y;
 
@@ -240,7 +244,7 @@ void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 	}
 
 	if(pixel_count == 0)
-		return; //Nothing modified
+		return; // Nothing modified
 
 	auto compressed = compressLZ4(buf_pixels.data(), buf_pixels.size());
 
@@ -283,7 +287,7 @@ bool Chunk::isModified() {
 void Chunk::setModified_nolock(bool n) {
 	modified = n;
 	if(modified) {
-		//Compressed image data is now invalid
+		// Compressed image data is now invalid
 		compressed_image.reset();
 	}
 }

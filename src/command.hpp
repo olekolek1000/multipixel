@@ -34,9 +34,10 @@ enum struct ClientCmd : u16 {
 	cursor_up = 102,
 	boundary = 103,
 	chunks_received = 104,
-	tool_size = 200,	// u8 size
-	tool_color = 201, // u8 red, u8 green, u8 blue
-	tool_type = 202,	// u8 type
+	preview_request = 105, // s32 previewX, s32 previewY, u8 zoom
+	tool_size = 200,			 // u8 size
+	tool_color = 201,			 // u8 red, u8 green, u8 blue
+	tool_type = 202,			 // u8 type
 	undo = 203
 };
 
@@ -48,21 +49,24 @@ enum struct ServerCmd : u16 {
 	chunk_pixel_pack = 101, // complex data
 	chunk_create = 110,			// s32 chunkX, s32 chunkY
 	chunk_remove = 111,			// s32 chunkX, s32 chunkY
-	user_create = 200,			// u16 id, utf-8 nickname
-	user_remove = 201,			// u16 id
-	user_cursor_pos = 202,	// u16 id, s32 x, s32 y
+	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, complex data
+	user_create = 1000,			// u16 id, utf-8 nickname
+	user_remove = 1001,			// u16 id
+	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
 };
 
 u16 frombig16(u16 in);
 s16 frombig16(s16 in);
 u32 frombig32(u32 in);
 s32 frombig32(s32 in);
+float frombig32(float in);
 u32 frombig64(u64 in);
 s32 frombig64(s64 in);
 u16 tobig16(u16 in);
 s16 tobig16(s16 in);
 u32 tobig32(u32 in);
 s32 tobig32(s32 in);
+float tobig32(float in);
 u64 tobig64(u64 in);
 s64 tobig64(s64 in);
 

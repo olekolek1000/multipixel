@@ -19,11 +19,6 @@ ChunkSystem::ChunkSystem(Room *room)
 	needs_garbage_collect = false;
 	step_ticks.setRate(20);
 
-	// Init database
-	char db_path[256];
-	snprintf(db_path, sizeof(db_path), "rooms/%s.db", room->getName().c_str());
-	database.init(db_path);
-
 	thr_runner = std::thread([this] {
 		runner();
 	});
@@ -61,8 +56,9 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 		SharedVector<u8> compressed_chunk_data;
 		{
 			// Load chunk pixels from database
-			LockGuard lock(mtx_database);
-			auto record = database.loadBytes(chunk_pos.x, chunk_pos.y);
+			room->database.lock();
+			auto record = room->database.chunkLoadData(chunk_pos);
+			room->database.unlock();
 
 			if(!record.data || !record.data->empty())
 				compressed_chunk_data = record.data;
@@ -154,7 +150,7 @@ void ChunkSystem::autosave() {
 	u32 total_chunk_count = 0;
 	u32 saved_chunk_count = 0;
 
-	auto transaction = database.transactionBegin();
+	auto transaction = room->database.transactionBegin();
 
 	for(auto &i : chunks) {
 		for(auto &j : i.second) {
@@ -178,7 +174,7 @@ void ChunkSystem::autosave() {
 
 void ChunkSystem::saveChunk_nolock(Chunk *chunk) {
 	auto chunk_data = chunk->encodeChunkData(true);
-	database.saveBytes(chunk->getPosition().x, chunk->getPosition().y, chunk_data->data(), chunk_data->size(), CompressionType::LZ4);
+	room->database.chunkSaveData(chunk->getPosition(), chunk_data->data(), chunk_data->size(), CompressionType::LZ4);
 }
 
 void ChunkSystem::removeChunk_nolock(Chunk *to_remove) {
@@ -221,12 +217,14 @@ void ChunkSystem::runner() {
 	autosave();
 }
 
+#define AUTOSAVE_INTERVAL 5000
+
 bool ChunkSystem::runner_tick() {
 	bool used = false;
 
 	auto millis = getMillis();
 
-	if(last_autosave_timestamp + 30000 < millis) { // Autosave
+	if(last_autosave_timestamp + AUTOSAVE_INTERVAL < millis) { // Autosave
 		autosave();
 		last_autosave_timestamp = millis;
 	}
@@ -262,7 +260,9 @@ bool ChunkSystem::runner_tick() {
 						// Save chunk data to database (only if modified)
 						if(chunk->isModified()) {
 							saved_chunk_count++;
+							room->database.lock();
 							saveChunk_nolock(chunk);
+							room->database.unlock();
 						}
 						removed_chunk_count++;
 						removeChunk_nolock(chunk);

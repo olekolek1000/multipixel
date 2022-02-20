@@ -19,9 +19,6 @@ struct ChunkSystem {
 	Room *room;
 
 private:
-	Mutex mtx_database;
-	DatabaseConnector database;
-
 	Mutex mtx_access;
 	std::map<s32, std::map<s32, uniqptr<Chunk>>> chunks;
 
