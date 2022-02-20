@@ -21,10 +21,9 @@ struct Chunk {
 	u32 getImageSizeBytes() const;
 
 private:
-	bool new_chunk = true; //Newly (and blank) chunk?
+	bool new_chunk = true; // Newly (and blank) chunk?
 	ChunkSystem *chunk_system;
 	Int2 position;
-	u32 chunk_size;
 
 	/// @brief Dirty = modified chunk that should be saved
 	std::atomic<bool> modified = false;
@@ -62,7 +61,7 @@ public:
 	void setPixels(ChunkPixel *pixels, size_t count);
 	void setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send = false);
 
-	//Set pixel and send it later (delayed send)
+	// Set pixel and send it later (delayed send)
 	void setPixelQueued(ChunkPixel *pixel);
 
 	void flushQueuedPixels();

@@ -24,15 +24,18 @@ class PixelQueueCell {
 class Chunk {
 	x: number; // X position
 	y: number; // Y position
-	tex: Texture;
-	pixels: Uint8Array | null;
+	tex: Texture | null = null;
+	pixels: Uint8Array | null = null;
 
 	pixel_queue: Array<PixelQueueCell> = [];
 
 	constructor(gl: WebGL2RenderingContext, x: number, y: number) {
 		this.x = x;
 		this.y = y;
+	}
 
+	initTexture(gl: WebGL2RenderingContext) {
+		if (this.tex) return;//Already initialized
 		this.tex = new Texture();
 		this.tex.texture = gl.createTexture()!;
 		gl.bindTexture(gl.TEXTURE_2D, this.tex.texture);
@@ -42,19 +45,21 @@ class Chunk {
 
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 	}
 
 	destructor(gl: WebGL2RenderingContext) {
-		gl.deleteTexture(this.tex.texture);
+		if (this.tex) {
+			gl.deleteTexture(this.tex.texture);
+		}
 		this.pixels = null;
 	}
 
 	updateTexture(gl: WebGL2RenderingContext) {
-		gl.bindTexture(gl.TEXTURE_2D, this.tex.texture);
+		this.initTexture(gl);
+		gl.bindTexture(gl.TEXTURE_2D, this.tex!.texture);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, CHUNK_SIZE, CHUNK_SIZE, 0, gl.RGB, gl.UNSIGNED_BYTE, this.pixels);
-		gl.generateMipmap(gl.TEXTURE_2D);
 	}
 
 	putPixel(x: number, y: number, red: number, green: number, blue: number) {
@@ -73,6 +78,7 @@ class Chunk {
 	}
 
 	putImage(gl: WebGL2RenderingContext, dataview_rgb: DataView) {
+		this.initTexture(gl);
 		let offset = 0;
 		let data = this.pixels!;
 
@@ -90,7 +96,7 @@ class Chunk {
 			}
 		}
 
-		gl.bindTexture(gl.TEXTURE_2D, this.tex.texture);
+		gl.bindTexture(gl.TEXTURE_2D, this.tex!.texture);
 		this.updateTexture(gl);
 	}
 
@@ -132,6 +138,7 @@ export class Boundary {
 	width: number = 0.0;
 	height: number = 0.0;
 };
+
 
 export class ChunkMap {
 	multipixel: Multipixel;
@@ -291,6 +298,16 @@ export class ChunkMap {
 		};
 	}
 
+	getPreviewBoundaries(boundary: Boundary, zoom: number) {
+		let div = CHUNK_SIZE * Math.pow(2, zoom);
+		return {
+			start_x: Math.floor((boundary.center_x - boundary.width / 2.0) / div),
+			start_y: Math.floor((boundary.center_y - boundary.height / 2.0) / div),
+			end_x: Math.floor((boundary.center_x + boundary.width / 2.0) / div) + 1,
+			end_y: Math.floor((boundary.center_y + boundary.height / 2.0) / div) + 1
+		};
+	}
+
 	getChunkBoundariesVisual() {
 		return this.getChunkBoundaries(this.boundary_visual);
 	}
@@ -299,17 +316,21 @@ export class ChunkMap {
 		return this.getChunkBoundaries(this.boundary_real);
 	}
 
-	drawChunks(gl: WebGL2RenderingContext) {
+	getPreviewBoundariesVisual(zoom: number) {
+		return this.getPreviewBoundaries(this.boundary_visual, zoom);
+	}
+
+	drawChunks() {
 		let boundary = this.getChunkBoundariesVisual();
 		let renderer = this.multipixel.getRenderer();
 
 		for (let y = boundary.start_y; y < boundary.end_y; y++) {
 			for (let x = boundary.start_x; x < boundary.end_x; x++) {
 				let chunk = this.getChunk(x, y);
-				if (!chunk)
+				if (!chunk || !chunk.tex)
 					continue;
 
-				chunk.processPixels(gl);
+				chunk.processPixels(renderer.getContext());
 				renderer.drawRect(
 					chunk.tex,
 					chunk.x * CHUNK_SIZE,
@@ -319,7 +340,35 @@ export class ChunkMap {
 		}
 	}
 
-	drawCursors(gl: WebGL2RenderingContext) {
+	drawPreviews() {
+		let renderer = this.multipixel.getRenderer();
+
+		//Reverse iterator
+		for (let zoom = 4; zoom >= 1; zoom--) {
+			let layer = this.multipixel.preview_system.getLayer(zoom);
+			if (!layer) continue;
+			let boundary = this.getPreviewBoundariesVisual(layer.zoom);
+			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
+
+			for (let y = boundary.start_y; y < boundary.end_y; y++) {
+				for (let x = boundary.start_x; x < boundary.end_x; x++) {
+					let preview = layer.getPreview(x, y);
+					if (!preview)
+						continue;
+					if (!preview.tex)
+						continue;
+
+					renderer.drawRect(
+						preview.tex,
+						preview.x * SIZE,
+						preview.y * SIZE,
+						SIZE, SIZE);
+				}
+			}
+		}
+	}
+
+	drawCursors() {
 		let renderer = this.multipixel.getRenderer();
 
 		this.multipixel.client.users.forEach((user: User) => {
@@ -338,7 +387,7 @@ export class ChunkMap {
 		})
 	}
 
-	drawCursorNicknames(gl: WebGL2RenderingContext) {
+	drawCursorNicknames() {
 		let renderer = this.multipixel.getRenderer();
 
 		this.multipixel.client.users.forEach((user: User) => {
@@ -347,7 +396,7 @@ export class ChunkMap {
 
 			let zoom = this.scrolling.zoom_interpolated;
 
-			let text = this.textCacheGet(gl, user.nickname);
+			let text = this.textCacheGet(renderer.getContext(), user.nickname);
 
 			let width = text.width / zoom;
 			let height = text.height / zoom;
@@ -355,7 +404,7 @@ export class ChunkMap {
 		})
 	}
 
-	drawBrush(gl: WebGL2RenderingContext) {
+	drawBrush() {
 		if (!this.texture_brush) return;
 		let cursor = this.multipixel.getCursor();
 		let renderer = this.multipixel.getRenderer();
@@ -403,7 +452,7 @@ export class ChunkMap {
 		let gl = renderer.getContext();
 
 		renderer.viewportFullscreen();
-		renderer.clear(0.8, 0.8, 0.8, 1);
+		renderer.clear(1.0, 1.0, 1.0, 1);
 
 		let alpha = this.multipixel.timestep.getAlpha();
 
@@ -422,10 +471,11 @@ export class ChunkMap {
 			boundary.center_y - boundary.height / 2.0 + epsilon
 		);
 
-		this.drawChunks(gl);
-		this.drawBrush(gl);
-		this.drawCursors(gl);
-		this.drawCursorNicknames(gl);
+		this.drawPreviews();
+		this.drawChunks();
+		this.drawBrush();
+		this.drawCursors();
+		this.drawCursorNicknames();
 
 		if (Math.abs(this.scrolling.zoom_smooth - this.scrolling.zoom) > 0.001)
 			this.triggerRerender();
@@ -442,7 +492,7 @@ export class ChunkMap {
 	}
 
 	setZoom(num: number) {
-		if (num < 0.1) num = 0.1;
+		if (num < 0.03) num = 0.03;
 		if (num > 80.0) num = 80.0;
 		this.scrolling.zoom = num;
 		this.triggerRerender();

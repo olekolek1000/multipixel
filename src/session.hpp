@@ -68,6 +68,7 @@ private:
 	// Chunk visibility boundary
 	struct {
 		s32 start_x, start_y, end_x, end_y;
+		float zoom;
 	} boundary;
 
 	// Number of chunks received by client
@@ -170,6 +171,7 @@ private:
 	void parseCommandToolType(const std::string_view data);
 	void parseCommandBoundary(const std::string_view data);
 	void parseCommandChunksReceived(const std::string_view data);
+	void parseCommandPreviewRequest(const std::string_view data);
 
 	void kick(const char *reason);
 	void kickInvalidPacket();

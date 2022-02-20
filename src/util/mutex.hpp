@@ -2,12 +2,12 @@
 
 #if defined(__unix__)
 
-#define MUTEX_PTHREAD
-#include <pthread.h>
+#	define MUTEX_PTHREAD
+#	include <pthread.h>
 #else
 
-#define MUTEX_STD
-#include <mutex>
+#	define MUTEX_STD
+#	include <mutex>
 #endif
 
 struct Mutex {
@@ -18,7 +18,7 @@ private:
 	pthread_mutex_t native_mutex;
 	pthread_mutexattr_t attr;
 #else
-#error not supported
+#	error not supported
 #endif
 
 public:
@@ -26,9 +26,9 @@ public:
 #if defined(MUTEX_PTHREAD)
 		pthread_mutexattr_init(&attr);
 
-#if defined(__APPLE__)
+#	if defined(__APPLE__)
 		pthread_mutexattr_setpolicy_np(&attr, _PTHREAD_MUTEX_POLICY_FIRSTFIT);
-#endif
+#	endif
 
 		pthread_mutex_init(&native_mutex, &attr);
 #endif
@@ -59,13 +59,32 @@ public:
 };
 
 struct LockGuard {
-	Mutex &mut;
+	Mutex *mut;
+
+	LockGuard() {
+		mut = nullptr;
+	}
+
 	LockGuard(Mutex &mut)
-			: mut(mut) {
-		mut.lock();
+			: mut(&mut) {
+		this->mut->lock();
 	}
 
 	~LockGuard() {
-		mut.unlock();
+		free();
+	}
+
+	void setMutex(Mutex &mut) {
+		if(this->mut)
+			this->mut->unlock();
+		this->mut = &mut;
+		this->mut->lock();
+	}
+
+	void free() {
+		if(this->mut) {
+			this->mut->unlock();
+			this->mut = nullptr;
+		}
 	}
 };

@@ -19,6 +19,7 @@ src = [
 	src_root + 'database.cpp',
 	src_root + 'chunk.cpp',
 	src_root + 'chunk_system.cpp',
+	src_root + 'preview_system.cpp',
 	src_root + 'plugin.cpp',
 	src_root + 'lib/ojson.cpp',
 	src_root + 'lib/SQLiteCpp/Backup.cpp',

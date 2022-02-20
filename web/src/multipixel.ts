@@ -1,9 +1,10 @@
-import { ChunkMap } from "./viewport";
+import { ChunkMap, CHUNK_SIZE } from "./chunk_map";
 import { Client, User } from "./client";
 import { Chat } from "./chat";
 import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
 import { ColorPalette } from "./color";
+import { Preview, PreviewLayer, PreviewSystem } from "./preview_system";
 
 function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
@@ -44,6 +45,7 @@ export class Cursor {
 export class Multipixel {
 	client: Client;
 	map!: ChunkMap;
+	preview_system!: PreviewSystem;
 	chat!: Chat;
 	renderer!: RenderEngine;
 	cursor!: Cursor;
@@ -60,10 +62,21 @@ export class Multipixel {
 	}
 
 	onConnect(done_callback: () => void) {
-		this.initRenderer();
-		this.initMap();
-		this.initCursor();
-		this.initChat();
+		//Init renderer
+		this.renderer = new RenderEngine(document.getElementById("canvas_render") as HTMLCanvasElement);
+
+		//Init chunk map
+		this.map = new ChunkMap(this);
+
+		//Init preview system
+		this.preview_system = new PreviewSystem(this);
+
+		//Init cursor
+		this.cursor = new Cursor();
+
+		//Init chat
+		this.chat = new Chat(this.client);
+
 		this.initGUI();
 		this.initListeners();
 		this.initTimestep();
@@ -84,22 +97,6 @@ export class Multipixel {
 		window.requestAnimationFrame(() => {
 			this.draw();
 		});
-	}
-
-	initRenderer() {
-		this.renderer = new RenderEngine(document.getElementById("canvas_render") as HTMLCanvasElement);
-	}
-
-	initMap() {
-		this.map = new ChunkMap(this);
-	}
-
-	initCursor() {
-		this.cursor = new Cursor();
-	}
-
-	initChat() {
-		this.chat = new Chat(this.client);
 	}
 
 	initGUI() {
@@ -216,8 +213,9 @@ export class Multipixel {
 			cursor.just_pressed_down = true;
 
 			if (e.button == 0) { // Left
-				if (this.map.getZoom() < 1.0) {
-					this.map.setZoom(1.0);
+				if (this.map.getZoom() < 0.5) {
+					this.map.setZoom(0.5);
+					this.needs_boundaries_update = true;
 				}
 				else {
 					cursor.down_left = true;
@@ -330,6 +328,55 @@ export class Multipixel {
 			return;
 		this.needs_boundaries_update = false;
 		this.client.socketSendBoundary();
+
+		let camera_zoom = this.map.getZoom();
+
+		//Calculate preview visibility
+		let target_zoom: number = 0;
+		if (camera_zoom < 0.0625) {
+			target_zoom = 4;
+		}
+		else if (camera_zoom < 0.125) {
+			target_zoom = 3;
+		}
+		else if (camera_zoom < 0.25) {
+			target_zoom = 2;
+		} else if (camera_zoom < 0.5) {
+			target_zoom = 1;
+		}
+
+		console.log("target zoom " + target_zoom);
+
+		for (let zoom = 1; zoom <= 4; zoom++) {
+			let layer = this.preview_system.getOrCreateLayer(zoom);
+			let boundary = this.map.getPreviewBoundariesVisual(layer.zoom);
+
+			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
+
+			for (let y = boundary.start_y; y < boundary.end_y; y++) {
+				for (let x = boundary.start_x; x < boundary.end_x; x++) {
+					let load_mode = layer.zoom == target_zoom;
+					let preview: Preview;
+					if (load_mode) {
+						preview = layer.getOrCreatePreview(x, y);
+						this.client.socketSendPreviewRequest(x, y, layer.zoom);
+					}
+					else {
+						let p = layer.getPreview(x, y);
+						if (p) {
+							preview = p;
+							preview.remove_timeout++;
+
+							if (preview.remove_timeout > 10) {
+								layer.removePreview(x, y);
+								continue;
+							}
+						}
+						else continue;//Not loaded
+					}
+				}
+			}
+		}
 	}
 
 	performColorPick() {
