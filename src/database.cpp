@@ -1,6 +1,7 @@
 #include "database.hpp"
 #include "Statement.h"
 #include "lib/SQLiteCpp/SQLiteCpp.h"
+#include "lib/SQLiteCpp/Statement.h"
 #include "src/server.hpp"
 #include "util/smartptr.hpp"
 #include <cstdio>
@@ -15,6 +16,11 @@ DatabaseConnector::DatabaseConnector() {
 
 void DatabaseConnector::init(const char *dbpath) {
 	db.create(dbpath, SQLite::OPEN_CREATE | SQLite::OPEN_READWRITE);
+
+	{
+		SQLite::Statement query(*db, "PRAGMA SYNCHRONOUS=OFF");
+		query.exec();
+	}
 
 	initTableChunkData();
 	initTablePreviews();

@@ -1,5 +1,5 @@
 import { User } from "./client";
-import { Multipixel } from "./multipixel";
+import { LAYER_COUNT, Multipixel } from "./multipixel";
 import { Texture } from "./render_engine";
 import { lerp } from "./timestep";
 
@@ -344,7 +344,7 @@ export class ChunkMap {
 		let renderer = this.multipixel.getRenderer();
 
 		//Reverse iterator
-		for (let zoom = 4; zoom >= 1; zoom--) {
+		for (let zoom = LAYER_COUNT; zoom >= 1; zoom--) {
 			let layer = this.multipixel.preview_system.getLayer(zoom);
 			if (!layer) continue;
 			let boundary = this.getPreviewBoundariesVisual(layer.zoom);
@@ -492,7 +492,7 @@ export class ChunkMap {
 	}
 
 	setZoom(num: number) {
-		if (num < 0.03) num = 0.03;
+		if (num < 0.015625) num = 0.015625; //0.5^6
 		if (num > 80.0) num = 80.0;
 		this.scrolling.zoom = num;
 		this.triggerRerender();
