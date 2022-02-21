@@ -74,7 +74,6 @@ export class User {
 	constructor(id: number, nickname: string) {
 		this.id = id;
 		this.nickname = nickname;
-
 	}
 };
 
@@ -369,6 +368,7 @@ export class Client {
 
 				let preview = this.multipixel.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);
 				preview.setData(new Uint8Array(rgb));
+				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_create: {

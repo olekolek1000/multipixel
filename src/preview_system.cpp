@@ -194,7 +194,7 @@ PreviewSystem::~PreviewSystem() {
 }
 
 u32 PreviewSystem::getLayerCount() const {
-	return 4;
+	return 5;
 }
 
 SharedVector<u8> PreviewSystem::requestData(s32 preview_x, s32 preview_y, u8 zoom) {
