@@ -43,7 +43,7 @@ Room::Room(Server *server, std::string_view name) {
 
 	database.lock();
 	database.foreachChunk([this](Int2 pos) {
-		p->preview_system->addToQueueFront(pos);
+		p->preview_system->addToQueueFront({pos.x / 2, pos.y / 2});
 	});
 	database.unlock();
 }

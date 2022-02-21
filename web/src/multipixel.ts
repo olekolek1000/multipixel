@@ -42,6 +42,8 @@ export class Cursor {
 	tool_id: number = ToolID.Brush;
 }
 
+export const LAYER_COUNT = 5;
+
 export class Multipixel {
 	client: Client;
 	map!: ChunkMap;
@@ -333,21 +335,22 @@ export class Multipixel {
 
 		//Calculate preview visibility
 		let target_zoom: number = 0;
-		if (camera_zoom < 0.0625) {
+		if (camera_zoom < Math.pow(0.5, 5)) {
+			target_zoom = 5;
+		} else if (camera_zoom < Math.pow(0.5, 4)) {
 			target_zoom = 4;
-		}
-		else if (camera_zoom < 0.125) {
+		} else if (camera_zoom < Math.pow(0.5, 3)) {
 			target_zoom = 3;
-		}
-		else if (camera_zoom < 0.25) {
+		} else if (camera_zoom < Math.pow(0.5, 2)) {
 			target_zoom = 2;
-		} else if (camera_zoom < 0.5) {
+		} else if (camera_zoom < Math.pow(0.5, 1)) {
 			target_zoom = 1;
 		}
 
 		console.log("target zoom " + target_zoom);
+		let request_sent_count = 0;
 
-		for (let zoom = 1; zoom <= 4; zoom++) {
+		for (let zoom = 1; zoom <= LAYER_COUNT; zoom++) {
 			let layer = this.preview_system.getOrCreateLayer(zoom);
 			let boundary = this.map.getPreviewBoundariesVisual(layer.zoom);
 
@@ -356,10 +359,15 @@ export class Multipixel {
 			for (let y = boundary.start_y; y < boundary.end_y; y++) {
 				for (let x = boundary.start_x; x < boundary.end_x; x++) {
 					let load_mode = layer.zoom == target_zoom;
-					let preview: Preview;
-					if (load_mode) {
-						preview = layer.getOrCreatePreview(x, y);
-						this.client.socketSendPreviewRequest(x, y, layer.zoom);
+					let preview: Preview | null;
+					if (load_mode && request_sent_count < 30) {
+						preview = layer.getPreview(x, y);
+						if (!preview) {
+							preview = layer.getOrCreatePreview(x, y);
+							this.client.socketSendPreviewRequest(x, y, layer.zoom);
+							request_sent_count++;
+							console.log("sent request");
+						}
 					}
 					else {
 						let p = layer.getPreview(x, y);
@@ -376,6 +384,10 @@ export class Multipixel {
 					}
 				}
 			}
+		}
+
+		if (request_sent_count > 0) {
+			this.needs_boundaries_update = true;
 		}
 	}
 
