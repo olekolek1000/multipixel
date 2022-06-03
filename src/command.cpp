@@ -3,7 +3,7 @@
 #include "lz4hc.h"
 #include "session.hpp"
 #include "util/buffer.hpp"
-#include <byteswap.h>
+#include "util/byteswap.hpp"
 #include <cassert>
 
 static_assert(sizeof(ClientCmd) == 2);

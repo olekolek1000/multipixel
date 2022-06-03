@@ -245,15 +245,24 @@ void Room::log(const char *name, const char *format, ...) {
 
 	va_list arglist;
 	va_start(arglist, format);
-	vasprintf(&msg, format, arglist);
+
+	va_list arglist2;
+	// vsnprintf alters args, so we need to do a copy
+	va_copy(arglist2, arglist);
+
+	int size = vsnprintf(NULL, 0, format, arglist) + 1;
+	msg = new char[size];
+	vsnprintf(msg, size, format, arglist2);
+
 	va_end(arglist);
+	va_end(arglist2);
 
 	char room_name[64];
 	snprintf(room_name, sizeof(room_name), "Room %s", getName().c_str());
 
 	server->log(room_name, COLOR_BLUE "[%s]" COLOR_RESET " %s", name, msg);
 
-	free(msg);
+	delete[] msg;
 }
 
 void Room::broadcast_nolock(const Packet &packet, Session *except) {
