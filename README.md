@@ -50,7 +50,6 @@ Tools:
 ## Launching server
 ### Requirements:
 
-- Anything but Windows
 - Meson build system
 - Compiler with full C++17 support (Clang recommended)
 
