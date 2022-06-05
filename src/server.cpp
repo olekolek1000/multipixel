@@ -270,4 +270,6 @@ void Server::log(const char *name, const char *format, ...) {
 
 	printf(COLOR_BLUE "[%d-%02d-%02d %02d:%02d:%02d]" COLOR_YELLOW "[%s]" COLOR_RESET " %s\n", t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, name, buf);
 	delete[] buf;
+
+	fflush(stdout);
 }
