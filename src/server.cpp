@@ -251,8 +251,17 @@ void Server::log(const char *name, const char *format, ...) {
 
 	va_list arglist;
 	va_start(arglist, format);
-	vasprintf(&buf, format, arglist);
+
+	va_list arglist2;
+	// vsnprintf alters args, so we need to do a copy
+	va_copy(arglist2, arglist);
+
+	int size = vsnprintf(NULL, 0, format, arglist) + 1;
+	buf = new char[size];
+	vsnprintf(buf, size, format, arglist2);
+
 	va_end(arglist);
+	va_end(arglist2);
 
 	time_t time_s;
 	time(&time_s);
@@ -260,5 +269,7 @@ void Server::log(const char *name, const char *format, ...) {
 	auto *t = localtime(&time_s);
 
 	printf(COLOR_BLUE "[%d-%02d-%02d %02d:%02d:%02d]" COLOR_YELLOW "[%s]" COLOR_RESET " %s\n", t->tm_year + 1900, t->tm_mon + 1, t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec, name, buf);
-	free(buf);
+	delete[] buf;
+
+	fflush(stdout);
 }

@@ -31,13 +31,19 @@ src = [
 	src_root + 'lib/SQLiteCpp/Transaction.cpp'
 ]
 
+cc = meson.get_compiler('cpp')
+
 deps = [
 	dependency('threads'),
-	dependency('websocketpp'),
+	dependency('websocketpp', fallback : ['websocketpp']),
 	dependency('liblz4'),
 	dependency('sqlite3'),
 	dependency('lua')
 ]
+
+if host_machine.system() == 'windows'
+	deps += [cc.find_library('ws2_32'), cc.find_library('mswsock')]
+endif
 
 global_link_args = []
 
