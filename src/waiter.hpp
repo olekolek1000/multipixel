@@ -9,6 +9,7 @@ struct Waiter {
 	std::atomic<bool> ready = false;
 
 	std::unique_lock<std::mutex> getLock() {
+		ready = false;
 		return std::unique_lock(mtx);
 	}
 
