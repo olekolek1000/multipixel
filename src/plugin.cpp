@@ -53,48 +53,9 @@ bool PluginManager::P::loadPlugins() {
 
 	bool ok = false;
 
-	do {
-		std::ifstream file;
-		file.open("plugins/list.json", std::ios::ate | std::ios::binary);
-		if(!file.good())
-			break;
-
-		auto size_bytes = file.tellg();
-		if(size_bytes < 0)
-			break;
-
-		file.seekg(0);
-
-		uniqdata<u8> data;
-		data.resize(size_bytes);
-		file.read((char *)data.data(), data.size_bytes());
-
-		uniqptr<ojson::Element> parsed;
-
-		try {
-			parsed = ojson::parseJSON(data.data(), data.size());
-		} catch(std::exception &e) {
-			room->log(LOG_PMAN, "JSON error: %s", e.what());
-			break;
-		}
-
-		if(!parsed)
-			break;
-
-		// For every plugin name in list
-		auto *arr = parsed->castArray();
-		if(!arr)
-			break;
-
-		arr->foreach([&](ojson::Element *e) {
-			auto *str = e->castString();
-			if(!str) return;
-
-			loadPlugin(str->get().c_str());
-		});
-
-		ok = true;
-	} while(0);
+	for(auto &plugin_name : room->settings.plugin_list) {
+		loadPlugin(plugin_name.c_str());
+	}
 
 	if(!ok) {
 		room->log(LOG_PMAN, "Cannot load plugin list or invalid format (Array of JSON strings expected)");

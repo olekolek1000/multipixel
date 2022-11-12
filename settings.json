@@ -1,0 +1,8 @@
+{
+  "autosave_interval": 20000,
+  "plugin_list": ["example"],
+
+  "preview_system": {
+    "process_all_at_start": false
+  }
+}

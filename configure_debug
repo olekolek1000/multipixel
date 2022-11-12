@@ -1,4 +1,4 @@
 #!/bin/bash
 #CC=clang CXX=clang++ 
 #CC_LD=lld 
-CC=clang CXX=clang++ CC_LD=lld meson build -Db_sanitize=address,undefined --buildtype=debug -Db_lundef=false
+meson build -Db_sanitize=address,undefined --buildtype=debug -Db_lundef=false
