@@ -25,7 +25,8 @@ struct Room::P {
 	bool properly_shut_down = false;
 };
 
-Room::Room(Server *server, std::string_view name) {
+Room::Room(Server *server, std::string_view name)
+		: settings(this) {
 	p.create();
 
 	this->server = server;
@@ -41,11 +42,13 @@ Room::Room(Server *server, std::string_view name) {
 	p->plugin_manager.create(this);
 	p->preview_system.create(this);
 
-	database.lock();
-	database.foreachChunk([this](Int2 pos) {
-		p->preview_system->addToQueueFront({pos.x / 2, pos.y / 2});
-	});
-	database.unlock();
+	if(settings.preview_system.process_all_at_start) {
+		database.lock();
+		database.foreachChunk([this](Int2 pos) {
+			p->preview_system->addToQueueFront({pos.x / 2, pos.y / 2});
+		});
+		database.unlock();
+	}
 }
 
 Room::~Room() {

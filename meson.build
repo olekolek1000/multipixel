@@ -7,20 +7,10 @@ inc = [
 ]
 
 src = [
-	src_root + 'util/types.cpp',
-	src_root + 'util/timestep.cpp',
-	src_root + 'util/logs.cpp',
-	src_root + 'main.cpp',
-	src_root + 'ws_server.cpp',
-	src_root + 'room.cpp',
-	src_root + 'server.cpp',
-	src_root + 'session.cpp',
+	src_root + 'chunk_system.cpp',
+	src_root + 'chunk.cpp',
 	src_root + 'command.cpp',
 	src_root + 'database.cpp',
-	src_root + 'chunk.cpp',
-	src_root + 'chunk_system.cpp',
-	src_root + 'preview_system.cpp',
-	src_root + 'plugin.cpp',
 	src_root + 'lib/ojson.cpp',
 	src_root + 'lib/SQLiteCpp/Backup.cpp',
 	src_root + 'lib/SQLiteCpp/Column.cpp',
@@ -28,7 +18,18 @@ src = [
 	src_root + 'lib/SQLiteCpp/Exception.cpp',
 	src_root + 'lib/SQLiteCpp/Savepoint.cpp',
 	src_root + 'lib/SQLiteCpp/Statement.cpp',
-	src_root + 'lib/SQLiteCpp/Transaction.cpp'
+	src_root + 'lib/SQLiteCpp/Transaction.cpp',
+	src_root + 'main.cpp',
+	src_root + 'plugin.cpp',
+	src_root + 'preview_system.cpp',
+	src_root + 'room.cpp',
+	src_root + 'server.cpp',
+	src_root + 'session.cpp',
+	src_root + 'settings.cpp',
+	src_root + 'util/logs.cpp',
+	src_root + 'util/timestep.cpp',
+	src_root + 'util/types.cpp',
+	src_root + 'ws_server.cpp',
 ]
 
 cc = meson.get_compiler('cpp')

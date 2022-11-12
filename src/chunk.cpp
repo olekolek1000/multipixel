@@ -89,7 +89,11 @@ SharedVector<u8> Chunk::encodeChunkData(bool clear_modified) {
 		image.reset();
 
 		auto *preview_system = chunk_system->room->getPreviewSystem();
-		preview_system->addToQueueFront({position.x / 2, position.y / 2});
+
+		Int2 upper_pos;
+		upper_pos.x = position.x >= 0 ? position.x / 2 : (position.x - 1) / 2;
+		upper_pos.y = position.y >= 0 ? position.y / 2 : (position.y - 1) / 2;
+		preview_system->addToQueueFront(upper_pos);
 	}
 	return compressed;
 }

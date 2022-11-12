@@ -144,14 +144,13 @@ bool PreviewSystemLayer::processOneBlock() {
 	database.unlock();
 
 	if(upper_layer) {
-		s32 x = position.x / 2;
-		s32 y = position.y / 2;
-		if(position.x < 0) x--;
-		if(position.y < 0) y--;
-		upper_layer->addToQueue({x, y});
+		Int2 upper_pos;
+		upper_pos.x = position.x >= 0 ? position.x / 2 : (position.x - 1) / 2;
+		upper_pos.y = position.y >= 0 ? position.y / 2 : (position.y - 1) / 2;
+		upper_layer->addToQueue(upper_pos);
 	}
 
-	system->room->log(LOG_PREVIEW_SYSTEM_LAYER, "Processed block at zoom %u (%u remaining)", zoom, (u32)update_queue.size());
+	system->room->log(LOG_PREVIEW_SYSTEM_LAYER, "Processed block at %dx%d, zoom %u (%u remaining)", position.x, position.y, zoom, (u32)update_queue.size());
 	return true;
 }
 
