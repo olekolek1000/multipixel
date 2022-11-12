@@ -217,14 +217,12 @@ void ChunkSystem::runner() {
 	autosave();
 }
 
-#define AUTOSAVE_INTERVAL 5000
-
 bool ChunkSystem::runner_tick() {
 	bool used = false;
 
 	auto millis = getMillis();
 
-	if(last_autosave_timestamp + AUTOSAVE_INTERVAL < millis) { // Autosave
+	if(last_autosave_timestamp + room->settings.autosave_interval < millis) { // Autosave
 		autosave();
 		last_autosave_timestamp = millis;
 	}

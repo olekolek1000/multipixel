@@ -3,6 +3,7 @@
 #include "command.hpp"
 #include "database.hpp"
 #include "session.hpp"
+#include "settings.hpp"
 #include "util/listener.hpp"
 #include "util/mutex.hpp"
 #include "util/smartptr.hpp"
@@ -20,6 +21,7 @@ struct GlobalPixel;
 struct Session;
 struct ChunkSystem;
 struct PreviewSystem;
+struct Settings;
 struct PluginManager;
 struct WsConnection;
 
@@ -27,8 +29,8 @@ struct Room {
 	MultiDispatcher<void(Session *)> dispatcher_session_remove;
 	EventQueue queue;
 	Server *server;
-
 	DatabaseConnector database;
+	Settings settings;
 
 private:
 	Mutex mtx_sessions;

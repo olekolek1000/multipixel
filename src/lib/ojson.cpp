@@ -1,11 +1,14 @@
 #include "ojson.hpp"
 #include "lib/portable_endian.h"
 #include "util/binary_reader.hpp"
+#include <cmath>
 #include <codecvt>
 #include <cstring>
 #include <ctype.h>
+#include <inttypes.h>
 #include <iterator>
 #include <locale>
+#include <math.h>
 #include <stdarg.h>
 #include <stdexcept>
 #include <stdio.h>
@@ -23,7 +26,7 @@ namespace ojson {
 		throw std::runtime_error(std::string(buf));
 	}
 
-	static void bin_write(std::vector<uint8_t> &bin, const void *data, uint32_t size) {
+	void bin_write(std::vector<uint8_t> &bin, const void *data, uint32_t size) {
 		auto prev_size = bin.size();
 		bin.resize(bin.size() + size);
 		memcpy(bin.data() + prev_size, data, size);
@@ -107,7 +110,7 @@ namespace ojson {
 		return "undefined";
 	}
 
-	uniqptr<Element> parseJSON(const std::string_view &str) {
+	Element *parseJSONInternal(const std::string_view &str) {
 		uniqptr<Element> element;
 
 		for(auto &c : str) {
@@ -116,13 +119,13 @@ namespace ojson {
 				case '{': // Root: Object
 					element.create<ojson::Object>();
 					element->parseJSON(str);
-					return element;
+					return element.release();
 					break;
 
 				case '[': // Root: Array
 					element.create<ojson::Array>();
 					element->parseJSON(str);
-					return element;
+					return element.release();
 					break;
 
 				default:
@@ -132,8 +135,20 @@ namespace ojson {
 		return {};
 	}
 
+	std::shared_ptr<Element> parseJSONShared(const std::string_view &str) {
+		return std::shared_ptr<ojson::Element>(parseJSONInternal(str));
+	}
+
+	std::shared_ptr<Element> parseJSONShared(const void *data, size_t size) {
+		return parseJSONShared(std::string_view((char *)data, size));
+	}
+
+	uniqptr<Element> parseJSON(const std::string_view &str) {
+		return parseJSONInternal(str);
+	}
+
 	uniqptr<Element> parseJSON(const void *data, size_t size) {
-		return parseJSON(std::string_view((char *)data, size));
+		return parseJSONInternal(std::string_view((const char *)data, size));
 	}
 
 	uniqptr<Element> parseMsgPack(const void *data, size_t size) {
@@ -152,10 +167,10 @@ namespace ojson {
 			return {};
 
 		if(first_byte == 0xdc || first_byte == 0xdd) {
-			//Array
+			// Array
 			element.create<ojson::Array>();
 		} else if(first_byte == 0xde || first_byte == 0xdf) {
-			//Object (map)
+			// Object (map)
 			element.create<ojson::Object>();
 		} else {
 			ojson_throw("Unsupported byte %02X", first_byte);
@@ -209,20 +224,20 @@ namespace ojson {
 
 	// "test"
 	// "something"
-	std::string String::serializeJSON(bool lint, uint32_t deepness) {
+	std::string String::serializeJSON(bool lint, uint32_t deepness) const {
 		return "\"" + str + "\"";
 	}
 
 	static void serializeMsgPackString(std::vector<uint8_t> &out_bin, const std::string &str) {
-		//fixstr not implemented
-		if(str.size() < 256) { //str8
+		// fixstr not implemented
+		if(str.size() < 256) { // str8
 			out_bin.push_back(0xd9);
 			out_bin.push_back(str.size());
-		} else if(str.size() < 65536) { //str16
+		} else if(str.size() < 65536) { // str16
 			out_bin.push_back(0xda);
 			uint16_t sizeBE = htobe16(str.size());
 			bin_write(out_bin, &sizeBE, sizeof(sizeBE));
-		} else { //str32
+		} else { // str32
 			out_bin.push_back(0xdb);
 			uint32_t sizeBE = htobe32(str.size());
 			bin_write(out_bin, &sizeBE, sizeof(sizeBE));
@@ -260,17 +275,17 @@ namespace ojson {
 
 		uint32_t str_size;
 
-		if(first_byte == 0xd9) { //str8
+		if(first_byte == 0xd9) { // str8
 			uint8_t s_size;
 			if(!reader.read(&s_size))
 				return false;
 			str_size = s_size;
-		} else if(first_byte == 0xda) { //str16
+		} else if(first_byte == 0xda) { // str16
 			uint16_t sizeBE;
 			if(!reader.read(&sizeBE))
 				return false;
 			str_size = be16toh(sizeBE);
-		} else if(first_byte == 0xdb) { //str32
+		} else if(first_byte == 0xdb) { // str32
 			uint32_t sizeBE;
 			if(!reader.read(&sizeBE))
 				return false;
@@ -299,8 +314,8 @@ namespace ojson {
 		return str;
 	}
 
-	void String::setString(const std::string &str) {
-		//Add backslash to "
+	void String::setString(std::string_view str) {
+		// Add backslash to "
 		std::string newstr;
 		char ch = 0;
 		char prev_ch = 0;
@@ -308,29 +323,29 @@ namespace ojson {
 			prev_ch = ch;
 			ch = str[i];
 			if(prev_ch == '\\') {
-				if(!newstr.empty()) newstr.pop_back(); //Remove backslash
+				if(!newstr.empty()) newstr.pop_back(); // Remove backslash
 				if(ch == 'n') {
-					//Newline
+					// Newline
 					newstr.push_back('\n');
 				} else if(ch == '/') {
-					//Slash
+					// Slash
 					newstr.push_back('/');
 				} else if(ch == '\"') {
 					//"
 					newstr.push_back('"');
 				} else if(ch == 'u') {
-					//Unicode character
+					// Unicode character
 					uint16_t wide_ch;
 
-					std::string unicode = str.substr(i, 5); //uXXXX
+					auto unicode = str.substr(i, 5); // uXXXX
 
-					int scanned = sscanf(unicode.c_str(), "u%hx", (uint16_t *)&wide_ch);
+					int scanned = sscanf(std::string(unicode).c_str(), "u%hx", (uint16_t *)&wide_ch);
 
 					if(scanned > 0) {
 						std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> converter;
 						std::string u8str = converter.to_bytes(wide_ch);
 						newstr += u8str;
-						//Jump forward
+						// Jump forward
 						i += 4;
 					}
 				}
@@ -348,8 +363,8 @@ namespace ojson {
 		return Type::Binary;
 	}
 
-	std::string Binary::serializeJSON(bool lint, uint32_t deepness) {
-		return ""; //Not available in JSON
+	std::string Binary::serializeJSON(bool lint, uint32_t deepness) const {
+		return ""; // Not available in JSON
 	}
 
 	std::string_view Binary::parseJSON(const std::string_view &str) {
@@ -357,14 +372,14 @@ namespace ojson {
 	}
 
 	static void serializeMsgPackBinary(std::vector<uint8_t> &out_bin, const void *bin_data, size_t bin_size) {
-		if(bin_size < 256) { //bin8
+		if(bin_size < 256) { // bin8
 			out_bin.push_back(0xc4);
 			out_bin.push_back(bin_size);
-		} else if(bin_size < 65536) { //bin16
+		} else if(bin_size < 65536) { // bin16
 			out_bin.push_back(0xc5);
 			uint16_t sizeBE = htobe16(bin_size);
 			bin_write(out_bin, &sizeBE, sizeof(sizeBE));
-		} else { //bin32
+		} else { // bin32
 			out_bin.push_back(0xc6);
 			uint32_t sizeBE = htobe32(bin_size);
 			bin_write(out_bin, &sizeBE, sizeof(sizeBE));
@@ -384,17 +399,17 @@ namespace ojson {
 
 		uint32_t bin_size;
 
-		if(first_byte == 0xc4) { //bin8
+		if(first_byte == 0xc4) { // bin8
 			uint8_t b_size;
 			if(!reader.read(&b_size))
 				return false;
 			bin_size = b_size;
-		} else if(first_byte == 0xc5) { //bin16
+		} else if(first_byte == 0xc5) { // bin16
 			uint16_t sizeBE;
 			if(!reader.read(&sizeBE))
 				return false;
 			bin_size = be16toh(sizeBE);
-		} else if(first_byte == 0xc6) { //bin32
+		} else if(first_byte == 0xc6) { // bin32
 			uint32_t sizeBE;
 			if(!reader.read(&sizeBE))
 				return false;
@@ -428,20 +443,24 @@ namespace ojson {
 
 	// 42
 	// 42.24
-	std::string Number::serializeJSON(bool lint, uint32_t deepness) {
+	std::string Number::serializeJSON(bool lint, uint32_t deepness) const {
 		char buf[64];
 		if(floating) {
-			snprintf(buf, sizeof(buf), "%lg", val_double);
+			if(isnan(val_double) || isinf(val_double)) {
+				snprintf(buf, sizeof(buf), "%lg", 0.0); // JSON does not allow NANs and INFs
+			} else {
+				snprintf(buf, sizeof(buf), "%lg", val_double);
+			}
 		} else {
-			snprintf(buf, sizeof(buf), "%li", val_int);
+			snprintf(buf, sizeof(buf), "%" PRId64, val_int);
 		}
 		return buf;
 	}
 
 	void Number::serializeMsgPack(std::vector<uint8_t> &out_bin) {
-		if(isFloating()) //float64
+		if(isFloating()) // float64
 			out_bin.push_back(0xcb);
-		else //int64
+		else // int64
 			out_bin.push_back(0xd3);
 
 		uint64_t valBE = htobe64(val_bytes);
@@ -464,12 +483,12 @@ namespace ojson {
 			buf[length] = 0x00;
 			if(isfloat) {
 				double n;
-				sscanf(buf, "%lf", &n);
+				sscanf(buf, "%lg", &n);
 				this->setValue(n);
 				return str.substr(i, length);
 			} else {
 				int64_t n;
-				sscanf(buf, "%ld", &n);
+				sscanf(buf, "%" PRId64, &n);
 				this->setValue(n);
 				return str.substr(i, length);
 			}
@@ -544,7 +563,7 @@ namespace ojson {
 
 	// { "name":"abcdef", "count":42 }
 	// { "content":{ "color":"red", "brightness": 255 } }
-	std::string Object::serializeJSON(bool lint, uint32_t deepness) {
+	std::string Object::serializeJSON(bool lint, uint32_t deepness) const {
 		std::string buf = "{";
 		for(auto it = content.begin(); it != content.end();) {
 			auto &name = it->first;
@@ -560,11 +579,11 @@ namespace ojson {
 	}
 
 	void Object::serializeMsgPack(std::vector<uint8_t> &out_bin) {
-		if(content.size() < 65536) { //map16
+		if(content.size() < 65536) { // map16
 			out_bin.push_back(0xde);
 			uint16_t countBE = htobe16(content.size());
 			bin_write(out_bin, &countBE, sizeof(countBE));
-		} else { //map32
+		} else { // map32
 			out_bin.push_back(0xdf);
 			uint32_t countBE = htobe32(content.size());
 			bin_write(out_bin, &countBE, sizeof(countBE));
@@ -590,7 +609,7 @@ namespace ojson {
 					if(lvalue) {
 						if(cc == '"') {
 							auto sub2 = sub.substr(j + 1);
-							//Find end of string
+							// Find end of string
 							char prevchar = 0x00;
 							size_t length = 0;
 							for(size_t k = 0; k < sub2.size(); k++) {
@@ -609,7 +628,7 @@ namespace ojson {
 						} else {
 							throw std::runtime_error("\" expected");
 						}
-					} else { //rvalue
+					} else { // rvalue
 						if(cc == ':') {
 							// Skip spaces and control characters after ':' character
 							size_t spacecount = 0;
@@ -643,7 +662,7 @@ namespace ojson {
 							}
 							j += valstr.size() + 1;
 
-							//Find ',' or '}
+							// Find ',' or '}
 							for(size_t k = j; k < sub.size(); k++) {
 								auto &ch = sub[k];
 								if(isspace(ch)) continue;
@@ -673,12 +692,12 @@ namespace ojson {
 
 		uint32_t count;
 
-		if(first_byte == 0xde) { //map16
+		if(first_byte == 0xde) { // map16
 			uint16_t countBE;
 			if(!reader.read(&countBE))
 				return false;
 			count = be16toh(countBE);
-		} else if(first_byte == 0xdf) { //map32
+		} else if(first_byte == 0xdf) { // map32
 			uint32_t countBE;
 			if(!reader.read(&countBE))
 				return false;
@@ -729,7 +748,7 @@ namespace ojson {
 		return true;
 	}
 
-	Element *Object::get(const std::string_view &str) {
+	Element *Object::get(const std::string_view &str) const {
 		auto it = content.find(str);
 		if(it != content.end()) {
 			return it->second.get();
@@ -738,43 +757,43 @@ namespace ojson {
 		}
 	}
 
-	String *Object::getString(const std::string_view &str) {
+	String *Object::getString(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castString() : nullptr;
 	}
 
-	Number *Object::getNumber(const std::string_view &str) {
+	Number *Object::getNumber(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castNumber() : nullptr;
 	}
 
-	Object *Object::getObject(const std::string_view &str) {
+	Object *Object::getObject(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castObject() : nullptr;
 	}
 
-	Binary *Object::getBinary(const std::string_view &str) {
+	Binary *Object::getBinary(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castBinary() : nullptr;
 	}
 
-	Array *Object::getArray(const std::string_view &str) {
+	Array *Object::getArray(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castArray() : nullptr;
 	}
 
-	Boolean *Object::getBoolean(const std::string_view &str) {
+	Boolean *Object::getBoolean(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castBoolean() : nullptr;
 	}
 
-	Null *Object::getNull(const std::string_view &str) {
+	Null *Object::getNull(const std::string_view &str) const {
 		auto *e = get(str);
 		return e ? e->castNull() : nullptr;
 	}
 
 	template <typename T>
-	static T &fetch(Object *parent, const std::string_view &str) {
+	static T &fetch(const Object *parent, const std::string_view &str) {
 		auto *element = parent->get(str);
 		if(!element)
 			ojson_throw("No such JSON element named %s", std::string(str).c_str());
@@ -786,37 +805,41 @@ namespace ojson {
 		return *static_cast<T *>(element);
 	}
 
-	String &Object::fetchString(const std::string_view &str) {
+	String &Object::fetchString(const std::string_view &str) const {
 		return fetch<String>(this, str);
 	}
 
-	Number &Object::fetchNumber(const std::string_view &str) {
+	Binary &Object::fetchBinary(const std::string_view &str) const {
+		return fetch<Binary>(this, str);
+	}
+
+	Number &Object::fetchNumber(const std::string_view &str) const {
 		return fetch<Number>(this, str);
 	}
 
-	Object &Object::fetchObject(const std::string_view &str) {
+	Object &Object::fetchObject(const std::string_view &str) const {
 		return fetch<Object>(this, str);
 	}
 
-	Array &Object::fetchArray(const std::string_view &str) {
+	Array &Object::fetchArray(const std::string_view &str) const {
 		return fetch<Array>(this, str);
 	}
 
-	Boolean &Object::fetchBoolean(const std::string_view &str) {
+	Boolean &Object::fetchBoolean(const std::string_view &str) const {
 		return fetch<Boolean>(this, str);
 	}
 
-	Null &Object::fetchNull(const std::string_view &str) {
+	Null &Object::fetchNull(const std::string_view &str) const {
 		return fetch<Null>(this, str);
 	}
 
-	void Object::foreach(std::function<void(const std::string_view, Element *)> callback) {
+	void Object::foreach(std::function<void(const std::string_view, Element *)> callback) const {
 		for(auto &i : content) {
 			callback(i.first, i.second.get());
 		}
 	}
 
-	void Object::foreachr(std::function<void(const std::string_view, Element *)> callback) {
+	void Object::foreachr(std::function<void(const std::string_view, Element *)> callback) const {
 		for(auto it = content.rbegin(); it != content.rend(); it++) {
 			callback(it->first, it->second.get());
 		}
@@ -829,11 +852,11 @@ namespace ojson {
 			return *((T *)it->second.get());
 		}
 		auto &n = content[std::string(name)];
-		n = new T;
+		n = std::make_shared<T>();
 		return *((T *)n.get());
 	}
 
-	void Object::move(Object &obj) {
+	void Object::move(Object &&obj) {
 		this->content = std::move(obj.content);
 	}
 
@@ -851,7 +874,7 @@ namespace ojson {
 
 	// [ "one", "two", "three" ]
 	// [ { "name":"one", "count":42 }, "two", "three" ]
-	std::string Array::serializeJSON(bool lint, uint32_t deepness) {
+	std::string Array::serializeJSON(bool lint, uint32_t deepness) const {
 		std::string buf = "[";
 
 		for(auto it = content.begin(); it != content.end();) {
@@ -872,11 +895,11 @@ namespace ojson {
 	}
 
 	void Array::serializeMsgPack(std::vector<uint8_t> &out_bin) {
-		if(content.size() < 65536) { //array16
+		if(content.size() < 65536) { // array16
 			out_bin.push_back(0xdc);
 			uint16_t sizeBE = htobe16(content.size());
 			bin_write(out_bin, &sizeBE, sizeof(sizeBE));
-		} else { //array32
+		} else { // array32
 			out_bin.push_back(0xdd);
 			uint32_t sizeBE = htobe32(content.size());
 			bin_write(out_bin, &sizeBE, sizeof(sizeBE));
@@ -919,7 +942,7 @@ namespace ojson {
 
 					j += valstr.size();
 
-					//Find ',' or ']
+					// Find ',' or ']
 					for(size_t k = j; k < sub.size(); k++) {
 						auto &ch = sub[k];
 						if(isspace(ch)) continue;
@@ -943,12 +966,12 @@ namespace ojson {
 
 		uint32_t count;
 
-		if(first_byte == 0xdc) { //array16
+		if(first_byte == 0xdc) { // array16
 			uint16_t countBE;
 			if(!reader.read(&countBE))
 				return false;
 			count = be16toh(countBE);
-		} else if(first_byte == 0xdd) { //array32
+		} else if(first_byte == 0xdd) { // array32
 			uint32_t countBE;
 			if(!reader.read(&countBE))
 				return false;
@@ -992,13 +1015,13 @@ namespace ojson {
 		return true;
 	}
 
-	void Array::foreach(std::function<void(Element *)> callback) {
+	void Array::foreach(std::function<void(Element *)> callback) const {
 		for(auto &element : content) {
 			callback(element.get());
 		}
 	}
 
-	void Array::foreachr(std::function<void(Element *)> callback) {
+	void Array::foreachr(std::function<void(Element *)> callback) const {
 		for(auto it = content.rbegin(); it != content.rend(); it++) {
 			callback(it->get());
 		}
@@ -1023,7 +1046,7 @@ namespace ojson {
 
 	//	true
 	//	false
-	std::string Boolean::serializeJSON(bool lint, uint32_t deepness) {
+	std::string Boolean::serializeJSON(bool lint, uint32_t deepness) const {
 		return state ? "true" : "false";
 	}
 
@@ -1078,7 +1101,7 @@ namespace ojson {
 	}
 
 	// null
-	std::string Null::serializeJSON(bool lint, uint32_t deepness) {
+	std::string Null::serializeJSON(bool lint, uint32_t deepness) const {
 		return "null";
 	}
 
