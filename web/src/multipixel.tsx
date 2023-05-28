@@ -5,6 +5,9 @@ import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
 import { ColorPalette } from "./color";
 import { Preview, PreviewLayer, PreviewSystem } from "./preview_system";
+import { globals } from ".";
+import { RoomRefs, RoomScreen } from "./room_screen"
+import React from "react";
 
 function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
@@ -55,38 +58,63 @@ export class Multipixel {
 	palette!: ColorPalette;
 	events_enabled: boolean = true;
 	needs_boundaries_update: boolean = true;
+	room_refs: RoomRefs | null = null;
 
-	constructor(host: string, nickname: string, room_name: string, done_callback: () => void) {
-		document.title = "#" + room_name + " - MultiPixel";
-		this.client = new Client(this, host, nickname, room_name, () => {
-			this.onConnect(done_callback);
-		});
+	callback_player_update: (() => void) | null = null;
+
+	constructor(params: {
+		host: string;
+		nickname: string;
+		room_name: string;
+		connection_callback: (error_str?: string) => void;
+	}) {
+		document.title = "#" + params.room_name + " - MultiPixel";
+		this.client = new Client({
+			multipixel: this,
+			address: params.host,
+			nickname: params.nickname,
+			room_name: params.room_name,
+			connection_callback: (error_str) => {
+				if (error_str) {
+					params.connection_callback(error_str);
+					return;
+				}
+
+				this.initialize();
+				params.connection_callback(undefined);
+			}
+		})
 	}
 
-	onConnect(done_callback: () => void) {
-		//Init renderer
-		this.renderer = new RenderEngine(document.getElementById("canvas_render") as HTMLCanvasElement);
+	initialize() {
+		globals.setState(<RoomScreen multipixel={this} refs_callback={(refs) => {
+			this.room_refs = refs;
 
-		//Init chunk map
-		this.map = new ChunkMap(this);
+			//Init renderer
+			this.renderer = new RenderEngine(refs.canvas_render as HTMLCanvasElement);
 
-		//Init preview system
-		this.preview_system = new PreviewSystem(this);
+			//Init chunk map
+			this.map = new ChunkMap(this);
 
-		//Init cursor
-		this.cursor = new Cursor();
+			//Init preview system
+			this.preview_system = new PreviewSystem(this);
 
-		//Init chat
-		this.chat = new Chat(this.client);
+			//Init cursor
+			this.cursor = new Cursor();
 
-		this.initGUI();
-		this.initListeners();
-		this.initTimestep();
+			//Init chat
+			this.chat = new Chat(this.client);
 
-		//Start rendering
-		this.draw();
+			this.initGUI(refs);
+			this.initListeners(refs);
+			this.initTimestep();
 
-		done_callback();
+			//Start rendering
+			this.draw();
+
+			//Init client protocol
+			this.client.initProtocol();
+		}} />);
 	}
 
 	draw() {
@@ -101,8 +129,25 @@ export class Multipixel {
 		});
 	}
 
-	initGUI() {
-		let slider = document.getElementById("mp_slider_brush_size") as HTMLInputElement;
+	handleButtomZoom1_1() {
+		this.map.setZoom(1.0);
+		this.map.triggerRerender();
+	}
+
+	handleButtonUndo() {
+		this.client.socketSendUndo();
+	}
+
+	handleButtonToolBrush() {
+		this.selectTool(ToolID.Brush);
+	}
+
+	handleButtonToolFloodfill() {
+		this.selectTool(ToolID.Floodfill);
+	}
+
+	initGUI(refs: RoomRefs) {
+		let slider = refs.mp_slider_brush_size as HTMLInputElement;
 		slider.value = "1";
 		slider.addEventListener("change", () => {
 			let size = slider.value;
@@ -111,18 +156,7 @@ export class Multipixel {
 			this.client.socketSendBrushSize(num_size);
 		});
 
-		(document.getElementById("mp_slider_brush_smoothing") as HTMLInputElement).value = "0.0";
-
-		let button_zoom_1_1 = document.getElementById("button_zoom_1_1") as HTMLElement;
-		button_zoom_1_1.addEventListener("click", () => {
-			this.map.setZoom(1.0);
-			this.map.triggerRerender();
-		});
-
-		let button_undo = document.getElementById("button_undo") as HTMLElement;
-		button_undo.addEventListener("click", () => {
-			this.client.socketSendUndo();
-		});
+		(refs.mp_slider_brush_smoothing as HTMLInputElement).value = "0.0";
 
 		document.addEventListener('keydown', (event) => {
 			if (event.ctrlKey && event.key === 'z') {
@@ -130,32 +164,19 @@ export class Multipixel {
 			}
 		});
 
-		let button_tool_brush = document.getElementById("button_tool_brush") as HTMLElement;
-		button_tool_brush.addEventListener("click", () => {
-			this.selectTool(ToolID.Brush);
-			this.markSelectedTool(button_tool_brush);
-		});
-
-		let button_tool_floodfill = document.getElementById("button_tool_floodfill") as HTMLElement;
-		button_tool_floodfill.addEventListener("click", () => {
-			this.selectTool(ToolID.Floodfill);
-			this.markSelectedTool(button_tool_floodfill);
-		});
-
-		this.palette = new ColorPalette(this, document.getElementById("mpc_color_palette") as HTMLElement);
+		this.palette = new ColorPalette(this, refs.mpc_color_palette);
 	}
 
 	setEventsEnabled(enabled: boolean) {
 		this.events_enabled = enabled;
 	}
 
-	initListeners() {
+	initListeners(refs: RoomRefs) {
 		setInterval(() => { this.updateBoundary() }, 200);
 
 		setInterval(() => { this.client.socketSendPing() }, 8000);
 
 		let canvas = this.renderer.getCanvas();
-		let body = document.getElementById("body") as HTMLElement;
 
 		canvas.addEventListener("mousemove", (e: MouseEvent) => {
 			let cursor = this.getCursor();
@@ -179,7 +200,7 @@ export class Multipixel {
 			let smooth_val = 1.0;
 
 			if (this.cursor.down_left && this.cursor.tool_id == ToolID.Brush) {
-				let value = parseInt((document.getElementById("mp_slider_brush_smoothing") as HTMLInputElement).value);
+				let value = parseInt((refs.mp_slider_brush_smoothing as HTMLInputElement).value);
 				if (value > 0) {
 					smooth = true;
 					smooth_val = 1.0 - value / 101.0;
@@ -263,7 +284,7 @@ export class Multipixel {
 			this.needs_boundaries_update = true;
 		});
 
-		body.addEventListener("contextmenu", (e) => {
+		globals.root.addEventListener("contextmenu", (e) => {
 			e.preventDefault();
 			return false;
 		});
@@ -282,47 +303,27 @@ export class Multipixel {
 		return this.cursor;
 	}
 
-	refreshPlayerList() {
-		let player_list = document.getElementById("mp_player_list") as HTMLElement;
-		let buf = "[Online players]<br><br>";
+	updatePlayerList() {
+		if (this.callback_player_update)
+			this.callback_player_update();
+	}
 
-		let self_shown = false;
-		let t = this;
-		function add_self() {
-			self_shown = true;
-			buf += "You [" + t.client.id + "]<br>";
-		}
+	getPlayerList(): Array<string> {
+		let arr = new Array<string>();
+
+		arr.push("You");
 
 		this.client.users.forEach((user: User) => {
-			if (user == null)
-				return;
+			if (!user) return;
+			arr.push(user.nickname);
+		});
 
-			if (!self_shown && this.client.id < user.id) {
-				add_self();
-				self_shown = true;
-			}
-
-			buf += user.nickname + " [" + user.id + "]<br>";
-		})
-
-		if (!self_shown)
-			add_self();
-
-		player_list.innerHTML = buf;
+		return arr;
 	}
 
 	selectTool(tool_id: ToolID) {
 		this.cursor.tool_id = tool_id;
 		this.client.socketSendToolType(tool_id);
-	}
-
-	markSelectedTool(selected_element: HTMLElement) {
-		let elements = document.getElementsByClassName("button_tool");
-		for (const element of elements) {
-			element.classList.remove("button_tool_selected");
-		}
-
-		selected_element.classList.add("button_tool_selected");
 	}
 
 	updateBoundary() {
@@ -347,7 +348,7 @@ export class Multipixel {
 			target_zoom = 1;
 		}
 
-		console.log("target zoom " + target_zoom);
+		//console.log("target zoom " + target_zoom);
 		let request_sent_count = 0;
 
 		for (let zoom = 1; zoom <= LAYER_COUNT; zoom++) {
@@ -366,7 +367,7 @@ export class Multipixel {
 							preview = layer.getOrCreatePreview(x, y);
 							this.client.socketSendPreviewRequest(x, y, layer.zoom);
 							request_sent_count++;
-							console.log("sent request");
+							//console.log("sent request");
 						}
 					}
 					else {

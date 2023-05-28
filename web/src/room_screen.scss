@@ -1,0 +1,14 @@
+.top_panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 48px;
+  background-color: rgba(80, 80, 80, 0.85);
+  backdrop-filter: blur(50px);
+  border-bottom: 2px solid rgba(0,0,0,0.3);
+  display: flex;
+  gap: 0.1cm;
+  padding: 0.1cm;
+
+}

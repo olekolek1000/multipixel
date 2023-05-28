@@ -1,79 +1,16 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
+  <head>
+    <title>MultiPixel</title>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8" />
+    <meta http-equiv="encoding" content="utf-8" />
 
-<head>
-	<title>
-		MultiPixel
-	</title>
-	<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-	<meta http-equiv="encoding" content="utf-8">
+    <script src="public/lz4.min.js"></script>
+    <link rel="stylesheet" href="public/style/style.css" />
+    <link rel="stylesheet" href="public/style/multipixel.css" />
+  </head>
 
-	<script src="public/lz4.min.js"></script>
-	<link rel="stylesheet" href="public/style/style.css">
-	<link rel="stylesheet" href="public/style/multipixel.css">
-</head>
-
-<body id="body">
-	<div id="login_screen" style="visibility: hidden;">
-		<div class="login_center">
-			<video width="512" height="128" autoplay muted>
-				<source src="public/logo.webm" type="video/webm">
-				Logo
-			</video>
-			<div class="login_desc">
-				Enter your username and room name
-			</div>
-			<div class="login_input">
-				<input class="login_input_text" type="text" placeholder="Nickname" maxlength="32" id="nickname">
-				<input class="login_input_text" type="text" placeholder="Room name" maxlength="32" id="room_name">
-				<input class="login_input_button" type="button" value="START" id="button_start">
-			</div>
-			<div class="login_info">
-				A program that allows you to draw on an infinitely large canvas - in multiplayer!
-			</div>
-			<div class="login_credits">
-				Client made in Typescript + WebGL + WebSockets<br>
-				Server fully made in C++<br>
-				<b>Proudly created by oo8dev & KuczaRacza</b>
-			</div>
-		</div>
-	</div>
-	<div id="mp_screen" style="visibility: hidden;">
-		<canvas id="canvas_render" width="100%" height="100%"></canvas>
-		<div id="mp_chat_box">
-			<div id="mp_chat_history"></div>
-			<input id="mp_chat_input" type="text" />
-		</div>
-		<div id="mp_top_panel">
-			<div class="mp_floating_button button_tool" id="button_zoom_1_1"></div>
-			<div class="mp_floating_button button_tool" id="button_undo"></div>
-			<div class="mp_floating_button button_tool button_tool_selected" id="button_tool_brush"></div>
-			<div class="mp_floating_button button_tool" id="button_tool_floodfill"></div>
-			<div id="mpc_color_palette"></div>
-			<div class="mpc_inline">
-				<div class="mpc_control" id="mpc_resize_col_add">+</div><br>
-				<div class="mpc_control" id="mpc_resize_col_sub">&nbsp-</div>
-			</div>
-			<div class="mpc_clear">
-				<div class="mpc_control" id="mpc_resize_row_add">+</div>
-				<div class="mpc_control" id="mpc_resize_row_sub">&nbsp-</div>
-			</div>
-			<div class="mp_slider_container">
-				<input type="range" min="1" max="8" value="1" class="mp_slider" id="mp_slider_brush_size">
-				<span class="mp_slider_title">
-					Size
-				</span>
-			</div>
-			<div class="mp_slider_container">
-				<input type="range" min="0" max="100" value="10" class="mp_slider" id="mp_slider_brush_smoothing">
-				<span class="mp_slider_title">
-					Smoothing
-				</span>
-			</div>
-		</div>
-		<div id="mp_player_list"></div>
-	</div>
-</body>
-
-
+  <body>
+    <div id="root"></div>
+  </body>
 </html>
