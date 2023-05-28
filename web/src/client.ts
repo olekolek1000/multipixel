@@ -88,32 +88,45 @@ export class Client {
 	chunks_received = 0;
 	id: number = -1;
 	chat: Chat | null = null;
+	connection_callback: (error_str?: string) => void;
 
-	constructor(multipixel: Multipixel, address: string | URL, nickname: string, room_name: string, loaded_callback: () => void) {
-		this.multipixel = multipixel;
-		this.socket = new WebSocket(address);
+	constructor(params: {
+		multipixel: Multipixel;
+		address: string;
+		nickname: string;
+		room_name: string;
+		connection_callback: (error_str?: string) => void;
+	}) {
+		this.connection_callback = params.connection_callback;
+		this.multipixel = params.multipixel;
+		this.socket = new WebSocket(params.address);
 		this.socket.binaryType = "arraybuffer";
 
 		let c = this;
 		this.socket.onopen = function (e) {
 			e;
 			console.log("Socket connected");
-			c.socketSendAnnouncement(room_name, nickname);
-			loaded_callback();
+			c.socketSendAnnouncement(params.room_name, params.nickname);
+			params.connection_callback(undefined);
 
-			c.socketSendBoundary();
 		}
+	}
+
+	initProtocol() {
+		let c = this;
+		c.socketSendBoundary();
 
 		c = this;
-		this.socket.onmessage = function (e) {
+		this.socket!.onmessage = function (e) {
 			c.onmessage(e);
 		}
 
-		this.socket.onclose = function (e) {
+		this.socket!.onclose = function (e) {
 			if (e.wasClean) {
 				console.log("Socket disconnected");
 			}
 			else {
+				c.connection_callback("Connection failed: " + e.code);
 				console.log("Socket error: " + e.code);
 			}
 		}
@@ -277,13 +290,13 @@ export class Client {
 				let id = dataview.getInt16(0);
 				this.id = id;
 				console.log("This user ID: ", id);
-				this.multipixel.refreshPlayerList();
+				this.multipixel.updatePlayerList();
 				break;
 			}
 			case ServerCmd.kick: {
 				let str = "Kicked. Reason: " + new TextDecoder().decode(dataview);
-				console.log(str);
-				alert(str);
+				this.connection_callback(str);
+				console.error(str);
 				this.socket!.close();
 				break;
 			}
@@ -375,14 +388,14 @@ export class Client {
 				let id = dataview.getUint16(0);
 				let nickname = new TextDecoder().decode(new DataView(e.data, header_offset + size_u16));
 				this.users[id] = new User(id, nickname);
-				this.multipixel.refreshPlayerList();
+				this.multipixel.updatePlayerList();
 				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_remove: {
 				let id = dataview.getUint16(0);
 				delete this.users[id];
-				this.multipixel.refreshPlayerList();
+				this.multipixel.updatePlayerList();
 				map.triggerRerender();
 				break;
 			}
