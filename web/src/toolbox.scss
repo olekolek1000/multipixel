@@ -1,0 +1,117 @@
+@import "./glass.scss";
+
+.container {
+	position: absolute;
+	@extend .glass;
+	@extend .glass_border_bottom;
+	@extend .glass_border_right;
+}
+
+.color_palette {
+  clear: left;
+  float: left;
+  margin-top: 2px;
+  margin-left: 2px;
+}
+
+.row {
+  display: flex;
+}
+
+.cell,
+.control {
+  width: 24px;
+  height: 16px;
+  border-radius: 4px;
+  float: left;
+  user-select: none;
+  outline: 1px solid rgba(0, 0, 0, 0.3);
+  outline-offset: -1px;
+}
+
+.inline {
+  float: right;
+}
+
+.clear {
+  clear: left;
+}
+
+.control {
+  width: 16px;
+  height: 20px;
+  background-color: rgb(220, 220, 220);
+  color: #333;
+  margin-left: 2px;
+  margin-top: 2px;
+  padding-left: 2px;
+  cursor: pointer;
+}
+
+.cell_selected {
+  border-bottom: 4px solid black;
+  outline: 2px solid white;
+  height: 12px;
+  outline-offset: -2px;
+}
+
+.cell_small {
+  width: 12px;
+}
+
+.slider {
+	-webkit-appearance: none;
+	appearance: none;
+	background-color: rgb(200, 200, 200);
+	border-radius: 4px;
+	outline: none;
+	width: 80px;
+	height: 5px;
+}
+
+.slider::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 14px;
+	height: 14px;
+	background: #adadad;
+	cursor: pointer;
+	border-radius: 50%;
+	transition: 0.2s;
+}
+
+.slider::-moz-range-thumb {
+	width: 14px;
+	height: 14px;
+	background: #adadad;
+	cursor: pointer;
+	border-radius: 50%;
+	transition: 0.2s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+	width: 20px;
+	height: 20px;
+	border-radius: 5px;
+}
+
+.slider::-moz-range-thumb:hover {
+	width: 20px;
+	height: 20px;
+	border-radius: 5px;
+}
+
+.slider_container {
+	color: #333;
+	margin-left: 5px;
+	margin-right: 5px;
+	clear: left;
+	float: left;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+.slider_title {
+	font-weight: bold;
+	font-size: 10px;
+}

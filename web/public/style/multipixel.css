@@ -1,266 +1,155 @@
 #mp_screen {
-  overflow: hidden;
+	overflow: hidden;
 }
 
 #canvas_render {
-  position: fixed;
-  top: 0;
-  left: 0;
-  cursor: url("../img/cursor.png") 12 12, auto;
+	position: fixed;
+	top: 0;
+	left: 0;
+	cursor: url("../img/cursor.png") 12 12, auto;
 }
 
 #mp_player_list {
-  position: fixed;
-  right: 0;
-  top: 48px;
-  text-align: right;
-  padding: 8px;
-  font-size: 0.3cm;
-  background-color: rgba(255, 255, 255, 0.8);
-  border-radius: 0% 0% 0% 8px;
-  color: #fff;
-  text-shadow: 1px 1px #000;
+	position: fixed;
+	right: 0;
+	top: 48px;
+	text-align: right;
+	padding: 8px;
+	font-size: 0.3cm;
+	background-color: rgba(255, 255, 255, 0.8);
+	border-radius: 0% 0% 0% 8px;
+	color: #fff;
+	text-shadow: 1px 1px #000;
 }
 
 #mp_chat_box {
-  position: fixed;
-  background-color: rgba(255, 255, 255, 0.8);
-  text-shadow: 1px 1px #000;
-  border-radius: 0 4px 0 0;
-  bottom: 0;
-  left: 0;
+	position: fixed;
+	background-color: rgba(255, 255, 255, 0.8);
+	text-shadow: 1px 1px #000;
+	border-radius: 0 4px 0 0;
+	bottom: 0;
+	left: 0;
 }
 
 #mp_chat_history {
-  margin-left: 8px;
-  margin-right: 4px;
+	margin-left: 8px;
+	margin-right: 4px;
 }
 
 .mp_chat_message {
-  width: 250px;
-  overflow-wrap: break-word;
-  color: #fff;
-  border-bottom: 1px solid black;
-  font-size: 12px;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  text-shadow: 1px 1px #000;
+	width: 250px;
+	overflow-wrap: break-word;
+	color: #fff;
+	border-bottom: 1px solid black;
+	font-size: 12px;
+	padding-top: 4px;
+	padding-bottom: 4px;
+	text-shadow: 1px 1px #000;
 }
 
 #mp_chat_input {
-  background-color: rgba(220, 220, 220, 1);
-  border: 0;
-  margin: 2px;
-  width: 256px;
-  color: #000;
-  font-size: 12px;
+	background-color: rgba(220, 220, 220, 1);
+	border: 0;
+	margin: 2px;
+	width: 256px;
+	color: #000;
+	font-size: 12px;
 }
 
 #mp_top_panel {
-  background-color: rgba(255, 255, 255, 0.8);
-  position: fixed;
-  top: 48px;
-  left: 0;
-  padding-right: 4px;
-  border-radius: 0 0 4px 0;
-  display: block;
-}
-
-.mp_slider {
-  -webkit-appearance: none;
-  appearance: none;
-  background-color: rgb(200, 200, 200);
-  border-radius: 4px;
-  outline: none;
-  width: 80px;
-  height: 5px;
-}
-
-.mp_slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  background: #adadad;
-  cursor: pointer;
-  border-radius: 50%;
-  transition: 0.2s;
-}
-
-.mp_slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  background: #adadad;
-  cursor: pointer;
-  border-radius: 50%;
-  transition: 0.2s;
-}
-
-.mp_slider::-webkit-slider-thumb:hover {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-}
-
-.mp_slider::-moz-range-thumb:hover {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-}
-
-.mp_slider_container {
-  color: #333;
-  margin-left: 5px;
-  margin-right: 5px;
-  clear: left;
-  float: left;
-  margin-top: 4px;
-  margin-bottom: 4px;
-}
-
-.mp_slider_title {
-  font-weight: bold;
-  font-size: 10px;
+	background-color: rgba(255, 255, 255, 0.8);
+	position: fixed;
+	top: 48px;
+	left: 0;
+	padding-right: 4px;
+	border-radius: 0 0 4px 0;
+	display: block;
 }
 
 .mp_floating_button {
-  display: flex;
-  user-select: none;
-  justify-content: center;
-  align-items: center;
-  min-width: 32px;
-  min-height: 32px;
-  float: left;
-  background-color: rgba(220, 220, 220, 1);
-  margin-left: 2px;
-  margin-top: 2px;
-  font-size: 0.8em;
-  border-radius: 3px;
+	display: flex;
+	user-select: none;
+	justify-content: center;
+	align-items: center;
+	min-width: 32px;
+	min-height: 32px;
+	float: left;
+	background-color: rgba(220, 220, 220, 1);
+	margin-left: 2px;
+	margin-top: 2px;
+	font-size: 0.8em;
+	border-radius: 3px;
 }
 
 .mp_floating_button:hover {
-  cursor: pointer;
+	cursor: pointer;
 }
 
 .col-select {
-  width: 32px;
-  height: 32px;
-  overflow: hidden;
+	width: 32px;
+	height: 32px;
+	overflow: hidden;
 }
 
 .col {
-  min-width: 16px;
+	min-width: 16px;
 }
 
 #slider {
-  position: absolute;
-  transition: 0.3s;
-  opacity: 0;
-  left: 9rem;
-  appearance: none;
+	position: absolute;
+	transition: 0.3s;
+	opacity: 0;
+	left: 9rem;
+	appearance: none;
 }
 
 #mp_color_selector {
-  appearance: none;
-  -moz-appearance: none;
-  -webkit-appearance: none;
-  position: relative;
-  opacity: 0;
-  top: 0;
-  left: 0;
-  width: inherit;
-  height: inherit;
+	appearance: none;
+	-moz-appearance: none;
+	-webkit-appearance: none;
+	position: relative;
+	opacity: 0;
+	top: 0;
+	left: 0;
+	width: inherit;
+	height: inherit;
 }
 
 #slider.active {
-  opacity: 1;
-  z-index: 5;
+	opacity: 1;
+	z-index: 5;
 }
 
 .button_tool {
-  background-size: 32px;
-  background-position: center;
-  border-radius: 20%;
-  opacity: 0.7;
+	background-size: 32px;
+	background-position: center;
+	border-radius: 20%;
+	opacity: 0.7;
 }
 
 .button_tool:hover {
-  background-color: #fff;
-  opacity: 1;
+	background-color: #fff;
+	opacity: 1;
 }
 
 .button_tool_selected {
-  background-color: #fff;
-  border: 1px solid #888;
-  opacity: 1;
+	background-color: #fff;
+	border: 1px solid #888;
+	opacity: 1;
 }
 
 #button_zoom_1_1 {
-  background-image: url("../img/one_to_one.png");
+	background-image: url("../img/one_to_one.png");
 }
 
 #button_tool_brush {
-  background-image: url("../img/icon_brush.png");
+	background-image: url("../img/icon_brush.png");
 }
 
 #button_tool_floodfill {
-  background-image: url("../img/icon_floodfill.png");
+	background-image: url("../img/icon_floodfill.png");
 }
 
 #button_undo {
-  background-image: url("../img/icon_undo.png");
-}
-
-/* MultiPixel Color manager (MPC) - Palette and selector */
-
-#mpc_color_palette {
-  clear: left;
-  float: left;
-  margin-top: 2px;
-  margin-left: 2px;
-}
-
-.mpc_row {
-  display: flex;
-}
-
-.mpc_cell,
-.mpc_control {
-  width: 24px;
-  height: 16px;
-  border-radius: 4px;
-  float: left;
-  user-select: none;
-  outline: 1px solid rgba(0, 0, 0, 0.3);
-  outline-offset: -1px;
-}
-
-.mpc_inline {
-  float: right;
-}
-
-.mpc_clear {
-  clear: left;
-}
-
-.mpc_control {
-  width: 16px;
-  height: 20px;
-  background-color: rgb(220, 220, 220);
-  color: #333;
-  margin-left: 2px;
-  margin-top: 2px;
-  padding-left: 2px;
-  cursor: pointer;
-}
-
-.mpc_cell_selected {
-  border-bottom: 4px solid black;
-  outline: 2px solid white;
-  height: 12px;
-  outline-offset: -2px;
-}
-
-.mpc_cell_small {
-  width: 12px;
+	background-image: url("../img/icon_undo.png");
 }

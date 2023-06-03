@@ -2,9 +2,8 @@ import React, { useEffect, useState } from "react";
 import { Multipixel } from "./multipixel";
 import { AppBar, Button, Divider, Grid, IconButton, List, ListItemButton, ListItemIcon, Toolbar, Tooltip, TooltipProps, Typography } from "@mui/material";
 import { styled } from '@mui/material/styles';
-
+import { ToolType, Toolbox } from "./toolbox"
 import style_room from "./room_screen.scss"
-
 import MoneyIcon from '@mui/icons-material/Money';
 import UndoIcon from '@mui/icons-material/Undo';
 import FormatColorFillIcon from '@mui/icons-material/FormatColorFill';
@@ -14,9 +13,6 @@ import PersonIcon from '@mui/icons-material/Person';
 
 export class RoomRefs {
   canvas_render!: HTMLElement;
-  mp_slider_brush_size!: HTMLElement;
-  mp_slider_brush_smoothing!: HTMLElement;
-  mpc_color_palette!: HTMLElement;
 };
 
 export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipixel, refs_callback: (refs: RoomRefs) => void }) {
@@ -28,7 +24,11 @@ export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipix
 
   const [player_list, setPlayerList] = useState<JSX.Element>();
 
-  const [selected_tool_index, setSelectedToolIndex] = useState(0);
+  const [tool_type, setToolType] = useState<ToolType>(multipixel.toolbox_globals.tool_type);
+
+  useEffect(() => {
+    multipixel.toolbox_globals.setToolType(tool_type);
+  }, [tool_type]);
 
   multipixel.callback_player_update = () => {
     let list = multipixel.getPlayerList();
@@ -66,15 +66,12 @@ export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipix
 
   useEffect(() => {
     refs_callback({
-      canvas_render: canvas_render.current!,
-      mp_slider_brush_size: mp_slider_brush_size.current!,
-      mp_slider_brush_smoothing: mp_slider_brush_smoothing.current!,
-      mpc_color_palette: mpc_color_palette.current!
+      canvas_render: canvas_render.current!
     })
   }, []);
 
-  const getStyleSel = (index: number) => {
-    if (index == selected_tool_index) {
+  const getStyleSel = (type: ToolType) => {
+    if (type == tool_type) {
       return {
         backgroundColor: "rgba(255, 255, 255, 0.3)"
       }
@@ -107,17 +104,17 @@ export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipix
           </Tooltip>
           <Divider orientation="vertical" />
           <Tooltip title="Brush">
-            <IconButton style={getStyleSel(0)} onClick={() => {
+            <IconButton style={getStyleSel(ToolType.brush)} onClick={() => {
               multipixel.handleButtonToolBrush();
-              setSelectedToolIndex(0);
+              setToolType(ToolType.brush);
             }}>
               <BrushIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="Floodfill">
-            <IconButton style={getStyleSel(1)} onClick={() => {
+            <IconButton style={getStyleSel(ToolType.floodfill)} onClick={() => {
               multipixel.handleButtonToolFloodfill();
-              setSelectedToolIndex(1);
+              setToolType(ToolType.floodfill);
             }}>
               <FormatColorFillIcon />
             </IconButton>
@@ -126,41 +123,6 @@ export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipix
         {player_list}
       </Grid>
     </div>
-    <div id="mp_top_panel">
-      <div id="mpc_color_palette" ref={mpc_color_palette}></div>
-      <div className="mpc_inline">
-        <div className="mpc_control" id="mpc_resize_col_add">+</div>
-        <br />
-        <div className="mpc_control" id="mpc_resize_col_sub">-</div>
-      </div>
-      <div className="mpc_clear">
-        <div className="mpc_control" id="mpc_resize_row_add">+</div>
-        <div className="mpc_control" id="mpc_resize_row_sub">-</div>
-      </div>
-      <div className="mp_slider_container">
-        <input
-          type="range"
-          min="1"
-          max="8"
-          value="1"
-          className="mp_slider"
-          id="mp_slider_brush_size"
-          ref={mp_slider_brush_size}
-        />
-        <span className="mp_slider_title"> Size </span>
-      </div>
-      <div className="mp_slider_container">
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value="10"
-          className="mp_slider"
-          id="mp_slider_brush_smoothing"
-          ref={mp_slider_brush_smoothing}
-        />
-        <span className="mp_slider_title"> Smoothing </span>
-      </div>
-    </div>
+    <Toolbox toolbox_globals={multipixel.toolbox_globals} />
   </div>
 }

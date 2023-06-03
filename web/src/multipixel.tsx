@@ -3,11 +3,11 @@ import { Client, User } from "./client";
 import { Chat } from "./chat";
 import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
-import { ColorPalette } from "./color";
 import { Preview, PreviewLayer, PreviewSystem } from "./preview_system";
 import { globals } from ".";
 import { RoomRefs, RoomScreen } from "./room_screen"
 import React from "react";
+import { ToolboxGlobals } from "./toolbox";
 
 function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
@@ -55,10 +55,10 @@ export class Multipixel {
 	renderer!: RenderEngine;
 	cursor!: Cursor;
 	timestep!: Timestep;
-	palette!: ColorPalette;
 	events_enabled: boolean = true;
 	needs_boundaries_update: boolean = true;
 	room_refs: RoomRefs | null = null;
+	toolbox_globals!: ToolboxGlobals;
 
 	callback_player_update: (() => void) | null = null;
 
@@ -69,6 +69,7 @@ export class Multipixel {
 		connection_callback: (error_str?: string) => void;
 	}) {
 		document.title = "#" + params.room_name + " - MultiPixel";
+		this.toolbox_globals = new ToolboxGlobals(this);
 		this.client = new Client({
 			multipixel: this,
 			address: params.host,
@@ -147,24 +148,11 @@ export class Multipixel {
 	}
 
 	initGUI(refs: RoomRefs) {
-		let slider = refs.mp_slider_brush_size as HTMLInputElement;
-		slider.value = "1";
-		slider.addEventListener("change", () => {
-			let size = slider.value;
-			let num_size = Number.parseFloat(size);
-			this.getCursor().brush_size = num_size;
-			this.client.socketSendBrushSize(num_size);
-		});
-
-		(refs.mp_slider_brush_smoothing as HTMLInputElement).value = "0.0";
-
 		document.addEventListener('keydown', (event) => {
 			if (event.ctrlKey && event.key === 'z') {
 				this.client.socketSendUndo();
 			}
 		});
-
-		this.palette = new ColorPalette(this, refs.mpc_color_palette);
 	}
 
 	setEventsEnabled(enabled: boolean) {
@@ -200,10 +188,10 @@ export class Multipixel {
 			let smooth_val = 1.0;
 
 			if (this.cursor.down_left && this.cursor.tool_id == ToolID.Brush) {
-				let value = parseInt((refs.mp_slider_brush_smoothing as HTMLInputElement).value);
-				if (value > 0) {
+				//Check brush smoothing
+				if (this.toolbox_globals.brush_smoothing) {
 					smooth = true;
-					smooth_val = 1.0 - value / 101.0;
+					smooth_val = 1.0 - this.toolbox_globals.brush_smoothing / 1.01;
 				}
 			}
 
@@ -396,7 +384,10 @@ export class Multipixel {
 		let cursor = this.getCursor();
 		let rgb = this.map.getPixel(cursor.canvas_x, cursor.canvas_y);
 		if (rgb) {
-			this.palette.setColor({ r: rgb[0], g: rgb[1], b: rgb[2] });
+			let cp = this.toolbox_globals.color_palette;
+			if (cp) {
+				cp.setColor({ r: rgb[0], g: rgb[1], b: rgb[2] });
+			}
 		}
 	}
 
