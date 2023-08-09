@@ -14,7 +14,6 @@ export class Chat {
 
 		this.chat_history = (document.getElementById("mp_chat_history") as HTMLInputElement);
 
-
 		this.chat_input.addEventListener("keypress", (e) => {
 			if (e.key == "Enter") {
 				if (this.chat_input.value.length > 0) {

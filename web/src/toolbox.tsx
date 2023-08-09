@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { BoxDown } from "./gui_custom";
 import style_toolbox from "./toolbox.scss"
 import { Multipixel, rgb2hex } from "./multipixel"
 import { lerp } from "./timestep";
 import Picker from "vanilla-picker";
-
 
 export enum ToolType {
   none,
@@ -89,6 +88,7 @@ export class ColorPaletteGlobals {
 
 export class ToolboxGlobals {
   multipixel!: Multipixel;
+  picker?: Picker;
 
   tool_type: ToolType = ToolType.none;
   setToolType: any;
@@ -142,7 +142,6 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 
   let rows = new Array<JSX.Element>();
 
-
   for (let row of cp.rows) {
     let gradient_count = cp.column_count - 2;
     let gradient_begin = 1;
@@ -177,12 +176,19 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
         click_callback = () => {
           if (cp.selected_column == i && cp.selected_row == row.row_index) {
             //Run color selector
-            let parent = document.getElementById("mp_top_panel") as HTMLElement;
-            let picker = new Picker({ parent: parent });
-            picker.setColor(rgb2hex(mod.r, mod.g, mod.b), true);
-            picker.setOptions({ alpha: false, popup: "bottom", editor: true });
+            if (!toolbox_globals.picker)
+              toolbox_globals.picker = new Picker({
+                parent: document.getElementById("root")!,
+                popup: "bottom",
+                alpha: false,
+                editor: true
+              });
 
-            cp.multipixel.setEventsEnabled(false);
+            let picker = toolbox_globals.picker;
+
+            picker.movePopup({ parent: document.getElementById("root")! }, true);
+
+            picker.setColor(rgb2hex(mod.r, mod.g, mod.b), true);
 
             picker.onChange = (color) => {
               mod.r = color.rgba[0];
@@ -193,8 +199,9 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
             };
 
             picker.onClose = () => {
-              picker.destroy()
-              cp.multipixel.setEventsEnabled(true);
+              picker.destroy();
+              delete toolbox_globals.picker;
+              toolbox_globals.picker = undefined;
             }
           }
           else {
@@ -226,8 +233,8 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
     </div>);
   }
 
-  return <>
-    <div className={style_toolbox.color_palette}>
+  return <div>
+    <div className={style_toolbox.color_palette} >
       {rows}
     </div>
     <div className={style_toolbox.inline}>
@@ -246,7 +253,7 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
       <div className={style_toolbox.control} onClick={() => {
         cp.setRowCount(cp.row_count - 1);
       }}>-</div>
-    </div></>;
+    </div></div>;
 }
 
 export function Toolbox({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) {
