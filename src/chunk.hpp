@@ -35,6 +35,8 @@ private:
 	SharedVector<u8> image;
 	SharedVector<u8> compressed_image;
 
+	bool send_chunk_data_instead_of_pixels = false;
+
 	std::atomic<bool> linked_sessions_empty = true;
 	std::vector<Session *> linked_sessions;
 
@@ -63,6 +65,8 @@ public:
 
 	// Set pixel and send it later (delayed send)
 	void setPixelQueued(ChunkPixel *pixel);
+	void setPixelsQueued_nolock(ChunkPixel *pixels, u32 count);
+	void setPixelQueued_nolock(ChunkPixel *pixel);
 
 	void flushQueuedPixels();
 	void flushSendDelay_nolock();

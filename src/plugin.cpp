@@ -51,15 +51,8 @@ void PluginManager::P::init() {
 bool PluginManager::P::loadPlugins() {
 	room->log(LOG_PMAN, "Loading plugins");
 
-	bool ok = false;
-
 	for(auto &plugin_name : room->settings.plugin_list) {
 		loadPlugin(plugin_name.c_str());
-	}
-
-	if(!ok) {
-		room->log(LOG_PMAN, "Cannot load plugin list or invalid format (Array of JSON strings expected)");
-		return false;
 	}
 
 	room->log(LOG_PMAN, "Plugins loaded");
@@ -135,9 +128,9 @@ void PluginManager::passTick() {
 	p->dispatcher_tick.triggerAll();
 }
 
-//##############################################################
-//##############################################################
-//##############################################################
+// ##############################################################
+// ##############################################################
+// ##############################################################
 
 struct Plugin::P {
 	PluginManager *plugman;

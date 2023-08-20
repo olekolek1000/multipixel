@@ -112,82 +112,108 @@ bool Session::runner_tick() {
 			}
 		}
 
-		if(tool.type == ToolType::floodfill && cursor_down && !floodfill.stack.empty()) {
-			u8 r, g, b;
-
-			auto checkColor = [&](s32 x, s32 y) {
-				if(!getPixelGlobal_nolock({x, y}, &r, &g, &b)) {
-					return false;
-				}
-
-				if(r == tool.r &&
-					 g == tool.g &&
-					 b == tool.b) {
-					return false;
-				}
-
-				if(r != floodfill.to_replace_r ||
-					 g != floodfill.to_replace_g ||
-					 b != floodfill.to_replace_b) {
-					return false;
-				}
-
-				return true;
-			};
-
-			for(u32 i = 0; i < 20000;) {
-				LockGuard lock(mtx_access); // Required by getPixelGlobal_nolock
-
-				if(floodfill.stack.empty()) break;
-				auto cell = floodfill.stack.top();
-				floodfill.stack.pop();
-
-				if(abs(floodfill.start_x - cell.x) + abs(floodfill.start_y - cell.y) > 600) {
-					continue;
-				}
-
-				setPixelQueued_nolock({cell.x, cell.y}, tool.r, tool.g, tool.b);
-
-				bool added = false;
-
-				if(checkColor(cell.x, cell.y - 1)) {
-					auto &top = floodfill.stack.emplace();
-					top.x = cell.x;
-					top.y = cell.y - 1;
-					added = true;
-				}
-
-				if(checkColor(cell.x - 1, cell.y)) {
-					auto &left = floodfill.stack.emplace();
-					left.x = cell.x - 1;
-					left.y = cell.y;
-					added = true;
-				}
-
-				if(checkColor(cell.x, cell.y + 1)) {
-					auto &bottom = floodfill.stack.emplace();
-					bottom.x = cell.x;
-					bottom.y = cell.y + 1;
-					added = true;
-				}
-
-				if(checkColor(cell.x + 1, cell.y)) {
-					auto &right = floodfill.stack.emplace();
-					right.x = cell.x + 1;
-					right.y = cell.y;
-					added = true;
-				}
-
-				if(added) {
-					i++;
-				}
-			}
-		}
+		tick_tool_floodfill();
 
 		runner_performBoundaryTest();
 		return true;
 	}
 	return false;
+}
+
+void Session::tick_tool_floodfill() {
+	if(!floodfill.processing)
+		return;
+
+	u8 r, g, b;
+
+	auto checkColor = [&](s32 x, s32 y) {
+		if(!getPixelGlobal_nolock({x, y}, &r, &g, &b)) {
+			return false;
+		}
+
+		if(r == tool.r &&
+			 g == tool.g &&
+			 b == tool.b) {
+			return false;
+		}
+
+		if(r != floodfill.to_replace_r ||
+			 g != floodfill.to_replace_g ||
+			 b != floodfill.to_replace_b) {
+			return false;
+		}
+
+		return true;
+	};
+
+	LockGuard lock(mtx_access); // Required by getPixelGlobal_nolock
+
+	auto time_start = getMillis();
+	u32 count = 0;
+	while(true) {
+		count++;
+
+		if(floodfill.stack.empty()) break;
+		auto cell = floodfill.stack.top();
+		floodfill.stack.pop();
+
+		const u32 max_distance = 300;
+		if(abs(floodfill.start_x - cell.x) > max_distance || abs(floodfill.start_y - cell.y) > max_distance) {
+			continue;
+		}
+
+		setPixelQueued_nolock({cell.x, cell.y}, tool.r, tool.g, tool.b);
+
+		if(checkColor(cell.x - 1, cell.y)) {
+			auto &left = floodfill.stack.emplace();
+			left.x = cell.x - 1;
+			left.y = cell.y;
+		}
+
+		if(checkColor(cell.x + 1, cell.y)) {
+			auto &right = floodfill.stack.emplace();
+			right.x = cell.x + 1;
+			right.y = cell.y;
+		}
+
+		if(checkColor(cell.x, cell.y - 1)) {
+			auto &top = floodfill.stack.emplace();
+			top.x = cell.x;
+			top.y = cell.y - 1;
+		}
+
+		if(checkColor(cell.x, cell.y + 1)) {
+			auto &bottom = floodfill.stack.emplace();
+			bottom.x = cell.x;
+			bottom.y = cell.y + 1;
+		}
+
+		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos({cell.x, cell.y});
+		floodfill.affected_chunks.emplace(chunk_pos);
+
+		if(count % 500 == 0) {
+			auto time = getMillis();
+			if(time_start + 50 < time) {
+				// Block thread for 50ms max
+				break;
+			}
+		}
+	}
+
+	if(floodfill.stack.empty()) {
+		floodfill.processing = false;
+
+		// Trigger chunk "send" update for all attached sessions to display floodfill result instantly
+		for(auto &chunk_pos : floodfill.affected_chunks) {
+			auto *chunk = getChunkCached_nolock(chunk_pos);
+			if(!chunk)
+				return;
+
+			chunk->flushQueuedPixels();
+		}
+
+		floodfill.affected_chunks = {};
+	}
 }
 
 bool Session::runner_processMessageQueue() {
@@ -498,7 +524,6 @@ void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
 	chunk->lock();
 	chunk->allocateImage_nolock();
 	chunk->getPixel_nolock(local_pos, &global_pixel.r, &global_pixel.g, &global_pixel.b);
-	chunk->unlock();
 	if(global_pixel.r != r || global_pixel.g != g || global_pixel.b != b)
 		historyAddPixel(&global_pixel);
 
@@ -507,7 +532,8 @@ void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
 	pixel.r = r;
 	pixel.g = g;
 	pixel.b = b;
-	chunk->setPixelQueued(&pixel);
+	chunk->setPixelQueued_nolock(&pixel);
+	chunk->unlock();
 }
 
 void Session::kick(const char *reason) {
@@ -808,27 +834,30 @@ void Session::updateCursor() {
 			break;
 		}
 		case ToolType::floodfill: {
-			if(cursor_just_clicked) {
-				auto cursor_pos = this->cursor_pos.load();
+			// Allow single click only, prevent running if already running floodfill
+			if(floodfill.processing || !cursor_just_clicked)
+				break;
 
-				floodfill.stack = {};
-				u8 r, g, b;
-				if(!isChunkLinked(ChunkSystem::globalPixelPosToChunkPos(cursor_pos)))
-					break;
+			auto cursor_pos = this->cursor_pos.load();
 
-				if(!getPixelGlobal_nolock(cursor_pos, &r, &g, &b))
-					break;
+			floodfill.processing = true;
+			floodfill.stack = {};
+			u8 r, g, b;
+			if(!isChunkLinked(ChunkSystem::globalPixelPosToChunkPos(cursor_pos)))
+				break;
 
-				if(!(tool.r == r && tool.g == g && tool.b == b)) {
-					floodfill.to_replace_r = r;
-					floodfill.to_replace_g = g;
-					floodfill.to_replace_b = b;
-					floodfill.start_x = cursor_pos.x;
-					floodfill.start_y = cursor_pos.y;
-					auto &cell = floodfill.stack.emplace();
-					cell.x = cursor_pos.x;
-					cell.y = cursor_pos.y;
-				}
+			if(!getPixelGlobal_nolock(cursor_pos, &r, &g, &b))
+				break;
+
+			if(!(tool.r == r && tool.g == g && tool.b == b)) {
+				floodfill.to_replace_r = r;
+				floodfill.to_replace_g = g;
+				floodfill.to_replace_b = b;
+				floodfill.start_x = cursor_pos.x;
+				floodfill.start_y = cursor_pos.y;
+				auto &cell = floodfill.stack.emplace();
+				cell.x = cursor_pos.x;
+				cell.y = cursor_pos.y;
 			}
 			break;
 		}
@@ -886,7 +915,6 @@ void Session::parseCommandCursorDown(const std::string_view data) {
 
 void Session::parseCommandCursorUp(const std::string_view data) {
 	cursor_down = false;
-	floodfill.stack = {};
 	updateCursor();
 }
 

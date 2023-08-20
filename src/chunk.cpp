@@ -178,18 +178,39 @@ void Chunk::unlock() {
 	mtx_access.unlock();
 }
 
+void Chunk::setPixelsQueued_nolock(ChunkPixel *pixels, u32 count) {
+	allocateImage_nolock();
+	auto *rgb = image->data();
+
+	if(!send_chunk_data_instead_of_pixels) {
+		queued_pixels_to_send.reserve(queued_pixels_to_send.size() + count);
+	}
+
+	for(u32 i = 0; i < count; i++) {
+		auto &pixel = pixels[i];
+		size_t offset = pixel.pos.y * ChunkSystem::getChunkSize() * 3 + pixel.pos.x * 3;
+		rgb[offset + 0] = pixel.r;
+		rgb[offset + 1] = pixel.g;
+		rgb[offset + 2] = pixel.b;
+
+		if(!send_chunk_data_instead_of_pixels) {
+			queued_pixels_to_send.push_back(pixel);
+			if(queued_pixels_to_send.size() > 5000) {
+				queued_pixels_to_send = {};
+				send_chunk_data_instead_of_pixels = true;
+			}
+		}
+	}
+	setModified_nolock(true);
+}
+
+void Chunk::setPixelQueued_nolock(ChunkPixel *pixel) {
+	setPixelsQueued_nolock(pixel, 1);
+}
+
 void Chunk::setPixelQueued(ChunkPixel *pixel) {
 	LockGuard lock(mtx_access);
-	allocateImage_nolock();
-
-	auto *rgb = image->data();
-	size_t offset = pixel->pos.y * ChunkSystem::getChunkSize() * 3 + pixel->pos.x * 3;
-	rgb[offset + 0] = pixel->r;
-	rgb[offset + 1] = pixel->g;
-	rgb[offset + 2] = pixel->b;
-
-	queued_pixels_to_send.push_back(*pixel);
-	setModified_nolock(true);
+	setPixelQueued_nolock(pixel);
 }
 
 void Chunk::flushQueuedPixels() {
@@ -198,9 +219,16 @@ void Chunk::flushQueuedPixels() {
 }
 
 void Chunk::flushSendDelay_nolock() {
-	if(queued_pixels_to_send.empty()) return;
-	setPixels_nolock(queued_pixels_to_send.data(), queued_pixels_to_send.size(), true);
-	queued_pixels_to_send.clear();
+	if(send_chunk_data_instead_of_pixels) {
+		for(auto &session : linked_sessions) {
+			sendChunkDataToSession_nolock(session);
+		}
+		send_chunk_data_instead_of_pixels = false;
+	} else {
+		if(queued_pixels_to_send.empty()) return;
+		setPixels_nolock(queued_pixels_to_send.data(), queued_pixels_to_send.size(), true);
+		queued_pixels_to_send.clear();
+	}
 }
 
 void Chunk::setPixels(ChunkPixel *pixels, size_t count) {

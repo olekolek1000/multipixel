@@ -115,6 +115,10 @@ struct Int2 {
 	bool operator==(Int2 n) {
 		return n.x == this->x && n.y == this->y;
 	}
+
+	bool operator<(const Int2 &n) const {
+		return x < n.x || y < n.y;
+	}
 };
 
 struct UInt2 {

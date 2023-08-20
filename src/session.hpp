@@ -13,10 +13,12 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <set>
 #include <stack>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_set>
 
 struct Server;
 struct Chunk;
@@ -94,6 +96,8 @@ private:
 	struct {
 		u8 to_replace_r, to_replace_g, to_replace_b;
 		std::stack<FloodfillCell> stack;
+		std::set<Int2> affected_chunks;
+		bool processing = false;
 		s32 start_x;
 		s32 start_y;
 	} floodfill;
@@ -155,6 +159,9 @@ private:
 
 	void runner();
 	bool runner_tick();
+
+	void tick_tool_floodfill();
+
 	bool runner_processMessageQueue();
 	bool runner_processPacketQueue();
 	void runner_performBoundaryTest();
