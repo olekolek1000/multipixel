@@ -166,22 +166,29 @@ PreviewSystem::PreviewSystem(Room *room)
 	}
 }
 
-void PreviewSystem::tick() {
-	{
-		LockGuard lock(mtx_access);
-		for(auto &pos : update_queue_cache) {
-			layers[0].addToQueue(pos);
-		}
-		update_queue_cache.clear();
+void PreviewSystem::processUpdateQueueCache() {
+	LockGuard lock(mtx_access);
+	for(auto &pos : update_queue_cache) {
+		layers[0].addToQueue(pos);
 	}
+	update_queue_cache.clear();
+}
 
+void PreviewSystem::tick() {
+	processUpdateQueueCache();
 	for(auto &layer : layers) {
 		if(!layer.processOneBlock())
 			continue;
 		break;
 	}
+}
 
-	queue.process();
+void PreviewSystem::processEverything() {
+	processUpdateQueueCache();
+	for(auto &layer : layers) {
+		while(layer.processOneBlock())
+			;
+	}
 }
 
 void PreviewSystem::addToQueueFront(Int2 coords) {
@@ -190,6 +197,7 @@ void PreviewSystem::addToQueueFront(Int2 coords) {
 }
 
 PreviewSystem::~PreviewSystem() {
+	processEverything();
 }
 
 u32 PreviewSystem::getLayerCount() const {

@@ -47,6 +47,7 @@ struct PreviewSystem {
 	SharedVector<u8> requestData(s32 preview_x, s32 preview_y, u8 zoom);
 
 private:
-	EventQueue queue;
+	void processUpdateQueueCache();
+	void processEverything();
 	std::vector<PreviewSystemLayer> layers;
 };

@@ -5,7 +5,7 @@ import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
 import { Preview, PreviewLayer, PreviewSystem } from "./preview_system";
 import { globals } from ".";
-import { RoomRefs, RoomScreen } from "./room_screen"
+import { RoomRefs, RoomScreen, RoomScreenGlobals } from "./room_screen"
 import React from "react";
 import { ToolboxGlobals } from "./toolbox";
 
@@ -59,6 +59,7 @@ export class Multipixel {
 	needs_boundaries_update: boolean = true;
 	room_refs: RoomRefs | null = null;
 	toolbox_globals!: ToolboxGlobals;
+	room_screen_globals!: RoomScreenGlobals;
 
 	callback_player_update: (() => void) | null = null;
 
@@ -70,6 +71,7 @@ export class Multipixel {
 	}) {
 		document.title = "#" + params.room_name + " - MultiPixel";
 		this.toolbox_globals = new ToolboxGlobals(this);
+		this.room_screen_globals = new RoomScreenGlobals();
 		this.client = new Client({
 			multipixel: this,
 			address: params.host,
@@ -88,7 +90,7 @@ export class Multipixel {
 	}
 
 	initialize() {
-		globals.setState(<RoomScreen multipixel={this} refs_callback={(refs) => {
+		globals.setState(<RoomScreen globals={this.room_screen_globals} multipixel={this} refs_callback={(refs) => {
 			this.room_refs = refs;
 
 			//Init renderer
@@ -393,5 +395,9 @@ export class Multipixel {
 
 	tick() {
 		this.map.tick();
+	}
+
+	setProcessingStatusText(text: string) {
+		this.room_screen_globals.setProcessingStatusText(text);
 	}
 }

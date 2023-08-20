@@ -42,14 +42,14 @@ void Chunk::allocateImage_nolock() {
 	}
 }
 
-void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b) {
+void Chunk::getPixel_nolock(UInt2 chunk_pixel_pos, Color *color) {
 	assert(chunk_pixel_pos.x < ChunkSystem::getChunkSize());
 	assert(chunk_pixel_pos.y < ChunkSystem::getChunkSize());
 	auto *rgb = image->data();
 	size_t offset = chunk_pixel_pos.y * ChunkSystem::getChunkSize() * 3 + chunk_pixel_pos.x * 3;
-	*r = rgb[offset + 0];
-	*g = rgb[offset + 1];
-	*b = rgb[offset + 2];
+	color->r = rgb[offset + 0];
+	color->g = rgb[offset + 1];
+	color->b = rgb[offset + 2];
 }
 
 static SharedVector<u8> compressed_empty_chunk;
@@ -189,9 +189,9 @@ void Chunk::setPixelsQueued_nolock(ChunkPixel *pixels, u32 count) {
 	for(u32 i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 		size_t offset = pixel.pos.y * ChunkSystem::getChunkSize() * 3 + pixel.pos.x * 3;
-		rgb[offset + 0] = pixel.r;
-		rgb[offset + 1] = pixel.g;
-		rgb[offset + 2] = pixel.b;
+		rgb[offset + 0] = pixel.color.r;
+		rgb[offset + 1] = pixel.color.g;
+		rgb[offset + 2] = pixel.color.b;
 
 		if(!send_chunk_data_instead_of_pixels) {
 			queued_pixels_to_send.push_back(pixel);
@@ -215,10 +215,10 @@ void Chunk::setPixelQueued(ChunkPixel *pixel) {
 
 void Chunk::flushQueuedPixels() {
 	LockGuard lock(mtx_access);
-	flushSendDelay_nolock();
+	flushQueuedPixels_nolock();
 }
 
-void Chunk::flushSendDelay_nolock() {
+void Chunk::flushQueuedPixels_nolock() {
 	if(send_chunk_data_instead_of_pixels) {
 		for(auto &session : linked_sessions) {
 			sendChunkDataToSession_nolock(session);
@@ -233,7 +233,7 @@ void Chunk::flushSendDelay_nolock() {
 
 void Chunk::setPixels(ChunkPixel *pixels, size_t count) {
 	LockGuard lock(mtx_access);
-	flushSendDelay_nolock();
+	flushQueuedPixels_nolock();
 	setPixels_nolock(pixels, count);
 }
 
@@ -244,13 +244,13 @@ void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 	Buffer buf_pixels;
 	u32 pixel_count = 0;
 
-	u8 r, g, b;
+	Color color;
 	for(size_t i = 0; i < count; i++) {
 		auto &pixel = pixels[i];
 
 		if(!only_send) {
-			getPixel_nolock(pixel.pos, &r, &g, &b);
-			if(pixel.r == r && pixel.g == g && pixel.b == b) {
+			getPixel_nolock(pixel.pos, &color);
+			if(pixel.color == color) {
 				// Pixel not changed, skip
 				continue;
 			}
@@ -258,9 +258,9 @@ void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 			// Update pixel
 			auto *rgb = image->data();
 			size_t offset = pixel.pos.y * ChunkSystem::getChunkSize() * 3 + pixel.pos.x * 3;
-			rgb[offset + 0] = pixel.r;
-			rgb[offset + 1] = pixel.g;
-			rgb[offset + 2] = pixel.b;
+			rgb[offset + 0] = pixel.color.r;
+			rgb[offset + 1] = pixel.color.g;
+			rgb[offset + 2] = pixel.color.b;
 		}
 
 		// Prepare pixel data
@@ -269,9 +269,9 @@ void Chunk::setPixels_nolock(ChunkPixel *pixels, size_t count, bool only_send) {
 
 		buf_pixels.write(&x, sizeof(u8));
 		buf_pixels.write(&y, sizeof(u8));
-		buf_pixels.write(&pixel.r, sizeof(u8));
-		buf_pixels.write(&pixel.g, sizeof(u8));
-		buf_pixels.write(&pixel.b, sizeof(u8));
+		buf_pixels.write(&pixel.color.r, sizeof(u8));
+		buf_pixels.write(&pixel.color.g, sizeof(u8));
+		buf_pixels.write(&pixel.color.b, sizeof(u8));
 		pixel_count++;
 	}
 

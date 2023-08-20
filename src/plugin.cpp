@@ -304,9 +304,7 @@ void Plugin::P::populateAPI() {
 		if(!chunk) return;
 		ChunkPixel pixel;
 		pixel.pos = ChunkSystem::globalPixelPosToLocalPixelPos(global);
-		pixel.r = r;
-		pixel.g = g;
-		pixel.b = b;
+		pixel.color = Color(r, g, b);
 		chunk->setPixelQueued(&pixel);
 	});
 
@@ -326,7 +324,8 @@ void Plugin::P::populateAPI() {
 
 				auto &pixel = pixels[offset];
 				pixel.pos = global;
-				pixel.r = pixel.g = pixel.b = data[offset];
+				u8 gray = data[offset];
+				pixel.color = Color(gray, gray, gray);
 				offset++;
 			}
 		}
@@ -350,9 +349,9 @@ void Plugin::P::populateAPI() {
 
 				auto &pixel = pixels[offset];
 				pixel.pos = global;
-				pixel.r = data[offset * 3 + 0];
-				pixel.g = data[offset * 3 + 1];
-				pixel.b = data[offset * 3 + 2];
+				pixel.color.r = data[offset * 3 + 0];
+				pixel.color.g = data[offset * 3 + 1];
+				pixel.color.b = data[offset * 3 + 2];
 				offset++;
 			}
 		}

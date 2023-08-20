@@ -42,17 +42,18 @@ enum struct ClientCmd : u16 {
 };
 
 enum struct ServerCmd : u16 {
-	message = 1,						// u8 type, utf-8 text
-	your_id = 2,						// u16 id
-	kick = 3,								// utf-8 reason
-	chunk_image = 100,			// complex data
-	chunk_pixel_pack = 101, // complex data
-	chunk_create = 110,			// s32 chunkX, s32 chunkY
-	chunk_remove = 111,			// s32 chunkX, s32 chunkY
-	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, complex data
-	user_create = 1000,			// u16 id, utf-8 nickname
-	user_remove = 1001,			// u16 id
-	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
+	message = 1,									 // u8 type, utf-8 text
+	your_id = 2,									 // u16 id
+	kick = 3,											 // utf-8 reason
+	chunk_image = 100,						 // complex data
+	chunk_pixel_pack = 101,				 // complex data
+	chunk_create = 110,						 // s32 chunkX, s32 chunkY
+	chunk_remove = 111,						 // s32 chunkX, s32 chunkY
+	preview_image = 200,					 // s32 previewX, s32 previewY, u8 zoom, complex data
+	user_create = 1000,						 // u16 id, utf-8 nickname
+	user_remove = 1001,						 // u16 id
+	user_cursor_pos = 1002,				 // u16 id, s32 x, s32 y
+	processing_status_text = 1100, // utf-8 text
 };
 
 u16 frombig16(u16 in);
