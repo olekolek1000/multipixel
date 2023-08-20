@@ -281,7 +281,7 @@ bool ChunkSystem::runner_tick() {
 	while(step_ticks.onTick()) {
 		used = true;
 
-		if(ticks % 2 == 0) {
+		if(ticks % 20 == 0) {
 			LockGuard lock(mtx_access);
 			for(auto &i : chunks) {
 				for(auto &j : i.second) {

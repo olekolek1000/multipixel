@@ -84,6 +84,18 @@ void Server::run(u16 port) {
 			for(auto &room : rooms) {
 				room->tick();
 			}
+
+			// Check if rooms need to be removed
+			{
+				LockGuard lock(mtx_rooms_removal);
+				if(!rooms_to_remove.empty()) {
+					auto copy = std::move(rooms_to_remove);
+					lock.free();
+					for(auto &r : copy) {
+						removeRoom_nolock(r);
+					}
+				}
+			}
 		} else {
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
@@ -172,6 +184,11 @@ Room *Server::getOrCreateRoom(std::string_view room_name) {
 	// Iterate all rooms
 	for(auto &room : rooms) {
 		if(room->getName() == room_name) {
+			// Cancel room removal if set
+			auto it = rooms_to_remove.find(room.get());
+			if(it != rooms_to_remove.end())
+				rooms_to_remove.erase(it);
+
 			return room.get();
 		}
 	}
@@ -180,6 +197,22 @@ Room *Server::getOrCreateRoom(std::string_view room_name) {
 	auto &room = rooms.emplace_back();
 	room.create(this, room_name);
 	return room.get();
+}
+
+void Server::markRoomForRemoval(Room *room) {
+	LockGuard lock(mtx_rooms_removal);
+	rooms_to_remove.emplace(room);
+}
+
+void Server::removeRoom_nolock(Room *room) {
+	for(auto it = rooms.begin(); it != rooms.end();) {
+		if((*it).get() == room) {
+			it = rooms.erase(it);
+			return;
+		} else {
+			it++;
+		}
+	}
 }
 
 void Server::forEverySessionExcept(Session *except, std::function<void(Session *)> callback) {
@@ -242,6 +275,7 @@ void Server::closeCallback(SharedWsConnection &connection) {
 	}
 
 	session->stopRunner();
+	lock.free();
 }
 
 void Server::log(const char *name, const char *format, ...) {

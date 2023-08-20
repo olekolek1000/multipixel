@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 
 #define COLOR_RED			"\x1b[31m"
 #define COLOR_GREEN		"\x1b[32m"
@@ -33,11 +34,13 @@ private:
 	std::map<WsConnection *, Session *> session_map_conn; // For fast session lookup
 	std::vector<std::shared_ptr<Session>> sessions;
 	std::vector<uniqptr<Room>> rooms;
+	std::set<Room *> rooms_to_remove;
 
 public:
 	Mutex mtx_sessions;
 	Mutex mtx_log;
 	Mutex mtx_rooms;
+	Mutex mtx_rooms_removal;
 
 	Server();
 	~Server();
@@ -53,8 +56,11 @@ public:
 	void removeSession(WsConnection *connection);
 
 	Room *getOrCreateRoom(std::string_view room_name);
+	void markRoomForRemoval(Room *room);
 
 private:
+	void removeRoom_nolock(Room *room);
+
 	void closeCallback(SharedWsConnection &connection);
 	void messageCallback(std::shared_ptr<WsMessage> &ws_msg);
 

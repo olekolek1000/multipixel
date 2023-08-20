@@ -66,6 +66,7 @@ public:
 	bool addSession(const std::shared_ptr<Session> &session);
 	void removeSession_nolock(const std::shared_ptr<Session> &session);
 	void removeSession(const std::shared_ptr<Session> &session);
+	size_t getSessionCount();
 
 	void setPixels_nolock(GlobalPixel *pixels, u32 count);
 

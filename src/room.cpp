@@ -154,11 +154,22 @@ void Room::removeSession_nolock(const std::shared_ptr<Session> &to_remove) {
 			it++;
 		}
 	}
+
+	if(sessions.empty()) {
+		// Clean-up this room if no sessions are connected
+		server->markRoomForRemoval(this);
+		return;
+	}
 }
 
 void Room::removeSession(const std::shared_ptr<Session> &session) {
 	LockGuard lock(mtx_sessions);
 	removeSession_nolock(session);
+}
+
+size_t Room::getSessionCount() {
+	LockGuard lock(mtx_sessions);
+	return sessions.size();
 }
 
 Session *Room::getSession_nolock(SessionID session_id) {
