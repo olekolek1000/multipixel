@@ -76,6 +76,7 @@ bool Room::tick() {
 		queue.process();
 		return true;
 	}
+
 	return false;
 }
 
@@ -343,9 +344,7 @@ void Room::setPixels_nolock(GlobalPixel *pixels, u32 count) {
 
 		ChunkPixel chunk_pixel;
 		chunk_pixel.pos = ChunkSystem::globalPixelPosToLocalPixelPos(pixel.pos);
-		chunk_pixel.r = pixel.r;
-		chunk_pixel.g = pixel.g;
-		chunk_pixel.b = pixel.b;
+		chunk_pixel.color = pixel.color;
 		data->push_back(chunk_pixel);
 	}
 

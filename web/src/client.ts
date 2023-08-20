@@ -52,6 +52,7 @@ enum ServerCmd {
 	user_create = 1000,			// u16 id, utf-8 nickname
 	user_remove = 1001,			// u16 id
 	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
+	processing_status_text = 1100, // utf-8 text
 };
 
 function createMessage(command_id: number, command_size: number) {
@@ -410,6 +411,11 @@ export class Client {
 					user.cursor_y = y;
 					map.triggerRerender();
 				}
+				break;
+			}
+			case ServerCmd.processing_status_text: {
+				let status_text = new TextDecoder().decode(new DataView(e.data, header_offset));
+				this.multipixel.setProcessingStatusText(status_text);
 				break;
 			}
 			default: {

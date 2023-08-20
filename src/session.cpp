@@ -14,6 +14,8 @@
 #include "ws_server.hpp"
 #include <array>
 #include <condition_variable>
+#include <cstdio>
+#include <inttypes.h>
 #include <math.h>
 
 static const char *LOG_SESSION = "Session";
@@ -124,22 +126,22 @@ void Session::tick_tool_floodfill() {
 	if(!floodfill.processing)
 		return;
 
-	u8 r, g, b;
+	char buf[64];
+	snprintf(buf, sizeof(buf), "Floodfilling... %u pixels processed", floodfill.processed_count);
+	sendPacketProcessingStatusText(buf);
+
+	Color color;
 
 	auto checkColor = [&](s32 x, s32 y) {
-		if(!getPixelGlobal_nolock({x, y}, &r, &g, &b)) {
+		if(!getPixelGlobal_nolock({x, y}, &color)) {
 			return false;
 		}
 
-		if(r == tool.r &&
-			 g == tool.g &&
-			 b == tool.b) {
+		if(color == tool.color) {
 			return false;
 		}
 
-		if(r != floodfill.to_replace_r ||
-			 g != floodfill.to_replace_g ||
-			 b != floodfill.to_replace_b) {
+		if(floodfill.to_replace != color) {
 			return false;
 		}
 
@@ -162,7 +164,7 @@ void Session::tick_tool_floodfill() {
 			continue;
 		}
 
-		setPixelQueued_nolock({cell.x, cell.y}, tool.r, tool.g, tool.b);
+		setPixelQueued_nolock({cell.x, cell.y}, tool.color);
 
 		if(checkColor(cell.x - 1, cell.y)) {
 			auto &left = floodfill.stack.emplace();
@@ -191,18 +193,18 @@ void Session::tick_tool_floodfill() {
 		auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos({cell.x, cell.y});
 		floodfill.affected_chunks.emplace(chunk_pos);
 
-		if(count % 500 == 0) {
+		if(count % 5000 == 0) {
 			auto time = getMillis();
-			if(time_start + 50 < time) {
-				// Block thread for 50ms max
+			if(time_start + 100 < time || count > 100000) {
+				// Block thread for 100ms max
 				break;
 			}
 		}
 	}
 
-	if(floodfill.stack.empty()) {
-		floodfill.processing = false;
+	floodfill.processed_count += count;
 
+	if(floodfill.stack.empty()) {
 		// Trigger chunk "send" update for all attached sessions to display floodfill result instantly
 		for(auto &chunk_pos : floodfill.affected_chunks) {
 			auto *chunk = getChunkCached_nolock(chunk_pos);
@@ -212,7 +214,9 @@ void Session::tick_tool_floodfill() {
 			chunk->flushQueuedPixels();
 		}
 
-		floodfill.affected_chunks = {};
+		floodfill.reset();
+
+		sendPacketProcessingStatusText("");
 	}
 }
 
@@ -388,7 +392,7 @@ Chunk *Session::getChunkCached_nolock(Int2 chunk_pos) {
 	return nullptr;
 }
 
-bool Session::getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b) {
+bool Session::getPixelGlobal_nolock(Int2 global_pos, Color *color) {
 	auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(global_pos);
 	auto *chunk = getChunkCached_nolock(chunk_pos);
 	if(!chunk)
@@ -397,15 +401,15 @@ bool Session::getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b) {
 	auto local_pos = ChunkSystem::globalPixelPosToLocalPixelPos(global_pos);
 	chunk->lock();
 	chunk->allocateImage_nolock();
-	chunk->getPixel_nolock(local_pos, r, g, b);
+	chunk->getPixel_nolock(local_pos, color);
 	chunk->unlock();
 
 	return true;
 }
 
-void Session::setPixelsGlobal(GlobalPixel *pixels, size_t count) {
+void Session::setPixelsGlobal(GlobalPixel *pixels, size_t count, bool queued) {
 	LockGuard lock(mtx_access);
-	setPixelsGlobal_nolock(pixels, count);
+	setPixelsGlobal_nolock(pixels, count, queued);
 }
 
 void Session::historyCreateSnapshot() {
@@ -420,7 +424,12 @@ void Session::historyUndo_nolock() {
 		return; // Nothing to undo
 
 	auto &back = history_cells.back();
-	setPixelsGlobal_nolock(back.pixels.data(), back.pixels.size());
+
+	char buf[64];
+	snprintf(buf, sizeof(buf), "Undoing %u pixels...", (u32)back.pixels.size());
+	sendPacketProcessingStatusText(buf);
+	setPixelsGlobal_nolock(back.pixels.data(), back.pixels.size(), true);
+	sendPacketProcessingStatusText("");
 
 	history_cells.pop_back();
 }
@@ -433,7 +442,7 @@ void Session::historyAddPixel(GlobalPixel *pixel) {
 	back.pixels.push_back(*pixel);
 }
 
-void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
+void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count, bool queued) {
 	struct ChunkCacheCell {
 		Int2 chunk_pos;
 		Chunk *chunk;
@@ -482,9 +491,7 @@ void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
 		auto &queued_global_pos = cell->queued_global_positions.emplace_back();
 		queued_global_pos = pixel.pos;
 		queued_pixel.pos = ChunkSystem::globalPixelPosToLocalPixelPos(pixel.pos);
-		queued_pixel.r = pixel.r;
-		queued_pixel.g = pixel.g;
-		queued_pixel.b = pixel.b;
+		queued_pixel.color = pixel.color;
 	}
 
 	for(auto &cell : affected_chunks) {
@@ -500,18 +507,25 @@ void Session::setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count) {
 
 			GlobalPixel gpixel;
 			gpixel.pos = queued_global_pos;
-			cell.chunk->getPixel_nolock(queued_pixel.pos, &gpixel.r, &gpixel.g, &gpixel.b);
-			if(gpixel.r != queued_pixel.r || gpixel.g != queued_pixel.g || gpixel.b != queued_pixel.b)
+			cell.chunk->getPixel_nolock(queued_pixel.pos, &gpixel.color);
+
+			if(gpixel.color != queued_pixel.color) {
 				historyAddPixel(&gpixel);
+			}
 		}
 
-		cell.chunk->setPixels_nolock(cell.queued_pixels.data(), cell.queued_pixels.size());
+		if(queued) {
+			cell.chunk->setPixelsQueued_nolock(cell.queued_pixels.data(), cell.queued_pixels.size());
+			cell.chunk->flushQueuedPixels_nolock();
+		} else {
+			cell.chunk->setPixels_nolock(cell.queued_pixels.data(), cell.queued_pixels.size());
+		}
 
 		cell.chunk->unlock();
 	}
 }
 
-void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
+void Session::setPixelQueued_nolock(Int2 global_pos, Color color) {
 	auto chunk_pos = ChunkSystem::globalPixelPosToChunkPos(global_pos);
 	auto *chunk = getChunkCached_nolock(chunk_pos);
 	if(!chunk)
@@ -523,15 +537,14 @@ void Session::setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b) {
 	global_pixel.pos = global_pos;
 	chunk->lock();
 	chunk->allocateImage_nolock();
-	chunk->getPixel_nolock(local_pos, &global_pixel.r, &global_pixel.g, &global_pixel.b);
-	if(global_pixel.r != r || global_pixel.g != g || global_pixel.b != b)
+	chunk->getPixel_nolock(local_pos, &global_pixel.color);
+	if(global_pixel.color != color) {
 		historyAddPixel(&global_pixel);
+	}
 
 	ChunkPixel pixel;
 	pixel.pos = local_pos;
-	pixel.r = r;
-	pixel.g = g;
-	pixel.b = b;
+	pixel.color = color;
 	chunk->setPixelQueued_nolock(&pixel);
 	chunk->unlock();
 }
@@ -552,6 +565,14 @@ void Session::sendPacket(const Packet &packet) {
 		server->log(LOG_SESSION, "Session send() failure: %s", e.what());
 		stopRunner();
 	}
+}
+
+void Session::sendPacketProcessingStatusText(std::string_view text) {
+	Datasize data_text(text.data(), text.size());
+	Datasize *datasizes[] = {
+			&data_text,
+			nullptr};
+	sendPacket(preparePacket(ServerCmd::processing_status_text, datasizes));
 }
 
 void Session::close() {
@@ -729,9 +750,7 @@ void Session::parseCommandAnnounce(const std::string_view data) {
 	});
 
 	// Set default tool options
-	tool.r = 0;
-	tool.g = 0;
-	tool.b = 0;
+	tool.color = Color(0, 0, 0);
 	tool.size = 1;
 	tool.type = ToolType::brush;
 
@@ -785,13 +804,11 @@ void Session::updateCursor() {
 			std::vector<GlobalPixel> pixels;
 			pixels.reserve(256);
 
-			auto addPixel = [&](s32 x, s32 y, u8 r, u8 g, u8 b) {
+			auto addPixel = [&](s32 x, s32 y, Color color) {
 				auto &cell = pixels.emplace_back();
 				cell.pos.x = x;
 				cell.pos.y = y;
-				cell.r = r;
-				cell.g = g;
-				cell.b = b;
+				cell.color = color;
 			};
 
 			// Draw line
@@ -799,20 +816,20 @@ void Session::updateCursor() {
 				float alpha = i / float(iters);
 
 				// Lerp
-				s32 x = lerp(alpha, cursor_prev.x, cursor_pos.x);
-				s32 y = lerp(alpha, cursor_prev.y, cursor_pos.y);
+				s32 x = roundf(lerp(alpha, cursor_prev.x, cursor_pos.x));
+				s32 y = roundf(lerp(alpha, cursor_prev.y, cursor_pos.y));
 
 				switch(tool.size) {
 					case 1: {
-						addPixel(x, y, tool.r, tool.g, tool.b);
+						addPixel(x, y, tool.color);
 						break;
 					}
 					case 2: {
-						addPixel(x, y, tool.r, tool.g, tool.b);
-						addPixel(x - 1, y, tool.r, tool.g, tool.b);
-						addPixel(x + 1, y, tool.r, tool.g, tool.b);
-						addPixel(x, y - 1, tool.r, tool.g, tool.b);
-						addPixel(x, y + 1, tool.r, tool.g, tool.b);
+						addPixel(x, y, tool.color);
+						addPixel(x - 1, y, tool.color);
+						addPixel(x + 1, y, tool.color);
+						addPixel(x, y - 1, tool.color);
+						addPixel(x, y + 1, tool.color);
 						break;
 					}
 					default: {
@@ -821,7 +838,7 @@ void Session::updateCursor() {
 						for(int yy = 0; yy < shape->size; yy++) {
 							for(int xx = 0; xx < shape->size; xx++) {
 								if(data[yy * shape->size + xx]) {
-									addPixel(x + xx - tool.size / 2, y + yy - tool.size / 2, tool.r, tool.g, tool.b);
+									addPixel(x + xx - tool.size / 2, y + yy - tool.size / 2, tool.color);
 								}
 							}
 						}
@@ -830,7 +847,7 @@ void Session::updateCursor() {
 				}
 			}
 
-			setPixelsGlobal(pixels.data(), pixels.size());
+			setPixelsGlobal(pixels.data(), pixels.size(), false);
 			break;
 		}
 		case ToolType::floodfill: {
@@ -840,19 +857,17 @@ void Session::updateCursor() {
 
 			auto cursor_pos = this->cursor_pos.load();
 
+			floodfill.reset();
 			floodfill.processing = true;
-			floodfill.stack = {};
-			u8 r, g, b;
+			Color color;
 			if(!isChunkLinked(ChunkSystem::globalPixelPosToChunkPos(cursor_pos)))
 				break;
 
-			if(!getPixelGlobal_nolock(cursor_pos, &r, &g, &b))
+			if(!getPixelGlobal_nolock(cursor_pos, &color))
 				break;
 
-			if(!(tool.r == r && tool.g == g && tool.b == b)) {
-				floodfill.to_replace_r = r;
-				floodfill.to_replace_g = g;
-				floodfill.to_replace_b = b;
+			if(tool.color != color) {
+				floodfill.to_replace = color;
 				floodfill.start_x = cursor_pos.x;
 				floodfill.start_y = cursor_pos.y;
 				auto &cell = floodfill.stack.emplace();
@@ -950,9 +965,7 @@ void Session::parseCommandToolColor(const std::string_view data) {
 
 	memcpy(&rgb, data.data(), data.size());
 
-	tool.r = rgb.r;
-	tool.g = rgb.g;
-	tool.b = rgb.b;
+	tool.color = Color(rgb.r, rgb.g, rgb.b);
 }
 
 void Session::parseCommandToolType(const std::string_view data) {

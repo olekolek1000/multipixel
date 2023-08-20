@@ -1,5 +1,6 @@
 #pragma once
 
+#include "color.hpp"
 #include "database.hpp"
 #include "util/listener.hpp"
 #include "util/mutex.hpp"
@@ -45,7 +46,7 @@ public:
 		return 256;
 	}
 
-	bool getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b);
+	bool getPixel(Int2 global_pixel_pos, Color *color);
 
 	///@returns chunk coordinates from global pixel position
 	static Int2 globalPixelPosToChunkPos(Int2 global_pixel_pos);

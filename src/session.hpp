@@ -1,5 +1,6 @@
 #pragma once
 
+#include "color.hpp"
 #include "command.hpp"
 #include "src/waiter.hpp"
 #include "util/event_queue.hpp"
@@ -37,7 +38,7 @@ struct FloodfillCell {
 
 struct GlobalPixel {
 	Int2 pos;
-	u8 r, g, b;
+	Color color;
 };
 
 struct HistoryCell {
@@ -94,12 +95,19 @@ private:
 	std::vector<HistoryCell> history_cells;
 
 	struct {
-		u8 to_replace_r, to_replace_g, to_replace_b;
+		Color to_replace;
 		std::stack<FloodfillCell> stack;
 		std::set<Int2> affected_chunks;
 		bool processing = false;
 		s32 start_x;
 		s32 start_y;
+		u32 processed_count = 0;
+		void reset() {
+			processing = false;
+			affected_chunks = {};
+			stack = {};
+			processed_count = 0;
+		}
 	} floodfill;
 
 	bool needs_boundary_test;
@@ -109,7 +117,7 @@ private:
 	// Tool settings
 	struct {
 		u8 size;
-		u8 r, g, b;
+		Color color;
 		ToolType type;
 	} tool;
 
@@ -151,6 +159,8 @@ private:
 	bool isChunkLinked_nolock(Int2 chunk_pos);
 	void close();
 
+	void sendPacketProcessingStatusText(std::string_view text);
+
 	//--------------------------------------------
 	// All methods below are run in worker thread
 	//--------------------------------------------
@@ -186,11 +196,11 @@ private:
 	void updateCursor();
 
 	Chunk *getChunkCached_nolock(Int2 chunk_pos);
-	bool getPixelGlobal_nolock(Int2 global_pos, u8 *r, u8 *g, u8 *b);
-	void setPixelQueued_nolock(Int2 global_pos, u8 r, u8 g, u8 b);
+	bool getPixelGlobal_nolock(Int2 global_pos, Color *color);
+	void setPixelQueued_nolock(Int2 global_pos, Color color);
 
-	void setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count);
-	void setPixelsGlobal(GlobalPixel *pixels, size_t count);
+	void setPixelsGlobal_nolock(GlobalPixel *pixels, size_t count, bool queued);
+	void setPixelsGlobal(GlobalPixel *pixels, size_t count, bool queued);
 
 	void historyCreateSnapshot();
 	void historyUndo_nolock();

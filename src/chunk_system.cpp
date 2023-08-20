@@ -75,7 +75,7 @@ Chunk *ChunkSystem::getChunk_nolock(Int2 chunk_pos) {
 	}
 }
 
-bool ChunkSystem::getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b) {
+bool ChunkSystem::getPixel(Int2 global_pixel_pos, Color *color) {
 	LockGuard lock(mtx_access);
 
 	auto chunk_pos = globalPixelPosToChunkPos(global_pixel_pos);
@@ -85,7 +85,7 @@ bool ChunkSystem::getPixel(Int2 global_pixel_pos, u8 *r, u8 *g, u8 *b) {
 	auto *chunk = getChunk_nolock(chunk_pos);
 	chunk->lock();
 	chunk->allocateImage_nolock();
-	chunk->getPixel_nolock(local_pixel_pos, r, g, b);
+	chunk->getPixel_nolock(local_pixel_pos, color);
 	chunk->unlock();
 
 	return true;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "color.hpp"
 #include "server.hpp"
 #include "util/smartptr.hpp"
 #include "util/types.hpp"
@@ -14,7 +15,7 @@ struct Session;
 
 struct ChunkPixel {
 	UInt2 pos;
-	u8 r, g, b;
+	Color color;
 };
 
 struct Chunk {
@@ -69,11 +70,11 @@ public:
 	void setPixelQueued_nolock(ChunkPixel *pixel);
 
 	void flushQueuedPixels();
-	void flushSendDelay_nolock();
+	void flushQueuedPixels_nolock();
 
 	Int2 getPosition() const;
 
-	void getPixel_nolock(UInt2 chunk_pixel_pos, u8 *r, u8 *g, u8 *b);
+	void getPixel_nolock(UInt2 chunk_pixel_pos, Color *color);
 
 	void lock();
 	void unlock();

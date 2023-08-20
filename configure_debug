@@ -1,4 +1,3 @@
 #!/bin/bash
-#CC=clang CXX=clang++ 
-#CC_LD=lld 
-meson build -Db_sanitize=address,undefined --buildtype=debug -Db_lundef=false
+meson setup build --buildtype=debug -Db_lundef=false -Db_sanitize=address,undefined
+#-Db_sanitize=thread

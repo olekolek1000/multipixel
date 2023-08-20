@@ -15,16 +15,22 @@ export class RoomRefs {
   canvas_render!: HTMLElement;
 };
 
-export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipixel, refs_callback: (refs: RoomRefs) => void }) {
+export class RoomScreenGlobals {
+  processing_status_text?: string;
+  setProcessingStatusText?: any;
+}
+
+export function RoomScreen({ globals, multipixel, refs_callback }: { globals: RoomScreenGlobals, multipixel: Multipixel, refs_callback: (refs: RoomRefs) => void }) {
   const canvas_render = React.useRef(null);
-  const mp_slider_brush_size = React.useRef(null);
-  const mp_slider_brush_smoothing = React.useRef(null);
-  const button_zoom_1_1 = React.useRef(null);
-  const mpc_color_palette = React.useRef(null);
 
   const [player_list, setPlayerList] = useState<JSX.Element>();
 
+  const [processing_status_text, setProcessingStatusText] = useState("");
+
   const [tool_type, setToolType] = useState<ToolType>(multipixel.toolbox_globals.tool_type);
+
+  globals.processing_status_text = processing_status_text;
+  globals.setProcessingStatusText = setProcessingStatusText;
 
   useEffect(() => {
     multipixel.toolbox_globals.setToolType(tool_type);
@@ -119,6 +125,7 @@ export function RoomScreen({ multipixel, refs_callback }: { multipixel: Multipix
               <FormatColorFillIcon />
             </IconButton>
           </Tooltip>
+          {processing_status_text}
         </BoxRight>
         {player_list}
       </Grid>
