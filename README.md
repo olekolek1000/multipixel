@@ -6,7 +6,7 @@
 
 ## **An app for multiplayer drawing on an infinite canvas.**
 
-Server written in C++, client written in Typescript.
+Server written in Rust (formerly in C++, see "legacy_cpp" branch), client written in Typescript.
 
 This is the final C++ release of the Multipixel server. See `rust` branch for the most current development status.
 
@@ -57,28 +57,13 @@ Tools:
 
 ### Requirements:
 
-- Meson build system
-- Compiler with full C++17 support (Clang recommended)
-
-Required libraries:
-
-- [liblz4](https://github.com/lz4/lz4)
-- [lua](https://www.lua.org/)
-- [sqlite3](https://sqlite.org/index.html)
-- [websocketpp](https://github.com/zaphoyd/websocketpp)
+- Rust compiler + functional cargo env
 
 Build commands:
 
 ```bash
-# Project configuration
-meson build --buildtype=release
-
-# Compilation
-ninja -C build
-
-# Running
-./build/multipixel_server
-
+cd server
+cargo run
 ```
 
 ## Preparing client
