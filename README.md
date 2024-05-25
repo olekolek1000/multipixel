@@ -8,6 +8,8 @@
 
 Server written in C++, client written in Typescript.
 
+This is the final C++ release of the Multipixel server. See `rust` branch for the most current development status.
+
 # **[Try it out! (Public server)](https://multipixel.oo8.dev)**
 
 ![Preview](contrib/preview.webp)
