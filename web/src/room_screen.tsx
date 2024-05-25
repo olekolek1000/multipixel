@@ -18,19 +18,23 @@ export class RoomRefs {
 export class RoomScreenGlobals {
   processing_status_text?: string;
   setProcessingStatusText?: any;
+
+  mouse_pos_text?: string;
+  setMousePosText?: any;
 }
 
 export function RoomScreen({ globals, multipixel, refs_callback }: { globals: RoomScreenGlobals, multipixel: Multipixel, refs_callback: (refs: RoomRefs) => void }) {
   const canvas_render = React.useRef(null);
-
   const [player_list, setPlayerList] = useState<JSX.Element>();
-
   const [processing_status_text, setProcessingStatusText] = useState("");
-
   const [tool_type, setToolType] = useState<ToolType>(multipixel.toolbox_globals.tool_type);
+  const [mouse_pos_text, setMousePosText] = useState<string>("0,0");
 
   globals.processing_status_text = processing_status_text;
   globals.setProcessingStatusText = setProcessingStatusText;
+
+  globals.mouse_pos_text = mouse_pos_text;
+  globals.setMousePosText = setMousePosText;
 
   useEffect(() => {
     multipixel.toolbox_globals.setToolType(tool_type);
@@ -92,7 +96,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
       <input id="mp_chat_input" type="text" />
     </div>
     <div className={style_room.top_panel}>
-      <Grid justifyContent="space-between" direction="row" container>
+      <Grid justifyContent="space-between" direction="row" height={"100%"} container>
         <BoxRight>
           <Tooltip title="Undo">
             <IconButton onClick={() => {
@@ -126,6 +130,9 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
             </IconButton>
           </Tooltip>
           {processing_status_text}
+        </BoxRight>
+        <BoxRight>
+          {mouse_pos_text}
         </BoxRight>
         {player_list}
       </Grid>
