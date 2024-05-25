@@ -62,8 +62,7 @@ Tools:
 Build commands:
 
 ```bash
-cd server
-cargo run
+cargo run --manifest-path server/Cargo.toml
 ```
 
 ## Preparing client

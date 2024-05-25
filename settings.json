@@ -1,8 +1,10 @@
 {
-  "autosave_interval": 20000,
-  "plugin_list": ["example"],
+	"listen_ip": "127.0.0.1",
+	"listen_port": 59900,
+	"autosave_interval_ms": 20000,
+	"plugin_list": ["example"],
 
-  "preview_system": {
-    "process_all_at_start": false
-  }
+	"preview_system": {
+		"process_all_at_start": false
+	}
 }
