@@ -94,13 +94,30 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
     </>
   }
 
+  const ref_video = React.useRef(null);
+  const [logo_container, setLogoContainer] = useState(<video ref={ref_video} width="512" height="128" autoPlay muted playsInline={true}>
+    <source src="public/logo.webm" type="video/webm" />
+    Logo
+  </video>);
+
+  useEffect(() => {
+    if (!ref_video.current) {
+      return;
+    }
+    const video = ref_video.current as HTMLVideoElement;
+    video.muted = true;
+
+    video.play().catch((e) => {
+      console.log("Cannot play video:", e);
+      console.log("Falling back to plain logo image");
+      setLogoContainer(<img src="public/logo.webp" width={512} height={128} />);
+    });
+  }, []);
+
   return <div className={style_login.parent}>
     <BoxDown center_vert center_horiz>
       <FormControlSpaced center_horiz>
-        <video width="512" height="128" autoPlay muted={true}>
-          <source src="public/logo.webm" type="video/webm" />
-          Logo
-        </video>
+        {logo_container}
         {content}
       </FormControlSpaced>
     </BoxDown>
