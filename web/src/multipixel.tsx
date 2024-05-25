@@ -228,8 +228,8 @@ export class Multipixel {
 			cursor.just_pressed_down = true;
 
 			if (e.button == 0) { // Left
-				if (this.map.getZoom() < 0.5) {
-					this.map.setZoom(0.5);
+				if (this.map.getZoom() < 1.0) {
+					this.map.setZoom(1.0);
 					this.needs_boundaries_update = true;
 				}
 				else {
