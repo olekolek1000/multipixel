@@ -102,9 +102,6 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
           Logo
         </video>
         {content}
-        <TitleTiny>
-          <b>Created by olekolek1000 and KuczaRacza</b>
-        </TitleTiny>
       </FormControlSpaced>
     </BoxDown>
   </div>;

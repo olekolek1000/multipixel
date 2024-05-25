@@ -6,8 +6,6 @@
 
 ## **An app for multiplayer drawing on an infinite canvas.**
 
-### Created by olekolek1000 and KuczaRacza
-
 Server written in C++, client written in Typescript.
 
 # **[Try it out! (Public server)](https://multipixel.oo8.dev)**
