@@ -209,6 +209,8 @@ export class Multipixel {
 
 			this.client.socketSendCursorPos(smooth ? cursor.canvas_x_smooth : cursor.canvas_x, smooth ? cursor.canvas_y_smooth : cursor.canvas_y);
 
+			this.room_screen_globals.setMousePosText("" + cursor.canvas_x + "," + cursor.canvas_y);
+
 			if (cursor.down_right) {
 				//Scroll
 				scrolling.x += (cursor.x - cursor.x_prev) / scrolling.zoom;
