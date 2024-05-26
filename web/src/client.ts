@@ -43,7 +43,7 @@ enum ClientCmd {
 enum ServerCmd {
 	message = 1,						// u8 type, utf-8 text
 	your_id = 2,						// u16 id
-	kick = 3,								// utf-8 reason
+	kick = 3,								// u16 text size, utf-8 reason
 	chunk_image = 100,			// complex data
 	chunk_pixel_pack = 101, // complex data
 	chunk_create = 110,			// s32 chunkX, s32 chunkY
@@ -270,6 +270,10 @@ export class Client {
 			return new DataView(raw_data, header_offset + offset);
 		}
 
+		function createViewSize(offset: number, size: number) {
+			return new DataView(raw_data, header_offset + offset, size);
+		}
+
 		let dataview = createView(0);
 
 		let command = headerview.getInt16(0);
@@ -295,7 +299,9 @@ export class Client {
 				break;
 			}
 			case ServerCmd.kick: {
-				let str = "Kicked. Reason: " + new TextDecoder().decode(dataview);
+				let text_size = dataview.getInt16(0);
+				let view_str = createViewSize(2, text_size);
+				let str = "Kicked. Reason: " + new TextDecoder().decode(view_str);
 				this.connection_callback(str);
 				console.error(str);
 				this.socket!.close();
