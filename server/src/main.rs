@@ -22,10 +22,7 @@ mod session;
 
 pub type Connection = WebSocketStream<TcpStream>;
 
-async fn task_processor(
-	tcp_conn: TcpStream,
-	server: Arc<Mutex<Server>>,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn task_processor(tcp_conn: TcpStream, server: Arc<Mutex<Server>>) -> anyhow::Result<()> {
 	let mut ws_conn = ServerBuilder::new().accept(tcp_conn).await?;
 
 	let mut s = server.lock().await;
@@ -41,7 +38,7 @@ async fn task_processor(
 				let session = s
 					.sessions
 					.get_mut(&session_handle)
-					.ok_or("Session not found")?;
+					.ok_or(anyhow::anyhow!("Session not found"))?;
 
 				if item.is_binary() {
 					session
@@ -65,7 +62,7 @@ async fn task_processor(
 	Ok(())
 }
 
-async fn task_listener(listener: TcpListener, server_obj: Server) -> Result<(), Box<dyn Error>> {
+async fn task_listener(listener: TcpListener, server_obj: Server) -> anyhow::Result<()> {
 	let server = Arc::new(Mutex::new(server_obj));
 
 	while let Ok((tcp_conn, _)) = listener.accept().await {
@@ -81,7 +78,7 @@ async fn task_listener(listener: TcpListener, server_obj: Server) -> Result<(), 
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> anyhow::Result<()> {
 	std::env::set_var("RUST_LOG", "trace");
 	pretty_env_logger::init();
 
