@@ -1,7 +1,8 @@
-use std::{error::Error, sync::Arc};
+use std::sync::Arc;
 
 use futures_util::StreamExt;
 
+use server::ServerMutex;
 use tokio::{
 	net::{TcpListener, TcpStream},
 	sync::Mutex,
@@ -15,34 +16,43 @@ extern crate pretty_env_logger;
 
 mod config;
 mod id;
+mod limits;
 mod packet_client;
 mod packet_server;
+mod room;
 mod server;
 mod session;
 
 pub type Connection = WebSocketStream<TcpStream>;
 
-async fn task_processor(tcp_conn: TcpStream, server: Arc<Mutex<Server>>) -> anyhow::Result<()> {
+async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow::Result<()> {
 	let mut ws_conn = ServerBuilder::new().accept(tcp_conn).await?;
 
-	let mut s = server.lock().await;
-	let session_handle = s.create_session();
+	let mut server = server_mtx.lock().await;
+	let session_handle = server.create_session();
 	log::info!("Created session with ID {}", session_handle.id());
-
-	drop(s);
+	drop(server);
 
 	while let Some(res) = ws_conn.next().await {
 		match res {
 			Ok(item) => {
-				let mut s = server.lock().await;
-				let session = s
+				let mut server = server_mtx.lock().await;
+				let session_mtx = server
 					.sessions
 					.get_mut(&session_handle)
-					.ok_or(anyhow::anyhow!("Session not found"))?;
+					.ok_or(anyhow::anyhow!("Session not found"))?
+					.clone();
+				drop(server);
 
 				if item.is_binary() {
+					let mut session = session_mtx.lock().await;
 					session
-						.process_payload(session_handle.id(), item.as_payload(), &mut ws_conn)
+						.process_payload(
+							session_handle.id(),
+							item.as_payload(),
+							&mut ws_conn,
+							&server_mtx,
+						)
 						.await?;
 				}
 			}
@@ -56,14 +66,14 @@ async fn task_processor(tcp_conn: TcpStream, server: Arc<Mutex<Server>>) -> anyh
 	// Remove session
 	log::info!("Removing session {}", session_handle.id());
 
-	s = server.lock().await;
-	s.sessions.remove(&session_handle);
+	server = server_mtx.lock().await;
+	server.sessions.remove(&session_handle);
 
 	Ok(())
 }
 
-async fn task_listener(listener: TcpListener, server_obj: Server) -> anyhow::Result<()> {
-	let server = Arc::new(Mutex::new(server_obj));
+async fn task_listener(listener: TcpListener) -> anyhow::Result<()> {
+	let server = Arc::new(Mutex::new(Server::new()));
 
 	while let Ok((tcp_conn, _)) = listener.accept().await {
 		let s = server.clone();
@@ -89,11 +99,11 @@ async fn main() -> anyhow::Result<()> {
 
 	let listener = TcpListener::bind(listen_addr).await?;
 
-	let server = Server::new();
-
-	if let Err(e) = task_listener(listener, server).await {
+	if let Err(e) = task_listener(listener).await {
 		log::error!("Listener error: {}", e);
 	}
+
+	log::info!("Exiting");
 
 	Ok(())
 }

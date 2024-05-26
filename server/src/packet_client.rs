@@ -1,13 +1,20 @@
 #![allow(dead_code)]
 
-use std::error::Error;
-
 use binary_reader::BinaryReader;
 use num_enum::TryFromPrimitive;
 
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 pub enum ToolType {
 	Brush = 0,
 	Fill = 1,
+}
+
+#[derive(Default)]
+pub struct Color {
+	pub r: u8,
+	pub g: u8,
+	pub b: u8,
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -42,19 +49,22 @@ pub fn read_string_u16(reader: &mut BinaryReader) -> anyhow::Result<String> {
 
 pub struct PacketAnnounce {
 	pub room_name: String,
-	pub nickname: String,
+	pub nick_name: String,
 }
 
 impl PacketAnnounce {
 	pub fn read(reader: &mut BinaryReader) -> anyhow::Result<Self> {
+		let room_name_raw = read_string_u8(reader)?;
+		let room_name = room_name_raw.to_lowercase();
+
 		Ok(Self {
-			room_name: read_string_u8(reader)?,
-			nickname: read_string_u8(reader)?,
+			room_name,
+			nick_name: read_string_u8(reader)?,
 		})
 	}
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct PacketCursorPos {
 	pub x: i32,
 	pub y: i32,
