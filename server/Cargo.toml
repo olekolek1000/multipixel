@@ -6,10 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+binary-reader = "0.4.5"
 bytes = "1.6.0"
 futures-util = { version = "0.3.30", features = ["sink"] }
 glam = { version = "0.27.0" }
 log = "0.4.21"
+num = "0.4.3"
+num_enum = "0.7.2"
 pretty_env_logger = "0.5.0"
 serde = { version = "1.0.203", features = ["derive"] }
 serde_json = "1.0.117"
