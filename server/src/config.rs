@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use std::error::Error;
-
 const SETTINGS_PATH: &str = "settings.json";
 
 #[derive(serde::Deserialize)]
@@ -18,7 +16,7 @@ pub struct Config {
 	pub preview_system: PreviewSystem,
 }
 
-pub async fn load() -> Result<Config, Box<dyn Error>> {
+pub async fn load() -> anyhow::Result<Config> {
 	let data = tokio::fs::read_to_string(SETTINGS_PATH).await?;
 	let conf: Config = serde_json::from_str(data.as_str())?;
 	Ok(conf)

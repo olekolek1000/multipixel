@@ -28,13 +28,13 @@ pub enum ClientCmd {
 	Undo = 203,
 }
 
-pub fn read_string_u8(reader: &mut BinaryReader) -> Result<String, Box<dyn Error + Send + Sync>> {
+pub fn read_string_u8(reader: &mut BinaryReader) -> anyhow::Result<String> {
 	let str_size = reader.read_u8()?;
 	let str_data = reader.read_bytes(str_size.into())?;
 	Ok(String::from(std::str::from_utf8(str_data)?))
 }
 
-pub fn read_string_u16(reader: &mut BinaryReader) -> Result<String, Box<dyn Error + Send + Sync>> {
+pub fn read_string_u16(reader: &mut BinaryReader) -> anyhow::Result<String> {
 	let str_size = reader.read_u16()?;
 	let str_data = reader.read_bytes(str_size.into())?;
 	Ok(String::from(std::str::from_utf8(str_data)?))
@@ -46,7 +46,7 @@ pub struct PacketAnnounce {
 }
 
 impl PacketAnnounce {
-	pub fn read(reader: &mut BinaryReader) -> Result<Self, Box<dyn Error + Send + Sync>> {
+	pub fn read(reader: &mut BinaryReader) -> anyhow::Result<Self> {
 		Ok(Self {
 			room_name: read_string_u8(reader)?,
 			nickname: read_string_u8(reader)?,

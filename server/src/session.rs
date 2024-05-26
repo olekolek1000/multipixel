@@ -56,7 +56,7 @@ impl SessionInstance {
 		reader: &mut BinaryReader,
 		connection: &mut Connection,
 		session_id: u32,
-	) -> Result<(), Box<dyn Error + Send + Sync>> {
+	) -> anyhow::Result<()> {
 		match command {
 			ClientCmd::Announce => {
 				self
@@ -85,7 +85,7 @@ impl SessionInstance {
 		session_id: u32,
 		data: &[u8],
 		connection: &mut Connection,
-	) -> Result<(), Box<dyn Error + Send + Sync>> {
+	) -> anyhow::Result<()> {
 		if let Err(e) = self
 			.process_payload_wrap(session_id, data, connection)
 			.await
@@ -100,7 +100,7 @@ impl SessionInstance {
 				let _ = self
 					.kick(connection, "Internal server error. This is a bug.")
 					.await;
-				return Err(format!("Internal server error: {}", e))?;
+				return Err(anyhow::anyhow!("Internal server error: {}", e));
 			}
 		}
 
@@ -112,7 +112,7 @@ impl SessionInstance {
 		session_id: u32,
 		data: &[u8],
 		connection: &mut Connection,
-	) -> Result<(), Box<dyn Error + Send + Sync>> {
+	) -> anyhow::Result<()> {
 		let mut reader = BinaryReader::from_u8(data);
 		reader.set_endian(binary_reader::Endian::Big);
 
@@ -151,7 +151,7 @@ impl SessionInstance {
 		reader: &mut BinaryReader,
 		connection: &mut Connection,
 		session_id: u32,
-	) -> Result<(), Box<dyn Error + Send + Sync>> {
+	) -> anyhow::Result<()> {
 		let packet = packet_client::PacketAnnounce::read(reader)?;
 		log::info!(
 			"Session announced as {}, requested room name {}",
@@ -177,10 +177,7 @@ impl SessionInstance {
 		// Ignore
 	}
 
-	async fn process_command_cursor_pos(
-		&mut self,
-		reader: &mut BinaryReader,
-	) -> Result<(), Box<dyn Error + Send + Sync>> {
+	async fn process_command_cursor_pos(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		self.cursor_pos = packet_client::PacketCursorPos::read(reader)?;
 		//log::trace!("Cursor pos {}x{}", self.cursor_pos.x, self.cursor_pos.y);
 		Ok(())
