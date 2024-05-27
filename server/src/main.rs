@@ -29,26 +29,18 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 	let mut ws_conn = ServerBuilder::new().accept(tcp_conn).await?;
 
 	let mut server = server_mtx.lock().await;
-	let session_handle = server.create_session();
+	let (session_handle, session_mtx) = server.create_session();
 	log::info!("Created session with ID {}", session_handle.id());
 	drop(server);
 
 	while let Some(res) = ws_conn.next().await {
 		match res {
 			Ok(item) => {
-				let mut server = server_mtx.lock().await;
-				let session_mtx = server
-					.sessions
-					.get_mut(&session_handle)
-					.ok_or(anyhow::anyhow!("Session not found"))?
-					.clone();
-				drop(server);
-
 				if item.is_binary() {
 					let mut session = session_mtx.lock().await;
 					session
 						.process_payload(
-							session_handle.id(),
+							&session_handle,
 							item.as_payload(),
 							&mut ws_conn,
 							&server_mtx,
@@ -64,16 +56,17 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 	}
 
 	// Remove session
-	log::info!("Removing session {}", session_handle.id());
+	session_mtx.lock().await.cleanup(&session_handle).await;
 
 	server = server_mtx.lock().await;
-	server.sessions.remove(&session_handle);
+	server.remove_session(&session_handle).await;
+	drop(server);
 
 	Ok(())
 }
 
 async fn task_listener(listener: TcpListener) -> anyhow::Result<()> {
-	let server = Arc::new(Mutex::new(Server::new()));
+	let server = Server::new();
 
 	while let Ok((tcp_conn, _)) = listener.accept().await {
 		let s = server.clone();
