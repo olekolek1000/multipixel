@@ -23,8 +23,7 @@ impl Server {
 	}
 
 	pub fn create_session(&mut self) -> (SessionHandle, SessionInstanceMutex) {
-		let session = SessionInstance::new();
-		let session_mtx = Arc::new(Mutex::new(session));
+		let session_mtx = Arc::new(Mutex::new(SessionInstance::new()));
 		(self.sessions.add(session_mtx.clone()), session_mtx)
 	}
 
@@ -55,21 +54,24 @@ impl Server {
 		room_instance_mtx
 	}
 
-	pub fn cleanup_rooms(&mut self) {
-		tokio::task::block_in_place(move || {
-			self.rooms.retain(|room_name, room| {
-				if room.blocking_lock().wants_to_be_removed() {
-					log::info!("Freeing room with name {}", room_name);
-					return false;
-				}
-				true
-			})
-		})
+	pub async fn cleanup_rooms(&mut self) {
+		// .retain() cannot be used in async environment
+		let mut rooms_to_remove: Vec<String> = Vec::new();
+		for (room_name, room) in &self.rooms {
+			if room.lock().await.wants_to_be_removed() {
+				rooms_to_remove.push(room_name.clone());
+			}
+		}
+
+		for room_name in rooms_to_remove {
+			log::info!("Freeing room with name {}", room_name);
+			self.rooms.remove(room_name.as_str());
+		}
 	}
 
 	pub async fn remove_session(&mut self, session_handle: &SessionHandle) {
 		log::info!("Removing session ID {}", session_handle.id());
 		self.sessions.remove(session_handle);
-		self.cleanup_rooms();
+		self.cleanup_rooms().await;
 	}
 }

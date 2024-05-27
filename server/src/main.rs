@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use futures_util::StreamExt;
+use futures_util::{
+	stream::{SplitSink, SplitStream},
+	StreamExt,
+};
 
 use server::ServerMutex;
 use tokio::{
@@ -8,9 +11,9 @@ use tokio::{
 	sync::Mutex,
 };
 
-use tokio_websockets::{ServerBuilder, WebSocketStream};
+use tokio_websockets::{Message, ServerBuilder, WebSocketStream};
 
-use crate::server::Server;
+use crate::{server::Server, session::SessionInstance};
 
 extern crate pretty_env_logger;
 
@@ -24,33 +27,43 @@ mod server;
 mod session;
 
 pub type Connection = WebSocketStream<TcpStream>;
+pub type ConnectionWriter = SplitSink<WebSocketStream<TcpStream>, Message>;
+pub type ConnectionReader = SplitStream<WebSocketStream<TcpStream>>;
+pub type ConnectionMutex = Arc<Mutex<Connection>>;
 
 async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow::Result<()> {
-	let mut ws_conn = ServerBuilder::new().accept(tcp_conn).await?;
+	let connection = ServerBuilder::new().accept(tcp_conn).await?;
+	let (writer, mut reader) = connection.split();
 
 	let mut server = server_mtx.lock().await;
 	let (session_handle, session_mtx) = server.create_session();
-	log::info!("Created session with ID {}", session_handle.id());
 	drop(server);
+	log::info!("Created session with ID {}", session_handle.id());
 
-	while let Some(res) = ws_conn.next().await {
-		match res {
-			Ok(item) => {
-				if item.is_binary() {
-					let mut session = session_mtx.lock().await;
-					session
-						.process_payload(
-							&session_handle,
-							item.as_payload(),
-							&mut ws_conn,
-							&server_mtx,
-						)
-						.await?;
+	// Spawn sender task
+	SessionInstance::launch_sender_task(Arc::downgrade(&session_mtx), writer);
+
+	loop {
+		match reader.next().await {
+			Some(res) => match res {
+				Ok(msg) => {
+					if msg.is_binary() {
+						let mut session = session_mtx.lock().await;
+						session
+							.process_payload(&session_handle, msg.as_payload(), &server_mtx)
+							.await?;
+					} else {
+						log::trace!("Got unknown message");
+					}
 				}
-			}
-			Err(e) => {
-				// Never triggered yet in my tests
-				log::info!("Session {} error: {}", session_handle.id(), e);
+				Err(e) => {
+					log::info!("Session {} error: {}", session_handle.id(), e);
+				}
+			},
+			None => {
+				// Just exit
+				log::info!("reader.next() returned nothing, exiting");
+				break;
 			}
 		}
 	}
@@ -80,11 +93,7 @@ async fn task_listener(listener: TcpListener) -> anyhow::Result<()> {
 	Ok(())
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-	std::env::set_var("RUST_LOG", "trace");
-	pretty_env_logger::init();
-
+async fn run() -> anyhow::Result<()> {
 	let config = config::load().await?;
 
 	let listen_addr = format!("{}:{}", config.listen_ip, config.listen_port);
@@ -96,7 +105,26 @@ async fn main() -> anyhow::Result<()> {
 		log::error!("Listener error: {}", e);
 	}
 
-	log::info!("Exiting");
-
 	Ok(())
+}
+
+fn main() {
+	let runtime = tokio::runtime::Builder::new_multi_thread()
+		.worker_threads(2)
+		.thread_name("mp")
+		.thread_stack_size(2 * 1024 * 1024)
+		.enable_io()
+		.build()
+		.unwrap();
+
+	console_subscriber::init();
+
+	std::env::set_var("RUST_LOG", "trace");
+	pretty_env_logger::init();
+
+	if let Err(e) = runtime.block_on(run()) {
+		log::error!("{}", e);
+	}
+
+	log::info!("Exiting");
 }

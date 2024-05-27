@@ -1,15 +1,16 @@
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::sync::{Arc, Weak};
 use std::{fmt, io};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio_websockets::Message;
 
 use crate::packet_client::ClientCmd;
 use crate::room::RoomInstanceMutex;
 use crate::server::ServerMutex;
-use crate::{gen_id, limits, packet_client, packet_server, Connection};
+use crate::{gen_id, limits, packet_client, packet_server, ConnectionWriter};
 
 // Any protocol usage error that shouldn't be tolerated.
 // Causes termination of the session with the kick message provided in the UserError constructor.
@@ -44,6 +45,9 @@ struct ToolData {
 pub struct SessionInstance {
 	pub nickname: String, // Max 255 characters
 
+	packets_to_send: VecDeque<packet_server::Packet>,
+	pub notify_send: Arc<Notify>,
+
 	cursor_pos: packet_client::PacketCursorPos,
 	cursor_pos_prev: packet_client::PacketCursorPos,
 	cursor_down: bool,
@@ -55,7 +59,7 @@ pub struct SessionInstance {
 
 	kicked: bool,
 	announced: bool,
-	cleaned_up: bool,
+	pub cleaned_up: bool,
 }
 
 impl SessionInstance {
@@ -70,22 +74,44 @@ impl SessionInstance {
 			announced: false,
 			tool: Default::default(),
 			room_mtx: Default::default(),
+			packets_to_send: Default::default(),
+			notify_send: Arc::new(Notify::new()),
 			cleaned_up: false,
 		}
+	}
+
+	pub fn launch_sender_task(session_weak: SessionInstanceWeak, mut writer: ConnectionWriter) {
+		tokio::task::spawn(async move {
+			loop {
+				if let Some(session_mtx) = session_weak.upgrade() {
+					let mut session = session_mtx.lock().await;
+
+					let notify = session.notify_send.clone(); // Wait for incoming send data if requested
+					drop(session);
+					notify.notified().await;
+					session = session_mtx.lock().await;
+					if session.cleaned_up {
+						//log::trace!("Ending send task");
+						return; // End this task
+					}
+
+					let _ = session.send_all(&mut writer).await;
+				}
+			}
+		});
 	}
 
 	async fn parse_command(
 		&mut self,
 		command: ClientCmd,
 		reader: &mut BinaryReader,
-		connection: &mut Connection,
 		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		match command {
 			ClientCmd::Announce => {
 				self
-					.process_command_announce(reader, connection, session_handle, server_mtx)
+					.process_command_announce(reader, session_handle, server_mtx)
 					.await?
 			}
 			ClientCmd::Message => self.process_command_message(reader).await?,
@@ -109,28 +135,21 @@ impl SessionInstance {
 		&mut self,
 		session_handle: &SessionHandle,
 		data: &[u8],
-		connection: &mut Connection,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		if let Err(e) = self
-			.process_payload_wrap(session_handle, data, connection, server_mtx)
+			.process_payload_wrap(session_handle, data, server_mtx)
 			.await
 		{
 			if e.is::<UserError>() {
 				log::error!("User error: {}", e);
-				let _ = self
-					.kick(connection, format!("User error: {}", e).as_str())
-					.await;
+				let _ = self.kick(format!("User error: {}", e).as_str()).await;
 			} else if e.is::<io::Error>() {
 				log::error!("IO error: {}", e);
-				let _ = self
-					.kick(connection, format!("IO error: {}", e).as_str())
-					.await;
+				let _ = self.kick(format!("IO error: {}", e).as_str()).await;
 			} else {
 				log::error!("Unknown error: {}", e);
-				let _ = self
-					.kick(connection, "Internal server error. This is a bug.")
-					.await;
+				let _ = self.kick("Internal server error. This is a bug.").await;
 				return Err(anyhow::anyhow!("Internal server error: {}", e));
 			}
 		}
@@ -142,7 +161,6 @@ impl SessionInstance {
 		&mut self,
 		session_handle: &SessionHandle,
 		data: &[u8],
-		connection: &mut Connection,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		let mut reader = BinaryReader::from_u8(data);
@@ -152,7 +170,7 @@ impl SessionInstance {
 
 		//log::trace!("Session ID: {}, command {:?}", session_id, command);
 		self
-			.parse_command(command, &mut reader, connection, session_handle, server_mtx)
+			.parse_command(command, &mut reader, session_handle, server_mtx)
 			.await?;
 
 		Ok(())
@@ -184,48 +202,61 @@ impl SessionInstance {
 		log::warn!("update_cursor_fill TODO");
 	}
 
-	async fn send_packet(
-		&self,
-		connection: &mut Connection,
-		packet: packet_server::Packet,
-	) -> Result<(), tokio_websockets::Error> {
-		connection.send(Message::binary(packet.data)).await?;
+	pub fn queue_send_packet(&mut self, packet: packet_server::Packet) {
+		self.packets_to_send.push_back(packet);
+		log::trace!("Informed");
+		self.notify_send.notify_waiters();
+	}
+
+	pub async fn send_all(&mut self, writer: &mut ConnectionWriter) -> anyhow::Result<()> {
+		log::trace!("Sending {} packets", self.packets_to_send.len());
+		while let Some(packet) = self.packets_to_send.pop_front() {
+			writer.send(Message::binary(packet.data)).await?;
+		}
 		Ok(())
 	}
 
-	async fn kick(
-		&mut self,
-		connection: &mut Connection,
-		cause: &str,
-	) -> Result<(), tokio_websockets::Error> {
+	async fn kick(&mut self, cause: &str) -> Result<(), tokio_websockets::Error> {
 		if self.kicked {
 			//Enough
 			return Ok(());
 		}
-		self
-			.send_packet(connection, packet_server::prepare_packet_kick(cause))
-			.await?;
+		self.queue_send_packet(packet_server::prepare_packet_kick(cause));
 		self.kicked = true;
 		Ok(())
 	}
 
 	pub async fn cleanup(&mut self, session_handle: &SessionHandle) {
 		// only this for now
-		self.cleanup_leave_room(session_handle).await;
+		self.leave_room(session_handle).await;
 
 		self.cleaned_up = true;
+
+		// Inform sender task to exit itself
+		self.notify_send.notify_one();
 	}
 
-	pub async fn cleanup_leave_room(&mut self, session_handle: &SessionHandle) {
+	pub async fn leave_room(&mut self, session_handle: &SessionHandle) {
 		if let Some(room_mtx) = &self.room_mtx {
 			room_mtx.lock().await.remove_session(session_handle);
 		}
 	}
 
+	async fn join_room(
+		&mut self,
+		room_name: &str,
+		session_handle: &SessionHandle,
+		server_mtx: &ServerMutex,
+	) -> RoomInstanceMutex {
+		let mut server = server_mtx.lock().await;
+		let room_mtx = server.add_session_to_room(room_name, session_handle).await;
+		self.room_mtx = Some(room_mtx.clone());
+		room_mtx
+	}
+
 	async fn process_command_announce(
 		&mut self,
 		reader: &mut BinaryReader,
-		connection: &mut Connection,
 		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
@@ -292,22 +323,21 @@ impl SessionInstance {
 		}
 
 		// Load room
-		{
-			let mut server = server_mtx.lock().await;
+		let room_mtx = self
+			.join_room(&packet.room_name, session_handle, server_mtx)
+			.await;
 
-			self.room_mtx = Some(
-				server
-					.add_session_to_room(&packet.room_name, session_handle)
-					.await,
-			);
-		}
+		self.queue_send_packet(packet_server::prepare_packet_your_id(session_handle.id()));
 
-		self
-			.send_packet(
-				connection,
-				packet_server::prepare_packet_your_id(session_handle.id()),
+		// Broadcast to all users that this user is available
+		room_mtx
+			.lock()
+			.await
+			.broadcast(
+				&packet_server::prepare_packet_user_create(session_handle.id(), self),
+				Some(session_handle),
 			)
-			.await?;
+			.await;
 
 		Ok(())
 	}
@@ -417,6 +447,7 @@ impl SessionInstance {
 impl Drop for SessionInstance {
 	fn drop(&mut self) {
 		assert!(self.cleaned_up, "cleanup() not called");
+		log::trace!("Session dropped");
 	}
 }
 

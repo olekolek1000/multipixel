@@ -1,7 +1,7 @@
 use crate::{
-	gen_id,
-	server::{Server, ServerMutex},
-	session::{SessionHandle, SessionInstanceMutex, SessionInstanceWeak},
+	packet_server,
+	server::Server,
+	session::{SessionHandle, SessionInstanceWeak},
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -39,6 +39,20 @@ impl RoomInstance {
 
 	pub fn wants_to_be_removed(&self) -> bool {
 		self.sessions.is_empty()
+	}
+
+	pub async fn broadcast(&self, packet: &packet_server::Packet, except: Option<&SessionHandle>) {
+		for cell in &self.sessions {
+			if let Some(except) = except {
+				if cell.handle == *except {
+					continue;
+				}
+			}
+			if let Some(session_mtx) = cell.instance_mtx.upgrade() {
+				let mut session = session_mtx.lock().await;
+				session.queue_send_packet(packet.clone());
+			}
+		}
 	}
 }
 

@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.86"
 binary-reader = "0.4.5"
 bytes = "1.6.0"
+console-subscriber = "0.2.0"
 futures-util = { version = "0.3.30", features = ["sink"] }
 glam = { version = "0.27.0" }
 log = "0.4.21"
