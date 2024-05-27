@@ -1,13 +1,13 @@
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::{fmt, io};
 use tokio::sync::Mutex;
 use tokio_websockets::Message;
 
 use crate::packet_client::ClientCmd;
-use crate::room::{RoomHandle, RoomInstanceMutex};
+use crate::room::RoomInstanceMutex;
 use crate::server::ServerMutex;
 use crate::{gen_id, limits, packet_client, packet_server, Connection};
 
@@ -51,11 +51,11 @@ pub struct SessionInstance {
 
 	tool: ToolData,
 
-	room_handle: Option<RoomHandle>,
-	room: Option<RoomInstanceMutex>,
+	room_mtx: Option<RoomInstanceMutex>,
 
 	kicked: bool,
 	announced: bool,
+	cleaned_up: bool,
 }
 
 impl SessionInstance {
@@ -69,8 +69,8 @@ impl SessionInstance {
 			kicked: false,
 			announced: false,
 			tool: Default::default(),
-			room: Default::default(),
-			room_handle: Default::default(),
+			room_mtx: Default::default(),
+			cleaned_up: false,
 		}
 	}
 
@@ -79,13 +79,13 @@ impl SessionInstance {
 		command: ClientCmd,
 		reader: &mut BinaryReader,
 		connection: &mut Connection,
-		session_id: u32,
+		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		match command {
 			ClientCmd::Announce => {
 				self
-					.process_command_announce(reader, connection, session_id, server_mtx)
+					.process_command_announce(reader, connection, session_handle, server_mtx)
 					.await?
 			}
 			ClientCmd::Message => self.process_command_message(reader).await?,
@@ -107,13 +107,13 @@ impl SessionInstance {
 
 	pub async fn process_payload(
 		&mut self,
-		session_id: u32,
+		session_handle: &SessionHandle,
 		data: &[u8],
 		connection: &mut Connection,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		if let Err(e) = self
-			.process_payload_wrap(session_id, data, connection, server_mtx)
+			.process_payload_wrap(session_handle, data, connection, server_mtx)
 			.await
 		{
 			if e.is::<UserError>() {
@@ -140,7 +140,7 @@ impl SessionInstance {
 
 	pub async fn process_payload_wrap(
 		&mut self,
-		session_id: u32,
+		session_handle: &SessionHandle,
 		data: &[u8],
 		connection: &mut Connection,
 		server_mtx: &ServerMutex,
@@ -152,7 +152,7 @@ impl SessionInstance {
 
 		//log::trace!("Session ID: {}, command {:?}", session_id, command);
 		self
-			.parse_command(command, &mut reader, connection, session_id, server_mtx)
+			.parse_command(command, &mut reader, connection, session_handle, server_mtx)
 			.await?;
 
 		Ok(())
@@ -209,11 +209,24 @@ impl SessionInstance {
 		Ok(())
 	}
 
+	pub async fn cleanup(&mut self, session_handle: &SessionHandle) {
+		// only this for now
+		self.cleanup_leave_room(session_handle).await;
+
+		self.cleaned_up = true;
+	}
+
+	pub async fn cleanup_leave_room(&mut self, session_handle: &SessionHandle) {
+		if let Some(room_mtx) = &self.room_mtx {
+			room_mtx.lock().await.remove_session(session_handle);
+		}
+	}
+
 	async fn process_command_announce(
 		&mut self,
 		reader: &mut BinaryReader,
 		connection: &mut Connection,
-		session_id: u32,
+		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		if self.announced {
@@ -281,16 +294,18 @@ impl SessionInstance {
 		// Load room
 		{
 			let mut server = server_mtx.lock().await;
-			let (room_handle, room_instance_mtx) = server.get_or_load_room(&packet.room_name).await;
 
-			self.room_handle = Some(room_handle);
-			self.room = Some(room_instance_mtx);
+			self.room_mtx = Some(
+				server
+					.add_session_to_room(&packet.room_name, session_handle)
+					.await,
+			);
 		}
 
 		self
 			.send_packet(
 				connection,
-				packet_server::prepare_packet_your_id(session_id),
+				packet_server::prepare_packet_your_id(session_handle.id()),
 			)
 			.await?;
 
@@ -399,5 +414,12 @@ impl SessionInstance {
 	}
 }
 
-type SessionInstanceMutex = Arc<Mutex<SessionInstance>>;
+impl Drop for SessionInstance {
+	fn drop(&mut self) {
+		assert!(self.cleaned_up, "cleanup() not called");
+	}
+}
+
+pub type SessionInstanceMutex = Arc<Mutex<SessionInstance>>;
+pub type SessionInstanceWeak = Weak<Mutex<SessionInstance>>;
 gen_id!(SessionVec, SessionInstanceMutex, SessionCell, SessionHandle);
