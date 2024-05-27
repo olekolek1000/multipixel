@@ -31,6 +31,7 @@ pub enum ServerCmd {
 	ProcessingStatusText = 1100, // utf-8 text
 }
 
+#[derive(Clone)]
 pub struct Packet {
 	pub data: Bytes,
 }
