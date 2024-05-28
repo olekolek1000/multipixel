@@ -35,18 +35,27 @@ impl fmt::Display for UserError {
 	}
 }
 
-#[derive(Default)]
 struct ToolData {
-	size: u8,
-	color: packet_client::Color,
-	tool_type: Option<packet_client::ToolType>,
+	pub size: u8,
+	pub color: packet_client::Color,
+	pub tool_type: Option<packet_client::ToolType>,
+}
+
+impl Default for ToolData {
+	fn default() -> Self {
+		Self {
+			size: 2,
+			color: Default::default(),
+			tool_type: Default::default(),
+		}
+	}
 }
 
 pub struct SessionInstance {
-	pub nickname: String, // Max 255 characters
+	pub nick_name: String, // Max 255 characters
 
 	packets_to_send: VecDeque<packet_server::Packet>,
-	pub notify_send: Arc<Notify>,
+	notify_send: Arc<Notify>,
 
 	cursor_pos: packet_client::PacketCursorPos,
 	cursor_pos_prev: packet_client::PacketCursorPos,
@@ -59,13 +68,13 @@ pub struct SessionInstance {
 
 	kicked: bool,
 	announced: bool,
-	pub cleaned_up: bool,
+	cleaned_up: bool,
 }
 
 impl SessionInstance {
 	pub fn new() -> Self {
 		Self {
-			nickname: String::new(),
+			nick_name: String::new(),
 			cursor_pos: Default::default(),
 			cursor_pos_prev: Default::default(),
 			cursor_down: false,
@@ -116,7 +125,11 @@ impl SessionInstance {
 			}
 			ClientCmd::Message => self.process_command_message(reader).await?,
 			ClientCmd::Ping => self.process_command_ping(reader).await,
-			ClientCmd::CursorPos => self.process_command_cursor_pos(reader).await?,
+			ClientCmd::CursorPos => {
+				self
+					.process_command_cursor_pos(reader, session_handle)
+					.await?
+			}
 			ClientCmd::CursorDown => self.process_command_cursor_down(reader).await?,
 			ClientCmd::CursorUp => self.process_command_cursor_up(reader).await?,
 			ClientCmd::Boundary => self.process_command_boundary(reader).await,
@@ -204,12 +217,12 @@ impl SessionInstance {
 
 	pub fn queue_send_packet(&mut self, packet: packet_server::Packet) {
 		self.packets_to_send.push_back(packet);
-		log::trace!("Informed");
+		//log::trace!("Informed");
 		self.notify_send.notify_waiters();
 	}
 
 	pub async fn send_all(&mut self, writer: &mut ConnectionWriter) -> anyhow::Result<()> {
-		log::trace!("Sending {} packets", self.packets_to_send.len());
+		//log::trace!("Sending {} packets", self.packets_to_send.len());
 		while let Some(packet) = self.packets_to_send.pop_front() {
 			writer.send(Message::binary(packet.data)).await?;
 		}
@@ -238,7 +251,25 @@ impl SessionInstance {
 
 	pub async fn leave_room(&mut self, session_handle: &SessionHandle) {
 		if let Some(room_mtx) = &self.room_mtx {
-			room_mtx.lock().await.remove_session(session_handle);
+			let mut room = room_mtx.lock().await;
+
+			// Remove itself from the room
+			room.remove_session(session_handle);
+
+			// Announce to all other sessions that our session is leaving this room
+			let other_sessions = room.get_all_sessions(None).await;
+			drop(room);
+
+			for other_session in other_sessions {
+				if let Some(session_mtx) = other_session.instance_mtx.upgrade() {
+					session_mtx
+						.lock()
+						.await
+						.queue_send_packet(packet_server::prepare_packet_user_remove(
+							session_handle.id(),
+						));
+				}
+			}
 		}
 	}
 
@@ -247,11 +278,13 @@ impl SessionInstance {
 		room_name: &str,
 		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
-	) -> RoomInstanceMutex {
+	) -> anyhow::Result<RoomInstanceMutex> {
 		let mut server = server_mtx.lock().await;
-		let room_mtx = server.add_session_to_room(room_name, session_handle).await;
+		let room_mtx = server
+			.add_session_to_room(room_name, session_handle)
+			.await?;
 		self.room_mtx = Some(room_mtx.clone());
-		room_mtx
+		Ok(room_mtx)
 	}
 
 	async fn process_command_announce(
@@ -322,24 +355,63 @@ impl SessionInstance {
 			}
 		}
 
+		self.queue_send_packet(packet_server::prepare_packet_your_id(session_handle.id()));
+
 		// Load room
 		let room_mtx = self
 			.join_room(&packet.room_name, session_handle, server_mtx)
-			.await;
+			.await?;
 
-		self.queue_send_packet(packet_server::prepare_packet_your_id(session_handle.id()));
-
-		// Broadcast to all users that this user is available
-		room_mtx
+		self.nick_name = room_mtx
 			.lock()
 			.await
+			.get_suitable_nick_name(packet.nick_name.as_str(), session_handle)
+			.await;
+
+		// Broadcast to all users that this user is available
+		self.broadcast_self(room_mtx, session_handle).await;
+
+		// Reset tool state
+		self.tool = ToolData::default();
+
+		Ok(())
+	}
+
+	async fn broadcast_self(&mut self, room_mtx: RoomInstanceMutex, session_handle: &SessionHandle) {
+		let room = room_mtx.lock().await;
+
+		// Announce itself to other existing sessions
+		room
 			.broadcast(
-				&packet_server::prepare_packet_user_create(session_handle.id(), self),
+				&packet_server::prepare_packet_user_create(session_handle.id(), &self.nick_name),
 				Some(session_handle),
 			)
 			.await;
 
-		Ok(())
+		// Send annountement packets to this session from all other existing sessions (its positions and states)
+		let other_sessions = room.get_all_sessions(Some(session_handle)).await;
+
+		drop(room); //No more needed in this context
+
+		for other_session in other_sessions {
+			if let Some(session_mtx) = other_session.instance_mtx.upgrade() {
+				let session = session_mtx.lock().await;
+				let other_session_id = other_session.handle.id();
+
+				//Send user creation packet
+				self.queue_send_packet(packet_server::prepare_packet_user_create(
+					other_session_id,
+					&session.nick_name,
+				));
+
+				//Send current cursor positions of the session
+				self.queue_send_packet(packet_server::prepare_packet_user_cursor_pos(
+					other_session_id,
+					session.cursor_pos.x,
+					session.cursor_pos.y,
+				));
+			}
+		}
 	}
 
 	async fn process_command_message(&mut self, _reader: &mut BinaryReader) -> Result<(), UserError> {
@@ -350,10 +422,33 @@ impl SessionInstance {
 		// Ignore
 	}
 
-	async fn process_command_cursor_pos(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	async fn process_command_cursor_pos(
+		&mut self,
+		reader: &mut BinaryReader,
+		session_handle: &SessionHandle,
+	) -> anyhow::Result<()> {
 		self.cursor_pos_prev = self.cursor_pos.clone();
 		self.cursor_pos = packet_client::PacketCursorPos::read(reader)?;
-		self.update_cursor().await;
+
+		if let Some(room_mtx) = &self.room_mtx {
+			let room = room_mtx.lock().await;
+
+			room
+				.broadcast(
+					&packet_server::prepare_packet_user_cursor_pos(
+						session_handle.id(),
+						self.cursor_pos.x,
+						self.cursor_pos.y,
+					),
+					Some(session_handle),
+				)
+				.await;
+
+			drop(room);
+
+			self.update_cursor().await;
+		}
+
 		Ok(())
 	}
 

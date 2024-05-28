@@ -1,4 +1,5 @@
 use crate::{
+	database::Database,
 	packet_server,
 	server::Server,
 	session::{SessionHandle, SessionInstanceWeak},
@@ -6,20 +7,27 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-struct SessionCell {
-	instance_mtx: SessionInstanceWeak,
-	handle: SessionHandle,
+#[derive(Clone)]
+pub struct SessionCell {
+	pub instance_mtx: SessionInstanceWeak,
+	pub handle: SessionHandle,
 }
 
 pub struct RoomInstance {
 	sessions: Vec<SessionCell>,
+	database: Database,
+	cleaned_up: bool,
 }
 
 impl RoomInstance {
-	pub fn new() -> Self {
-		Self {
+	pub async fn new(room_name: &str) -> anyhow::Result<Self> {
+		let db_path = format!("rooms/{}.db", room_name);
+
+		Ok(Self {
 			sessions: Vec::new(),
-		}
+			database: Database::new(db_path.as_str()).await?,
+			cleaned_up: false,
+		})
 	}
 
 	pub fn add_session(&mut self, server: &Server, session_handle: &SessionHandle) {
@@ -53,6 +61,70 @@ impl RoomInstance {
 				session.queue_send_packet(packet.clone());
 			}
 		}
+	}
+
+	pub async fn get_all_sessions(&self, except: Option<&SessionHandle>) -> Vec<SessionCell> {
+		let mut ret: Vec<SessionCell> = Vec::new();
+
+		for cell in &self.sessions {
+			if let Some(except) = except {
+				if cell.handle == *except {
+					continue;
+				}
+			}
+			ret.push(cell.clone());
+		}
+
+		ret
+	}
+
+	fn gen_suitable_name(current: &str, occupied_num: &Option<u32>) -> String {
+		if let Some(num) = occupied_num {
+			format!("{} ({})", current, num)
+		} else {
+			String::from(current)
+		}
+	}
+
+	pub async fn get_suitable_nick_name(&self, current: &str, except: &SessionHandle) -> String {
+		let mut occupied_num: Option<u32> = None;
+
+		loop {
+			let mut occupied = false;
+			for session in &self.sessions {
+				if session.handle == *except {
+					continue;
+				}
+
+				if let Some(session) = session.instance_mtx.upgrade() {
+					if session.lock().await.nick_name == Self::gen_suitable_name(current, &occupied_num) {
+						occupied = true;
+						if let Some(num) = &mut occupied_num {
+							*num += 1;
+						} else {
+							occupied_num = Some(2);
+						}
+					}
+				}
+			}
+
+			if !occupied {
+				break;
+			}
+		}
+
+		Self::gen_suitable_name(current, &occupied_num)
+	}
+
+	pub async fn cleanup(&mut self) {
+		self.database.cleanup().await;
+		self.cleaned_up = true;
+	}
+}
+
+impl Drop for RoomInstance {
+	fn drop(&mut self) {
+		assert!(self.cleaned_up, "cleanup() not called");
 	}
 }
 

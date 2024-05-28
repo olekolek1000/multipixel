@@ -49,7 +49,7 @@ enum ServerCmd {
 	chunk_create = 110,			// s32 chunkX, s32 chunkY
 	chunk_remove = 111,			// s32 chunkX, s32 chunkY
 	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, complex data
-	user_create = 1000,			// u16 id, utf-8 nickname
+	user_create = 1000,			// u16 id, u8 text_size, utf-8 nickname
 	user_remove = 1001,			// u16 id
 	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
 	processing_status_text = 1100, // utf-8 text
@@ -392,8 +392,11 @@ export class Client {
 				break;
 			}
 			case ServerCmd.user_create: {
-				let id = dataview.getUint16(0);
-				let nickname = new TextDecoder().decode(new DataView(e.data, header_offset + size_u16));
+				let offset = 0;
+				let id = dataview.getUint16(offset); offset += 2;
+				let text_size = dataview.getUint8(offset); offset += 1;
+				let view_str = createViewSize(offset, text_size); offset += text_size;
+				let nickname = new TextDecoder().decode(view_str);
 				this.users[id] = new User(id, nickname);
 				this.multipixel.updatePlayerList();
 				map.triggerRerender();

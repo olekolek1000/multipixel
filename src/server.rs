@@ -27,38 +27,40 @@ impl Server {
 		(self.sessions.add(session_mtx.clone()), session_mtx)
 	}
 
-	pub async fn get_or_load_room(&mut self, room_name: &str) -> RoomInstanceMutex {
+	pub async fn get_or_load_room(&mut self, room_name: &str) -> anyhow::Result<RoomInstanceMutex> {
 		if let Some(room_mtx) = self.rooms.get(room_name) {
 			//Get existing room
-			return room_mtx.clone();
+			return Ok(room_mtx.clone());
 		}
 
 		log::info!("Creating room with name {}", room_name);
-		let room = Arc::new(Mutex::new(RoomInstance::new()));
+		let room = Arc::new(Mutex::new(RoomInstance::new(room_name).await?));
 		self.rooms.insert(String::from(room_name), room.clone());
-		room
+		Ok(room)
 	}
 
 	pub async fn add_session_to_room(
 		&mut self,
 		room_name: &str,
 		session_handle: &SessionHandle,
-	) -> RoomInstanceMutex {
-		let room_instance_mtx = self.get_or_load_room(room_name).await;
+	) -> anyhow::Result<RoomInstanceMutex> {
+		let room_instance_mtx = self.get_or_load_room(room_name).await?;
 
 		room_instance_mtx
 			.lock()
 			.await
 			.add_session(self, session_handle);
 
-		room_instance_mtx
+		Ok(room_instance_mtx)
 	}
 
 	pub async fn cleanup_rooms(&mut self) {
 		// .retain() cannot be used in async environment
 		let mut rooms_to_remove: Vec<String> = Vec::new();
 		for (room_name, room) in &self.rooms {
-			if room.lock().await.wants_to_be_removed() {
+			let mut room = room.lock().await;
+			if room.wants_to_be_removed() {
+				room.cleanup().await;
 				rooms_to_remove.push(room_name.clone());
 			}
 		}
