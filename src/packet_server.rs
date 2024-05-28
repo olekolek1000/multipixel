@@ -5,8 +5,6 @@ use std::mem::size_of;
 use bytes::{BufMut, Bytes, BytesMut};
 use glam::IVec2;
 
-use crate::session::SessionInstance;
-
 pub enum MessageType {
 	PlainText = 0,
 	Html = 1,
@@ -25,7 +23,7 @@ pub enum ServerCmd {
 	ChunkCreate = 110,           // s32 chunkX, s32 chunkY
 	ChunkRemove = 111,           // s32 chunkX, s32 chunkY
 	PreviewImage = 200,          // s32 previewX, s32 previewY, u8 zoom, complex data
-	UserCreate = 1000,           // u16 id, utf-8 nickname
+	UserCreate = 1000,           // u16 id, u8 text_size, utf-8 nickname
 	UserRemove = 1001,           // u16 id
 	UserCursorPos = 1002,        // u16 id, s32 x, s32 y
 	ProcessingStatusText = 1100, // utf-8 text
@@ -106,12 +104,12 @@ pub fn prepare_packet_user_cursor_pos(session_id: u32, x: i32, y: i32) -> Packet
 	Packet { data: buf.into() }
 }
 
-pub fn prepare_packet_user_create(session_id: u32, session: &SessionInstance) -> Packet {
+pub fn prepare_packet_user_create(session_id: u32, nickname: &str) -> Packet {
 	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
 
 	buf.put_u16(ServerCmd::UserCreate as CommandIndex);
 	buf.put_u16(session_id as u16);
-	put_string_u8(&mut buf, session.nickname.as_str());
+	put_string_u8(&mut buf, nickname);
 
 	Packet { data: buf.into() }
 }
