@@ -64,7 +64,7 @@ impl PacketAnnounce {
 	}
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub struct PacketCursorPos {
 	pub x: i32,
 	pub y: i32,

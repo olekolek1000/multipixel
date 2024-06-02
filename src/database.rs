@@ -26,6 +26,13 @@ pub struct Database {
 	cleaned_up: bool,
 }
 
+pub struct ChunkDatabaseRecord {
+	pub compression_type: CompressionType,
+	pub created_at: u64,  //unix timestamp
+	pub modified_at: u64, // unix timestamp
+	pub data: Vec<u8>,
+}
+
 impl Database {
 	pub async fn new(path: &str) -> anyhow::Result<Self> {
 		let client = ClientBuilder::new()
@@ -144,6 +151,42 @@ impl Database {
 		}
 
 		Ok(())
+	}
+
+	pub fn chunk_load_data(
+		conn: rusqlite::Connection,
+		pos: IVec2,
+	) -> anyhow::Result<Option<ChunkDatabaseRecord>> {
+		struct Row {
+			data: Vec<u8>,
+			compression: u8,
+			modified: i64,
+			created: i64,
+		}
+
+		if let Some(row) = conn
+			.query_row(
+				"SELECT data, compression, modified, created FROM chunk_data WHERE x=? AND y=? ORDER BY modified DESC",
+				rusqlite::params![pos.x, pos.y],
+				|row| {
+					Ok(Row {
+						data: row.get(0)?,
+						compression: row.get(1)?,
+						modified: row.get(2)?,
+						created: row.get(3)?,
+					})
+				},
+			)
+			.optional()? {
+				return Ok(Some(ChunkDatabaseRecord{
+					compression_type: CompressionType::try_from(row.compression)?,
+					created_at: row.created as u64,
+					modified_at: row.modified as u64,
+					data: row.data,
+				}));
+			}
+
+		Ok(None)
 	}
 
 	pub async fn cleanup(&mut self) {
