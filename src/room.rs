@@ -1,4 +1,5 @@
 use crate::{
+	chunk_system::ChunkSystem,
 	database::Database,
 	packet_server,
 	server::Server,
@@ -16,6 +17,7 @@ pub struct SessionCell {
 pub struct RoomInstance {
 	sessions: Vec<SessionCell>,
 	database: Database,
+	pub chunk_system: Arc<Mutex<ChunkSystem>>,
 	cleaned_up: bool,
 }
 
@@ -27,6 +29,7 @@ impl RoomInstance {
 			sessions: Vec::new(),
 			database: Database::new(db_path.as_str()).await?,
 			cleaned_up: false,
+			chunk_system: Arc::new(Mutex::new(ChunkSystem::new())),
 		})
 	}
 

@@ -1,16 +1,20 @@
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
+use glam::IVec2;
 use std::collections::VecDeque;
 use std::error::Error;
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 use std::{fmt, io};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio_websockets::Message;
 
+use crate::chunk::ChunkInstanceWeak;
+use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
 use crate::packet_client::ClientCmd;
-use crate::room::RoomInstanceMutex;
+use crate::room::{RoomInstance, RoomInstanceMutex};
 use crate::server::ServerMutex;
-use crate::{gen_id, limits, packet_client, packet_server, ConnectionWriter};
+use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
 
 // Any protocol usage error that shouldn't be tolerated.
 // Causes termination of the session with the kick message provided in the UserError constructor.
@@ -51,6 +55,31 @@ impl Default for ToolData {
 	}
 }
 
+struct LinkedChunk {
+	pos: IVec2,
+	chunk: ChunkInstanceWeak,
+	outside_boundary_duration: u32,
+}
+
+impl LinkedChunk {
+	fn new(pos: &IVec2, chunk: &ChunkInstanceWeak) -> Self {
+		Self {
+			pos: pos.clone(),
+			chunk: chunk.clone(),
+			outside_boundary_duration: 0,
+		}
+	}
+}
+
+#[derive(Default)]
+struct Boundary {
+	start_x: i32,
+	start_y: i32,
+	end_x: i32,
+	end_y: i32,
+	zoom: f32,
+}
+
 pub struct SessionInstance {
 	pub nick_name: String, // Max 255 characters
 
@@ -59,12 +88,21 @@ pub struct SessionInstance {
 
 	cursor_pos: packet_client::PacketCursorPos,
 	cursor_pos_prev: packet_client::PacketCursorPos,
+	cursor_pos_sent: Option<packet_client::PacketCursorPos>,
 	cursor_down: bool,
 	cursor_just_clicked: bool,
+
+	needs_boundary_test: bool,
+	boundary: Boundary,
+
+	linked_chunks: Vec<LinkedChunk>,
+	chunks_sent: u32,     // Number of chunks received by the client
+	chunks_received: u32, // Number of chunks sent by the server
 
 	tool: ToolData,
 
 	room_mtx: Option<RoomInstanceMutex>,
+	chunk_system_mtx: Option<ChunkSystemMutex>,
 
 	kicked: bool,
 	announced: bool,
@@ -77,22 +115,65 @@ impl SessionInstance {
 			nick_name: String::new(),
 			cursor_pos: Default::default(),
 			cursor_pos_prev: Default::default(),
+			cursor_pos_sent: None,
 			cursor_down: false,
 			cursor_just_clicked: false,
 			kicked: false,
 			announced: false,
+			needs_boundary_test: false,
 			tool: Default::default(),
 			room_mtx: Default::default(),
+			chunk_system_mtx: Default::default(),
 			packets_to_send: Default::default(),
 			notify_send: Arc::new(Notify::new()),
+			chunks_received: 0,
+			chunks_sent: 0,
+			linked_chunks: Default::default(),
+			boundary: Default::default(),
 			cleaned_up: false,
 		}
 	}
 
-	pub fn launch_sender_task(session_weak: SessionInstanceWeak, mut writer: ConnectionWriter) {
-		tokio::task::spawn(async move {
-			loop {
-				if let Some(session_mtx) = session_weak.upgrade() {
+	pub fn launch_tick_task(session_handle: SessionHandle, session_weak: SessionInstanceWeak) {
+		tokio::task::Builder::new()
+			.name(format!("Session {} tick task", session_handle.id()).as_str())
+			.spawn(async move {
+				let mut ticks: u32 = 0;
+				while let Some(session_mtx) = session_weak.upgrade() {
+					let mut session = session_mtx.lock().await;
+					if session.cleaned_up {
+						break;
+					}
+
+					session.tick_cursor(&session_handle).await;
+					session.tick_boundary_check().await;
+
+					if ticks % 20 == 0 {
+						session.tick_chunks_cleanup().await;
+					}
+
+					ticks += 1;
+
+					drop(session);
+
+					// TODO (low priority): calculate execution time instead of ticking every 50ms
+					tokio::time::sleep(Duration::from_millis(50)).await;
+				}
+
+				log::trace!("Session tick task ended");
+			})
+			.unwrap();
+	}
+
+	pub fn launch_sender_task(
+		session_id: u32,
+		session_weak: SessionInstanceWeak,
+		mut writer: ConnectionWriter,
+	) {
+		tokio::task::Builder::new()
+			.name(format!("Session {} sender task", session_id).as_str())
+			.spawn(async move {
+				while let Some(session_mtx) = session_weak.upgrade() {
 					let mut session = session_mtx.lock().await;
 
 					let notify = session.notify_send.clone(); // Wait for incoming send data if requested
@@ -100,14 +181,14 @@ impl SessionInstance {
 					notify.notified().await;
 					session = session_mtx.lock().await;
 					if session.cleaned_up {
-						//log::trace!("Ending send task");
-						return; // End this task
+						break; // End this task
 					}
 
 					let _ = session.send_all(&mut writer).await;
 				}
-			}
-		});
+				log::trace!("Session sender task ended");
+			})
+			.unwrap();
 	}
 
 	async fn parse_command(
@@ -280,10 +361,17 @@ impl SessionInstance {
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<RoomInstanceMutex> {
 		let mut server = server_mtx.lock().await;
+
+		// Fetch room and chunk system references
 		let room_mtx = server
 			.add_session_to_room(room_name, session_handle)
 			.await?;
 		self.room_mtx = Some(room_mtx.clone());
+
+		let room = room_mtx.lock().await;
+		self.chunk_system_mtx = Some(room.chunk_system.clone());
+		drop(room);
+
 		Ok(room_mtx)
 	}
 
@@ -425,29 +513,11 @@ impl SessionInstance {
 	async fn process_command_cursor_pos(
 		&mut self,
 		reader: &mut BinaryReader,
-		session_handle: &SessionHandle,
+		_session_handle: &SessionHandle,
 	) -> anyhow::Result<()> {
 		self.cursor_pos_prev = self.cursor_pos.clone();
 		self.cursor_pos = packet_client::PacketCursorPos::read(reader)?;
-
-		if let Some(room_mtx) = &self.room_mtx {
-			let room = room_mtx.lock().await;
-
-			room
-				.broadcast(
-					&packet_server::prepare_packet_user_cursor_pos(
-						session_handle.id(),
-						self.cursor_pos.x,
-						self.cursor_pos.y,
-					),
-					Some(session_handle),
-				)
-				.await;
-
-			drop(room);
-
-			self.update_cursor().await;
-		}
+		self.update_cursor().await;
 
 		Ok(())
 	}
@@ -537,6 +607,117 @@ impl SessionInstance {
 	async fn process_command_undo(&mut self, _reader: &mut BinaryReader) {
 		// TODO
 	}
+
+	async fn fetch_room(&self) -> Option<MutexGuard<RoomInstance>> {
+		if let Some(room_mtx) = &self.room_mtx {
+			let room = room_mtx.lock().await;
+			return Some(room);
+		}
+		None
+	}
+
+	async fn send_cursor_pos_to_all(&mut self, session_handle: &SessionHandle) {
+		if let Some(room) = self.fetch_room().await {
+			// Send our cursor position to other sessions
+			room
+				.broadcast(
+					&packet_server::prepare_packet_user_cursor_pos(
+						session_handle.id(),
+						self.cursor_pos.x,
+						self.cursor_pos.y,
+					),
+					Some(session_handle),
+				)
+				.await;
+		}
+		self.cursor_pos_sent = Some(self.cursor_pos.clone());
+	}
+
+	pub async fn tick_cursor(&mut self, session_handle: &SessionHandle) {
+		if let Some(cursor_pos_sent) = &self.cursor_pos_sent {
+			if self.cursor_pos != *cursor_pos_sent {
+				self.send_cursor_pos_to_all(session_handle).await;
+			}
+		} else {
+			self.send_cursor_pos_to_all(session_handle).await;
+		}
+	}
+
+	fn is_chunk_linked(&self, chunk_pos: IVec2) -> bool {
+		for chunk in &self.linked_chunks {
+			if chunk.pos == chunk_pos {
+				return true;
+			}
+		}
+		false
+	}
+
+	fn link_chunk(&mut self, linked_chunk: LinkedChunk) {
+		self.linked_chunks.push(linked_chunk);
+	}
+
+	pub async fn tick_boundary_check(&mut self) {
+		if !self.needs_boundary_test {
+			return;
+		}
+
+		if self.boundary.zoom > limits::BOUNDARY_ZOOM_MIN {
+			let mut chunks_to_load: Vec<IVec2> = Vec::new();
+
+			// Check which chunks aren't announced for this session
+			for y in self.boundary.start_y..self.boundary.end_y {
+				for x in self.boundary.start_x..self.boundary.end_x {
+					if !self.is_chunk_linked(IVec2 { x, y }) {
+						chunks_to_load.push(IVec2 { x, y });
+					}
+				}
+			}
+
+			if !chunks_to_load.is_empty() {
+				let in_queue: u32 = (self.chunks_sent as i32 - self.chunks_received as i32) as u32;
+				let to_send: u32 = 20 - in_queue; // Max 20 queued chunks
+
+				for _iterations in 0..to_send {
+					// Get closest chunk (circular loading)
+					let center_x = self.cursor_pos.x as f32 / limits::CHUNK_SIZE_PX as f32;
+					let center_y = self.cursor_pos.y as f32 / limits::CHUNK_SIZE_PX as f32;
+
+					let mut closest_position = IVec2 { x: 0, y: 0 };
+					let mut closest_distance: f32 = f32::MAX;
+
+					for ch in &chunks_to_load {
+						let distance = util::distance(center_x, center_y, ch.x as f32, ch.y as f32);
+						if distance < closest_distance {
+							closest_distance = distance;
+							closest_position = *ch;
+						}
+					}
+
+					for (idx, p) in chunks_to_load.iter().enumerate() {
+						if *p == closest_position {
+							chunks_to_load.remove(idx);
+							break;
+						}
+					}
+
+					// Announce chunk
+					self.chunks_sent += 1;
+
+					if let Some(chunk_system_mtx) = &self.chunk_system_mtx {
+						let chunk_system = chunk_system_mtx.lock().await;
+						let chunk_mtx = chunk_system.get_chunk_mtx(closest_position).clone();
+						let mut chunk = chunk_mtx.lock().await;
+						chunk.link_session(self);
+						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
+						drop(chunk_system);
+						self.link_chunk(linked_chunk);
+					}
+				}
+			}
+		}
+	}
+
+	pub async fn tick_chunks_cleanup(&mut self) {}
 }
 
 impl Drop for SessionInstance {

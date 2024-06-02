@@ -28,6 +28,7 @@ mod packet_server;
 mod room;
 mod server;
 mod session;
+mod util;
 
 pub type Connection = WebSocketStream<TcpStream>;
 pub type ConnectionWriter = SplitSink<WebSocketStream<TcpStream>, Message>;
@@ -44,7 +45,10 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 	log::info!("Created session with ID {}", session_handle.id());
 
 	// Spawn sender task
-	SessionInstance::launch_sender_task(Arc::downgrade(&session_mtx), writer);
+	SessionInstance::launch_sender_task(session_handle.id(), Arc::downgrade(&session_mtx), writer);
+
+	// Spatn tick task
+	SessionInstance::launch_tick_task(session_handle, Arc::downgrade(&session_mtx));
 
 	loop {
 		match reader.next().await {
@@ -86,11 +90,14 @@ async fn task_listener(listener: TcpListener) -> anyhow::Result<()> {
 
 	while let Ok((tcp_conn, _)) = listener.accept().await {
 		let s = server.clone();
-		tokio::spawn(async move {
-			if let Err(e) = task_processor(tcp_conn, s).await {
-				log::error!("task_processor: {}", e);
-			}
-		});
+		tokio::task::Builder::new()
+			.name("Listener task")
+			.spawn(async move {
+				if let Err(e) = task_processor(tcp_conn, s).await {
+					log::error!("task_processor: {}", e);
+				}
+			})
+			.unwrap();
 	}
 
 	Ok(())
@@ -113,6 +120,7 @@ async fn run() -> anyhow::Result<()> {
 
 fn main() {
 	let runtime = tokio::runtime::Builder::new_multi_thread()
+		.enable_time()
 		.worker_threads(2)
 		.thread_name("mp")
 		.thread_stack_size(2 * 1024 * 1024)
