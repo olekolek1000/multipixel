@@ -16,7 +16,7 @@ pub struct SessionCell {
 
 pub struct RoomInstance {
 	sessions: Vec<SessionCell>,
-	database: Database,
+	pub database: Database,
 	pub chunk_system: Arc<Mutex<ChunkSystem>>,
 	cleaned_up: bool,
 }

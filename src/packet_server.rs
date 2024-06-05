@@ -5,6 +5,8 @@ use std::mem::size_of;
 use bytes::{BufMut, Bytes, BytesMut};
 use glam::IVec2;
 
+use crate::limits;
+
 pub enum MessageType {
 	PlainText = 0,
 	Html = 1,
@@ -139,6 +141,18 @@ pub fn prepare_packet_chunk_remove(chunk_pos: IVec2) -> Packet {
 	buf.put_u16(ServerCmd::ChunkRemove as CommandIndex);
 	buf.put_i32(chunk_pos.x);
 	buf.put_i32(chunk_pos.y);
+
+	Packet { data: buf.into() }
+}
+
+pub fn prepare_packet_chunk_image(chunk_pos: IVec2, compressed_chunk_data: &[u8]) -> Packet {
+	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
+
+	buf.put_u16(ServerCmd::ChunkImage as CommandIndex);
+	buf.put_i32(chunk_pos.x);
+	buf.put_i32(chunk_pos.y);
+	buf.put_u32(limits::CHUNK_IMAGE_SIZE_BYTES as u32);
+	buf.put_slice(compressed_chunk_data);
 
 	Packet { data: buf.into() }
 }

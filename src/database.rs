@@ -21,7 +21,7 @@ pub enum CompressionType {
 }
 
 pub struct Database {
-	client: async_sqlite::Client,
+	pub client: async_sqlite::Client,
 
 	cleaned_up: bool,
 }
@@ -154,9 +154,9 @@ impl Database {
 	}
 
 	pub fn chunk_load_data(
-		conn: rusqlite::Connection,
+		conn: &rusqlite::Connection,
 		pos: IVec2,
-	) -> anyhow::Result<Option<ChunkDatabaseRecord>> {
+	) -> Result<Option<ChunkDatabaseRecord>, rusqlite::Error> {
 		struct Row {
 			data: Vec<u8>,
 			compression: u8,
@@ -179,7 +179,7 @@ impl Database {
 			)
 			.optional()? {
 				return Ok(Some(ChunkDatabaseRecord{
-					compression_type: CompressionType::try_from(row.compression)?,
+					compression_type: CompressionType::try_from(row.compression).unwrap_or(CompressionType::Lz4),
 					created_at: row.created as u64,
 					modified_at: row.modified as u64,
 					data: row.data,
