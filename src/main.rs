@@ -19,6 +19,7 @@ extern crate pretty_env_logger;
 
 mod chunk;
 mod chunk_system;
+mod compression;
 mod config;
 mod database;
 mod id;

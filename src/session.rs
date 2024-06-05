@@ -64,7 +64,7 @@ struct LinkedChunk {
 impl LinkedChunk {
 	fn new(pos: &IVec2, chunk: &ChunkInstanceWeak) -> Self {
 		Self {
-			pos: pos.clone(),
+			pos: *pos,
 			chunk: chunk.clone(),
 			outside_boundary_duration: 0,
 		}
@@ -134,33 +134,49 @@ impl SessionInstance {
 		}
 	}
 
+	async fn tick_task_runner(
+		session_weak: SessionInstanceWeak,
+		session_handle: &SessionHandle,
+	) -> anyhow::Result<()> {
+		let mut ticks: u32 = 0;
+		while let Some(session_mtx) = session_weak.upgrade() {
+			let mut session = session_mtx.lock().await;
+			if session.cleaned_up {
+				break;
+			}
+
+			session.tick_cursor(session_handle).await;
+			if let Err(e) = session
+				.tick_boundary_check(session_handle, &session_mtx)
+				.await
+			{
+				session.handle_error(&e).await?;
+			}
+
+			if ticks % 20 == 0 {
+				session.tick_chunks_cleanup().await;
+			}
+
+			ticks += 1;
+
+			drop(session);
+
+			// TODO (low priority): calculate execution time instead of ticking every 50ms
+			tokio::time::sleep(Duration::from_millis(50)).await;
+		}
+
+		Ok(())
+	}
+
 	pub fn launch_tick_task(session_handle: SessionHandle, session_weak: SessionInstanceWeak) {
 		tokio::task::Builder::new()
 			.name(format!("Session {} tick task", session_handle.id()).as_str())
 			.spawn(async move {
-				let mut ticks: u32 = 0;
-				while let Some(session_mtx) = session_weak.upgrade() {
-					let mut session = session_mtx.lock().await;
-					if session.cleaned_up {
-						break;
-					}
-
-					session.tick_cursor(&session_handle).await;
-					session.tick_boundary_check().await;
-
-					if ticks % 20 == 0 {
-						session.tick_chunks_cleanup().await;
-					}
-
-					ticks += 1;
-
-					drop(session);
-
-					// TODO (low priority): calculate execution time instead of ticking every 50ms
-					tokio::time::sleep(Duration::from_millis(50)).await;
+				if let Err(e) = SessionInstance::tick_task_runner(session_weak, &session_handle).await {
+					log::error!("Session tick task ended abnormally: {}", e);
+				} else {
+					log::trace!("Session tick task ended gracefully");
 				}
-
-				log::trace!("Session tick task ended");
 			})
 			.unwrap();
 	}
@@ -213,8 +229,8 @@ impl SessionInstance {
 			}
 			ClientCmd::CursorDown => self.process_command_cursor_down(reader).await?,
 			ClientCmd::CursorUp => self.process_command_cursor_up(reader).await?,
-			ClientCmd::Boundary => self.process_command_boundary(reader).await,
-			ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await,
+			ClientCmd::Boundary => self.process_command_boundary(reader).await?,
+			ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
 			ClientCmd::PreviewRequest => self.process_command_preview_request(reader).await,
 			ClientCmd::ToolSize => self.process_command_tool_size(reader).await?,
 			ClientCmd::ToolColor => self.process_command_tool_color(reader).await?,
@@ -222,6 +238,22 @@ impl SessionInstance {
 			ClientCmd::Undo => self.process_command_undo(reader).await,
 		}
 
+		Ok(())
+	}
+
+	async fn handle_error(&mut self, e: &anyhow::Error) -> anyhow::Result<()> {
+		if e.is::<UserError>() {
+			log::error!("User error: {}", e);
+			let _ = self.kick(format!("User error: {}", e).as_str()).await;
+		} else if e.is::<io::Error>() {
+			log::error!("IO error: {}", e);
+			let _ = self.kick(format!("IO error: {}", e).as_str()).await;
+		} else {
+			log::error!("Unknown error: {}", e);
+			let _ = self.kick("Internal server error. This is a bug.").await;
+			// Pass error further
+			return Err(anyhow::anyhow!("Internal server error: {}", e));
+		}
 		Ok(())
 	}
 
@@ -235,17 +267,7 @@ impl SessionInstance {
 			.process_payload_wrap(session_handle, data, server_mtx)
 			.await
 		{
-			if e.is::<UserError>() {
-				log::error!("User error: {}", e);
-				let _ = self.kick(format!("User error: {}", e).as_str()).await;
-			} else if e.is::<io::Error>() {
-				log::error!("IO error: {}", e);
-				let _ = self.kick(format!("IO error: {}", e).as_str()).await;
-			} else {
-				log::error!("Unknown error: {}", e);
-				let _ = self.kick("Internal server error. This is a bug.").await;
-				return Err(anyhow::anyhow!("Internal server error: {}", e));
-			}
+			self.handle_error(&e).await?;
 		}
 
 		Ok(())
@@ -271,7 +293,7 @@ impl SessionInstance {
 	}
 
 	async fn history_create_snapshot(&mut self) {
-		log::warn!("history_create_snapshot TODO");
+		todo!()
 	}
 
 	async fn update_cursor(&mut self) {
@@ -554,16 +576,46 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_boundary(&mut self, _reader: &mut BinaryReader) {
-		// TODO
+	async fn process_command_boundary(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+		let start_x = reader.read_i32()?;
+		let start_y = reader.read_i32()?;
+		let mut end_x = reader.read_i32()?;
+		let mut end_y = reader.read_i32()?;
+		let zoom = reader.read_f32()?;
+
+		// Prevent negative boundary
+		end_x = end_x.max(start_x);
+		end_y = end_y.max(start_y);
+
+		// Chunk limit, max area of 20x20 (400) chunks
+		end_x = end_x.min(start_x + 20);
+		end_y = end_y.min(start_y + 20);
+
+		self.boundary.start_x = start_x;
+		self.boundary.start_y = start_y;
+		self.boundary.end_x = end_x;
+		self.boundary.end_y = end_y;
+		self.boundary.zoom = zoom;
+		self.needs_boundary_test = true;
+
+		Ok(())
 	}
 
-	async fn process_command_chunks_received(&mut self, _reader: &mut BinaryReader) {
-		// TODO
+	async fn process_command_chunks_received(
+		&mut self,
+		reader: &mut BinaryReader,
+	) -> anyhow::Result<()> {
+		let chunks_received = reader.read_u32()?;
+		if chunks_received <= self.chunks_received {
+			return Err(UserError::new("\"Chunks received\" packet not incremented"))?;
+		}
+		self.chunks_received = chunks_received;
+		Ok(())
 	}
 
 	async fn process_command_preview_request(&mut self, _reader: &mut BinaryReader) {
 		// TODO
+		log::info!("TODO preview request");
 	}
 
 	async fn process_command_tool_size(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
@@ -605,7 +657,7 @@ impl SessionInstance {
 	}
 
 	async fn process_command_undo(&mut self, _reader: &mut BinaryReader) {
-		// TODO
+		todo!()
 	}
 
 	async fn fetch_room(&self) -> Option<MutexGuard<RoomInstance>> {
@@ -653,12 +705,26 @@ impl SessionInstance {
 	}
 
 	fn link_chunk(&mut self, linked_chunk: LinkedChunk) {
+		// Check if this chunk is already linked
+		for ch in &self.linked_chunks {
+			if ch.pos == linked_chunk.pos {
+				// Already linked
+				log::error!("Chunk {} is already linked", linked_chunk.pos);
+			}
+		}
+
+		let chunk_pos = linked_chunk.pos;
 		self.linked_chunks.push(linked_chunk);
+		self.queue_send_packet(packet_server::prepare_packet_chunk_create(chunk_pos));
 	}
 
-	pub async fn tick_boundary_check(&mut self) {
+	pub async fn tick_boundary_check(
+		&mut self,
+		session_handle: &SessionHandle,
+		session: &SessionInstanceMutex,
+	) -> anyhow::Result<()> {
 		if !self.needs_boundary_test {
-			return;
+			return Ok(());
 		}
 
 		if self.boundary.zoom > limits::BOUNDARY_ZOOM_MIN {
@@ -703,18 +769,29 @@ impl SessionInstance {
 					// Announce chunk
 					self.chunks_sent += 1;
 
-					if let Some(chunk_system_mtx) = &self.chunk_system_mtx {
-						let chunk_system = chunk_system_mtx.lock().await;
-						let chunk_mtx = chunk_system.get_chunk_mtx(closest_position).clone();
-						let mut chunk = chunk_mtx.lock().await;
-						chunk.link_session(self);
-						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
-						drop(chunk_system);
-						self.link_chunk(linked_chunk);
+					if let Some(opt_room) = &self.room_mtx {
+						if let Some(chunk_system_mtx) = &self.chunk_system_mtx {
+							let mut chunk_system = chunk_system_mtx.lock().await;
+							let room = opt_room.lock().await;
+							let chunk_mtx = chunk_system.get_chunk(&room, closest_position).await?;
+							let mut chunk = chunk_mtx.lock().await;
+							chunk.link_session(session_handle, session);
+							let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
+							drop(chunk_system);
+							drop(room);
+							self.link_chunk(linked_chunk);
+							chunk.send_chunk_data_to_session(self);
+						}
+					}
+
+					if chunks_to_load.is_empty() {
+						break;
 					}
 				}
 			}
 		}
+
+		Ok(())
 	}
 
 	pub async fn tick_chunks_cleanup(&mut self) {}
