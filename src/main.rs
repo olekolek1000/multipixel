@@ -26,6 +26,7 @@ mod id;
 mod limits;
 mod packet_client;
 mod packet_server;
+mod preview_system;
 mod room;
 mod server;
 mod session;

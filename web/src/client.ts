@@ -48,7 +48,7 @@ enum ServerCmd {
 	chunk_pixel_pack = 101, // complex data
 	chunk_create = 110,			// s32 chunkX, s32 chunkY
 	chunk_remove = 111,			// s32 chunkX, s32 chunkY
-	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, complex data
+	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, u32 data size, data
 	user_create = 1000,			// u16 id, u8 text_size, utf-8 nickname
 	user_remove = 1001,			// u16 id
 	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
@@ -381,9 +381,11 @@ export class Client {
 				let previewX = dataview.getInt32(offset); offset += 4;
 				let previewY = dataview.getInt32(offset); offset += 4;
 				let zoom = dataview.getUint8(offset); offset += 1;
+				let data_size = dataview.getUint32(offset); offset += 4;
 
 				let rgb = Buffer.alloc(CHUNK_SIZE * CHUNK_SIZE * 3);
-				let compressed = raw_data.slice(header_offset + offset);
+				const data_from = header_offset + offset;
+				let compressed = raw_data.slice(data_from, data_from + data_size);
 				LZ4.decodeBlock(Buffer.from(compressed), rgb);
 
 				let preview = this.multipixel.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);

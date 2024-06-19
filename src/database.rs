@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_sqlite::{
 	rusqlite::{self, OptionalExtension},
 	ClientBuilder, JournalMode,
@@ -31,6 +33,10 @@ pub struct ChunkDatabaseRecord {
 	pub created_at: u64,  //unix timestamp
 	pub modified_at: u64, // unix timestamp
 	pub data: Vec<u8>,
+}
+
+pub struct PreviewDatabaseRecord {
+	pub data: Arc<Vec<u8>>,
 }
 
 impl Database {
@@ -185,6 +191,31 @@ impl Database {
 					data: row.data,
 				}));
 			}
+
+		Ok(None)
+	}
+
+	pub fn preview_load_data(
+		conn: &rusqlite::Connection,
+		pos: &IVec2,
+		zoom: u8,
+	) -> Result<Option<PreviewDatabaseRecord>, rusqlite::Error> {
+		struct Row {
+			data: Vec<u8>,
+		}
+
+		if let Some(row) = conn
+			.query_row(
+				"SELECT data FROM previews WHERE x=? AND y=? AND zoom=?",
+				rusqlite::params![pos.x, pos.y, zoom],
+				|row| Ok(Row { data: row.get(0)? }),
+			)
+			.optional()?
+		{
+			return Ok(Some(PreviewDatabaseRecord {
+				data: Arc::new(row.data),
+			}));
+		}
 
 		Ok(None)
 	}
