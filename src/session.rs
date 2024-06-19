@@ -12,6 +12,7 @@ use tokio_websockets::Message;
 use crate::chunk::ChunkInstanceWeak;
 use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
 use crate::packet_client::ClientCmd;
+use crate::preview_system::{PreviewSystem, PreviewSystemMutex};
 use crate::room::{RoomInstance, RoomInstanceMutex};
 use crate::server::ServerMutex;
 use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
@@ -103,6 +104,7 @@ pub struct SessionInstance {
 
 	room_mtx: Option<RoomInstanceMutex>,
 	chunk_system_mtx: Option<ChunkSystemMutex>,
+	preview_system_mtx: Option<PreviewSystemMutex>,
 
 	kicked: bool,
 	announced: bool,
@@ -124,6 +126,7 @@ impl SessionInstance {
 			tool: Default::default(),
 			room_mtx: Default::default(),
 			chunk_system_mtx: Default::default(),
+			preview_system_mtx: Default::default(),
 			packets_to_send: Default::default(),
 			notify_send: Arc::new(Notify::new()),
 			chunks_received: 0,
@@ -231,7 +234,7 @@ impl SessionInstance {
 			ClientCmd::CursorUp => self.process_command_cursor_up(reader).await?,
 			ClientCmd::Boundary => self.process_command_boundary(reader).await?,
 			ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
-			ClientCmd::PreviewRequest => self.process_command_preview_request(reader).await,
+			ClientCmd::PreviewRequest => self.process_command_preview_request(reader).await?,
 			ClientCmd::ToolSize => self.process_command_tool_size(reader).await?,
 			ClientCmd::ToolColor => self.process_command_tool_color(reader).await?,
 			ClientCmd::ToolType => self.process_command_tool_type(reader).await?,
@@ -613,9 +616,33 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_preview_request(&mut self, _reader: &mut BinaryReader) {
-		// TODO
-		log::info!("TODO preview request");
+	async fn process_command_preview_request(
+		&mut self,
+		reader: &mut BinaryReader,
+	) -> anyhow::Result<()> {
+		let preview_x = reader.read_i32()?;
+		let preview_y = reader.read_i32()?;
+		let zoom = reader.read_u8()?;
+
+		let mut image_packet = None;
+
+		if let Some(room) = self.fetch_room().await {
+			if let Ok(Some(data)) =
+				PreviewSystem::request_data(&room, &IVec2::new(preview_x, preview_y), zoom).await
+			{
+				image_packet = Some(packet_server::prepare_packet_preview_image(
+					&IVec2::new(preview_x, preview_y),
+					zoom,
+					&data,
+				));
+			}
+		}
+
+		if let Some(image_packet) = image_packet {
+			self.queue_send_packet(image_packet);
+		}
+
+		Ok(())
 	}
 
 	async fn process_command_tool_size(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {

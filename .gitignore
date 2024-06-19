@@ -2,4 +2,6 @@
 chunks.db
 .vscode
 rooms/
-server/target
+target
+TODO
+.gitignore

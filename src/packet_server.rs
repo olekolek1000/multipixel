@@ -24,7 +24,7 @@ pub enum ServerCmd {
 	ChunkPixelPack = 101,        // complex data
 	ChunkCreate = 110,           // s32 chunkX, s32 chunkY
 	ChunkRemove = 111,           // s32 chunkX, s32 chunkY
-	PreviewImage = 200,          // s32 previewX, s32 previewY, u8 zoom, complex data
+	PreviewImage = 200,          // s32 previewX, s32 previewY, u8 zoom, u32 data size, binary data
 	UserCreate = 1000,           // u16 id, u8 text_size, utf-8 nickname
 	UserRemove = 1001,           // u16 id
 	UserCursorPos = 1002,        // u16 id, s32 x, s32 y
@@ -131,6 +131,19 @@ pub fn prepare_packet_chunk_create(chunk_pos: IVec2) -> Packet {
 	buf.put_u16(ServerCmd::ChunkCreate as CommandIndex);
 	buf.put_i32(chunk_pos.x);
 	buf.put_i32(chunk_pos.y);
+
+	Packet { data: buf.into() }
+}
+
+pub fn prepare_packet_preview_image(preview_pos: &IVec2, zoom: u8, data: &[u8]) -> Packet {
+	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
+
+	buf.put_u16(ServerCmd::PreviewImage as CommandIndex);
+	buf.put_i32(preview_pos.x);
+	buf.put_i32(preview_pos.y);
+	buf.put_u8(zoom);
+	buf.put_u32(data.len() as u32);
+	buf.put_slice(data);
 
 	Packet { data: buf.into() }
 }
