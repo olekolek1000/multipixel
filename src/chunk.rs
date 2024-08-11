@@ -7,9 +7,8 @@ use glam::{IVec2, UVec2};
 use tokio::sync::Mutex;
 
 use crate::{
-	compression, gen_id, limits,
-	packet_client::Color,
-	packet_server,
+	compression, gen_id, limits, packet_server,
+	pixel::Color,
 	session::{SessionHandle, SessionInstance, SessionInstanceMutex},
 };
 

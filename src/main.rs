@@ -26,10 +26,12 @@ mod id;
 mod limits;
 mod packet_client;
 mod packet_server;
+mod pixel;
 mod preview_system;
 mod room;
 mod server;
 mod session;
+mod tool;
 mod util;
 
 pub type Connection = WebSocketStream<TcpStream>;

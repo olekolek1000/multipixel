@@ -4,6 +4,7 @@ use crate::{
 	packet_server,
 	server::Server,
 	session::{SessionHandle, SessionInstanceWeak},
+	tool::brush::BrushShapes,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -18,6 +19,7 @@ pub struct RoomInstance {
 	sessions: Vec<SessionCell>,
 	pub database: Database,
 	pub chunk_system: Arc<Mutex<ChunkSystem>>,
+	pub brush_shapes: Arc<Mutex<BrushShapes>>,
 	cleaned_up: bool,
 }
 
@@ -30,6 +32,7 @@ impl RoomInstance {
 			database: Database::new(db_path.as_str()).await?,
 			cleaned_up: false,
 			chunk_system: Arc::new(Mutex::new(ChunkSystem::new())),
+			brush_shapes: Arc::new(Mutex::new(BrushShapes::new())),
 		})
 	}
 

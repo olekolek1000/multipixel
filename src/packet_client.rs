@@ -10,13 +10,6 @@ pub enum ToolType {
 	Fill = 1,
 }
 
-#[derive(Default)]
-pub struct Color {
-	pub r: u8,
-	pub g: u8,
-	pub b: u8,
-}
-
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u16)]
 pub enum ClientCmd {

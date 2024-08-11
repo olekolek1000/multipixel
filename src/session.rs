@@ -10,11 +10,13 @@ use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio_websockets::Message;
 
 use crate::chunk::ChunkInstanceWeak;
-use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
+use crate::chunk_system::ChunkSystemMutex;
 use crate::packet_client::ClientCmd;
+use crate::pixel::{Color, GlobalPixel};
 use crate::preview_system::{PreviewSystem, PreviewSystemMutex};
 use crate::room::{RoomInstance, RoomInstanceMutex};
 use crate::server::ServerMutex;
+use crate::tool::brush::BrushShapes;
 use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
 
 // Any protocol usage error that shouldn't be tolerated.
@@ -42,7 +44,7 @@ impl fmt::Display for UserError {
 
 struct ToolData {
 	pub size: u8,
-	pub color: packet_client::Color,
+	pub color: Color,
 	pub tool_type: Option<packet_client::ToolType>,
 }
 
@@ -105,6 +107,7 @@ pub struct SessionInstance {
 	room_mtx: Option<RoomInstanceMutex>,
 	chunk_system_mtx: Option<ChunkSystemMutex>,
 	preview_system_mtx: Option<PreviewSystemMutex>,
+	brush_shapes_mtx: Option<Arc<Mutex<BrushShapes>>>,
 
 	kicked: bool,
 	announced: bool,
@@ -127,6 +130,7 @@ impl SessionInstance {
 			room_mtx: Default::default(),
 			chunk_system_mtx: Default::default(),
 			preview_system_mtx: Default::default(),
+			brush_shapes_mtx: Default::default(),
 			packets_to_send: Default::default(),
 			notify_send: Arc::new(Notify::new()),
 			chunks_received: 0,
@@ -296,7 +300,8 @@ impl SessionInstance {
 	}
 
 	async fn history_create_snapshot(&mut self) {
-		todo!()
+		log::warn!("history_create_snapshot TODO");
+		//todo!()
 	}
 
 	async fn update_cursor(&mut self) {
@@ -314,7 +319,89 @@ impl SessionInstance {
 		if !self.cursor_down {
 			return;
 		}
-		log::warn!("update_cursor_brush TODO");
+
+		let iters = std::cmp::max(
+			1,
+			util::distance(
+				self.cursor_pos_prev.x as f32,
+				self.cursor_pos_prev.y as f32,
+				self.cursor_pos.x as f32,
+				self.cursor_pos.y as f32,
+			) as u32,
+		);
+
+		if iters > 150 {
+			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+			self.cursor_down = false;
+			return;
+		}
+
+		if let Some(brush_shapes_mtx) = &self.brush_shapes_mtx {
+			let mut pixels: Vec<GlobalPixel> = Vec::new();
+
+			let mut brush_shapes = brush_shapes_mtx.lock().await;
+			let shape_filled = brush_shapes.get_filled(self.tool.size);
+			let shape_outline = brush_shapes.get_outline(self.tool.size);
+			drop(brush_shapes);
+
+			// Draw line
+			for i in 0..iters {
+				let alpha = (i as f64) / iters as f64;
+
+				//Lerp
+				let x = util::lerp(
+					alpha,
+					self.cursor_pos_prev.x as f64,
+					self.cursor_pos.x as f64,
+				) as i32;
+
+				let y = util::lerp(
+					alpha,
+					self.cursor_pos_prev.y as f64,
+					self.cursor_pos.y as f64,
+				)
+				.round() as i32;
+
+				match self.tool.size {
+					1 => GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color),
+					2 => {
+						GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color);
+						GlobalPixel::insert_to_vec(&mut pixels, x - 1, y, &self.tool.color);
+						GlobalPixel::insert_to_vec(&mut pixels, x + 1, y, &self.tool.color);
+						GlobalPixel::insert_to_vec(&mut pixels, x, y - 1, &self.tool.color);
+						GlobalPixel::insert_to_vec(&mut pixels, x, y + 1, &self.tool.color);
+					}
+					_ => {
+						let shape = if i == 0 {
+							&shape_filled
+						} else {
+							&shape_outline
+						};
+						for yy in 0..shape.size {
+							for xx in 0..shape.size {
+								unsafe {
+									if *shape
+										.data
+										.get_unchecked(yy as usize * shape.size as usize + xx as usize)
+										== 1
+									{
+										let pos_x = x as i32 + xx as i32 - (self.tool.size / 2) as i32;
+										let pos_y = y as i32 + yy as i32 - (self.tool.size / 2) as i32;
+										GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			self.set_pixels_global(pixels, false).await;
+		}
+	}
+
+	async fn set_pixels_global(&mut self, pixels: Vec<GlobalPixel>, _queued: bool) {
+		log::warn!("set_pixels_global {} TODO", pixels.len());
 	}
 
 	async fn update_cursor_fill(&mut self) {
@@ -394,6 +481,7 @@ impl SessionInstance {
 		self.room_mtx = Some(room_mtx.clone());
 
 		let room = room_mtx.lock().await;
+		self.brush_shapes_mtx = Some(room.brush_shapes.clone());
 		self.chunk_system_mtx = Some(room.chunk_system.clone());
 		drop(room);
 
@@ -662,7 +750,7 @@ impl SessionInstance {
 		let blue = reader.read_u8()?;
 		//log::trace!("Tool color {} {} {}", red, green, blue);
 
-		self.tool.color = packet_client::Color {
+		self.tool.color = Color {
 			r: red,
 			g: green,
 			b: blue,
