@@ -1,13 +1,12 @@
 use std::{collections::HashMap, sync::Arc};
 
 use glam::IVec2;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::Mutex;
 
 use crate::{
-	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
+	chunk::{ChunkInstance, ChunkInstanceMutex},
 	database::Database,
-	room::{RoomInstance, RoomInstanceMutex},
-	session::SessionInstance,
+	room::RoomInstance,
 };
 
 pub struct ChunkSystem {
