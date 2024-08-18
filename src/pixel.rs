@@ -9,8 +9,8 @@ pub struct Color {
 
 #[derive(Default)]
 pub struct GlobalPixel {
-	pos: IVec2,
-	color: Color,
+	pub pos: IVec2,
+	pub color: Color,
 }
 
 impl GlobalPixel {

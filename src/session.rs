@@ -400,8 +400,17 @@ impl SessionInstance {
 		}
 	}
 
-	async fn set_pixels_global(&mut self, pixels: Vec<GlobalPixel>, _queued: bool) {
-		log::warn!("set_pixels_global {} TODO", pixels.len());
+	async fn set_pixels_global(&mut self, pixels: Vec<GlobalPixel>, queued: bool) {
+		if let Some(room) = self.fetch_room().await {
+			if let Some(chunk_system) = &self.chunk_system_mtx {
+				log::trace!("setting {} pixels", pixels.len());
+				chunk_system
+					.lock()
+					.await
+					.set_pixels_global(&room, pixels, queued)
+					.await;
+			}
+		}
 	}
 
 	async fn update_cursor_fill(&mut self) {

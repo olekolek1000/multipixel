@@ -12,7 +12,7 @@ use crate::{
 	session::{SessionHandle, SessionInstance, SessionInstanceMutex},
 };
 
-struct ChunkPixel {
+pub struct ChunkPixel {
 	pub pos: UVec2,
 	pub color: Color,
 }
