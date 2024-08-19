@@ -1,6 +1,6 @@
 use glam::IVec2;
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub struct Color {
 	pub r: u8,
 	pub g: u8,

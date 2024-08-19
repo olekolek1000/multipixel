@@ -5,7 +5,7 @@ use std::mem::size_of;
 use bytes::{BufMut, Bytes, BytesMut};
 use glam::IVec2;
 
-use crate::limits;
+use crate::{chunk::ChunkPixel, limits};
 
 pub enum MessageType {
 	PlainText = 0,
@@ -177,5 +177,22 @@ pub fn prepare_packet_message(message_type: MessageType, message: &str) -> Packe
 	buf.put_u16(ServerCmd::Message as CommandIndex);
 	put_string_u16(&mut buf, message);
 
+	Packet { data: buf.into() }
+}
+
+pub fn prepare_packet_pixel_pack(
+	xyrgb_lz4_packed: &[u8],
+	chunk_x: i32,
+	chunk_y: i32,
+	pixel_count: u32,
+	raw_size: u32,
+) -> Packet {
+	let mut buf = BytesMut::new();
+	buf.put_u16(ServerCmd::ChunkPixelPack as CommandIndex);
+	buf.put_i32(chunk_x);
+	buf.put_i32(chunk_y);
+	buf.put_u32(pixel_count);
+	buf.put_u32(raw_size);
+	buf.put_slice(xyrgb_lz4_packed);
 	Packet { data: buf.into() }
 }
