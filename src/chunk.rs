@@ -3,15 +3,21 @@ use std::{
 	sync::{Arc, OnceLock, Weak},
 };
 
+use bytes::{BufMut, BytesMut};
 use glam::{IVec2, UVec2};
+use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 use crate::{
-	compression, gen_id, limits, packet_server,
+	compression::{self, compress_lz4},
+	gen_id,
+	limits::{self, CHUNK_SIZE_PX},
+	packet_server::{self, prepare_packet_pixel_pack, Packet},
 	pixel::Color,
-	session::{SessionHandle, SessionInstance, SessionInstanceMutex},
+	session::{SessionHandle, SessionInstance, SessionInstanceMutex, SessionSendQueue},
 };
 
+#[derive(Clone)]
 pub struct ChunkPixel {
 	pub pos: UVec2,
 	pub color: Color,
@@ -19,6 +25,7 @@ pub struct ChunkPixel {
 
 struct LinkedSession {
 	sesison: SessionInstanceMutex,
+	session_send_queue: Arc<SyncMutex<SessionSendQueue>>,
 	handle: SessionHandle,
 }
 
@@ -38,7 +45,7 @@ fn get_empty_chunk() -> &'static std::sync::Mutex<Arc<Vec<u8>>> {
 	static CHUNK_DATA: OnceLock<std::sync::Mutex<Arc<Vec<u8>>>> = OnceLock::new();
 	CHUNK_DATA.get_or_init(|| {
 		let mut stub_img: Vec<u8> = Vec::new();
-		stub_img.resize(limits::CHUNK_IMAGE_SIZE_BYTES as usize, 255);
+		stub_img.resize(limits::CHUNK_IMAGE_SIZE_BYTES, 255);
 		std::sync::Mutex::new(Arc::new(compression::compress_lz4(&stub_img)))
 	})
 }
@@ -50,21 +57,19 @@ impl ChunkInstance {
 			modified: false,
 			queued_pixels_to_send: Default::default(),
 			position,
-			compressed_image_data: if let Some(data) = compressed_image_data {
-				Some(Arc::new(data))
-			} else {
-				None
-			},
+			compressed_image_data: compressed_image_data.map(Arc::new),
 			raw_image_data: None,
 			send_chunk_data_instead_of_pixels: false,
 			linked_sessions: Default::default(),
 		}
 	}
 
-	fn allocate_image(&mut self) {
+	pub fn allocate_image(&mut self) {
 		if self.raw_image_data.is_some() {
 			return; // Nothing to do, already allocated
 		}
+
+		self.new_chunk = false;
 
 		if let Some(compressed) = &self.compressed_image_data {
 			// Decode compressed data
@@ -118,6 +123,85 @@ impl ChunkInstance {
 		compressed
 	}
 
+	/// Use allocate_image() first before calling this function.
+	pub fn get_pixel(&self, chunk_pixel_pos: UVec2) -> Color {
+		debug_assert!(self.raw_image_data.is_some());
+
+		let offset = (chunk_pixel_pos.y * CHUNK_SIZE_PX * 3 + chunk_pixel_pos.x * 3) as usize;
+
+		if let Some(data) = &self.raw_image_data {
+			return Color {
+				r: data[offset],
+				g: data[offset + 1],
+				b: data[offset + 2],
+			};
+		}
+
+		unreachable!();
+	}
+
+	pub async fn set_pixels(&mut self, pixels: &[ChunkPixel], only_send: bool) {
+		debug_assert!(self.raw_image_data.is_some());
+
+		// Prepare pixel_pack packet
+		let mut buf = BytesMut::new();
+		let mut pixel_count = 0;
+
+		for pixel in pixels {
+			if !only_send {
+				let color = self.get_pixel(pixel.pos);
+				if pixel.color == color {
+					// Pixel not changed, skip
+					continue;
+				}
+
+				// Update pixel
+				let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
+				if let Some(data) = &mut self.raw_image_data {
+					data[offset] = pixel.color.r;
+					data[offset + 1] = pixel.color.g;
+					data[offset + 2] = pixel.color.b;
+				} else {
+					unreachable!()
+				}
+			}
+
+			// Prepare pixel data
+			buf.put_u8(pixel.pos.x as u8);
+			buf.put_u8(pixel.pos.y as u8);
+			buf.put_u8(pixel.color.r);
+			buf.put_u8(pixel.color.g);
+			buf.put_u8(pixel.color.b);
+			pixel_count += 1;
+		}
+
+		if pixel_count == 0 {
+			// Nothing modified
+			return;
+		}
+
+		// LZ4-compressed (xyrgb,xyrgb,xyrgb...) data
+		let compressed_buf = compress_lz4(&buf);
+
+		let packet = prepare_packet_pixel_pack(
+			&compressed_buf,
+			self.position.x,
+			self.position.y,
+			pixel_count,
+			buf.len() as u32,
+		);
+
+		for session in &mut self.linked_sessions {
+			session
+				.session_send_queue
+				.lock()
+				.unwrap()
+				.send(packet.clone());
+		}
+
+		self.set_modified(true);
+	}
+
 	pub fn send_chunk_data_to_session(&mut self, session: &mut SessionInstance) {
 		let compressed_data = if let Some(compressed) = &self.compressed_image_data {
 			compressed.clone()
@@ -135,7 +219,12 @@ impl ChunkInstance {
 		self.linked_sessions.is_empty()
 	}
 
-	pub fn link_session(&mut self, handle: &SessionHandle, session: &SessionInstanceMutex) {
+	pub fn link_session(
+		&mut self,
+		handle: &SessionHandle,
+		session: &SessionInstanceMutex,
+		session_send_queue: &Arc<SyncMutex<SessionSendQueue>>,
+	) {
 		for s in &self.linked_sessions {
 			if s.handle == *handle {
 				log::error!("Session is already linked!");
@@ -145,6 +234,7 @@ impl ChunkInstance {
 		self.linked_sessions.push(LinkedSession {
 			handle: *handle,
 			sesison: session.clone(),
+			session_send_queue: session_send_queue.clone(),
 		});
 	}
 

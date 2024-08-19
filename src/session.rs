@@ -3,15 +3,16 @@ use futures_util::SinkExt;
 use glam::IVec2;
 use std::collections::VecDeque;
 use std::error::Error;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex as SyncMutex, Weak};
 use std::time::Duration;
 use std::{fmt, io};
 use tokio::sync::{Mutex, MutexGuard, Notify};
 use tokio_websockets::Message;
 
-use crate::chunk::ChunkInstanceWeak;
-use crate::chunk_system::ChunkSystemMutex;
+use crate::chunk::{ChunkInstanceMutex, ChunkInstanceWeak, ChunkPixel};
+use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
 use crate::packet_client::ClientCmd;
+use crate::packet_server::Packet;
 use crate::pixel::{Color, GlobalPixel};
 use crate::preview_system::{PreviewSystem, PreviewSystemMutex};
 use crate::room::{RoomInstance, RoomInstanceMutex};
@@ -74,6 +75,10 @@ impl LinkedChunk {
 	}
 }
 
+struct HistoryCell {
+	pixels: Vec<GlobalPixel>,
+}
+
 #[derive(Default)]
 struct Boundary {
 	start_x: i32,
@@ -83,11 +88,23 @@ struct Boundary {
 	zoom: f32,
 }
 
+#[derive(Default)]
+pub struct SessionSendQueue {
+	packets_to_send: VecDeque<packet_server::Packet>,
+	notify_send: Arc<Notify>,
+}
+
+impl SessionSendQueue {
+	pub fn send(&mut self, packet: packet_server::Packet) {
+		self.packets_to_send.push_back(packet);
+		self.notify_send.notify_waiters();
+	}
+}
+
 pub struct SessionInstance {
 	pub nick_name: String, // Max 255 characters
 
-	packets_to_send: VecDeque<packet_server::Packet>,
-	notify_send: Arc<Notify>,
+	pub send_queue: Arc<SyncMutex<SessionSendQueue>>,
 
 	cursor_pos: packet_client::PacketCursorPos,
 	cursor_pos_prev: packet_client::PacketCursorPos,
@@ -101,6 +118,8 @@ pub struct SessionInstance {
 	linked_chunks: Vec<LinkedChunk>,
 	chunks_sent: u32,     // Number of chunks received by the client
 	chunks_received: u32, // Number of chunks sent by the server
+
+	history_cells: Vec<HistoryCell>,
 
 	tool: ToolData,
 
@@ -131,12 +150,12 @@ impl SessionInstance {
 			chunk_system_mtx: Default::default(),
 			preview_system_mtx: Default::default(),
 			brush_shapes_mtx: Default::default(),
-			packets_to_send: Default::default(),
-			notify_send: Arc::new(Notify::new()),
+			send_queue: Arc::new(SyncMutex::new(Default::default())),
 			chunks_received: 0,
 			chunks_sent: 0,
 			linked_chunks: Default::default(),
 			boundary: Default::default(),
+			history_cells: Default::default(),
 			cleaned_up: false,
 		}
 	}
@@ -199,8 +218,13 @@ impl SessionInstance {
 				while let Some(session_mtx) = session_weak.upgrade() {
 					let mut session = session_mtx.lock().await;
 
-					let notify = session.notify_send.clone(); // Wait for incoming send data if requested
+					let notify;
+					{
+						let queue = session.send_queue.lock().unwrap();
+						notify = queue.notify_send.clone(); // Wait for incoming send data if requested
+					}
 					drop(session);
+
 					notify.notified().await;
 					session = session_mtx.lock().await;
 					if session.cleaned_up {
@@ -299,9 +323,24 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn history_create_snapshot(&mut self) {
-		log::warn!("history_create_snapshot TODO");
-		//todo!()
+	fn history_create_snapshot(&mut self) {
+		if self.history_cells.len() > 10 {
+			self.history_cells.remove(0);
+		}
+
+		self.history_cells.push(HistoryCell {
+			pixels: Default::default(),
+		});
+	}
+
+	fn history_add_pixel(&mut self, pixel: GlobalPixel) {
+		if self.history_cells.is_empty() {
+			self.history_create_snapshot();
+		}
+
+		if let Some(last) = self.history_cells.last_mut() {
+			last.pixels.push(pixel);
+		}
 	}
 
 	async fn update_cursor(&mut self) {
@@ -330,7 +369,7 @@ impl SessionInstance {
 			) as u32,
 		);
 
-		if iters > 150 {
+		if iters > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
@@ -401,14 +440,99 @@ impl SessionInstance {
 	}
 
 	async fn set_pixels_global(&mut self, pixels: Vec<GlobalPixel>, queued: bool) {
-		if let Some(room) = self.fetch_room().await {
-			if let Some(chunk_system) = &self.chunk_system_mtx {
-				log::trace!("setting {} pixels", pixels.len());
-				chunk_system
-					.lock()
-					.await
-					.set_pixels_global(&room, pixels, queued)
-					.await;
+		struct ChunkCacheCell {
+			chunk_pos: IVec2,
+			chunk: ChunkInstanceMutex,
+			queued_pixels: Vec<(
+				ChunkPixel, /* local pixel position */
+				IVec2,      /* global pixel position */
+			)>,
+		}
+
+		let mut affected_chunks: Vec<ChunkCacheCell> = Vec::new();
+
+		if let Some(chunk_system) = &self.chunk_system_mtx {
+			//log::trace!("setting {} pixels", pixels.len());
+			let mut chunk_system = chunk_system.lock().await;
+
+			fn fetch_cell<'a>(
+				affected_chunks: &'a mut [ChunkCacheCell],
+				chunk_pos: &IVec2,
+			) -> Option<&'a mut ChunkCacheCell> {
+				affected_chunks
+					.iter_mut()
+					.find(|cell| cell.chunk_pos == *chunk_pos)
+			}
+
+			async fn cache_new_chunk(
+				chunk_system: &mut ChunkSystem,
+				room: &RoomInstance,
+				affected_chunks: &mut Vec<ChunkCacheCell>,
+				chunk_pos: &IVec2,
+			) {
+				if let Ok(chunk) = chunk_system.get_chunk(room, *chunk_pos).await {
+					affected_chunks.push(ChunkCacheCell {
+						chunk_pos: *chunk_pos,
+						chunk,
+						queued_pixels: Vec::new(),
+					});
+				}
+			}
+
+			// Generate affected chunks list
+			for pixel in &pixels {
+				let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
+				if fetch_cell(&mut affected_chunks, &chunk_pos).is_none() {
+					if let Some(room) = self.fetch_room().await {
+						cache_new_chunk(&mut chunk_system, &room, &mut affected_chunks, &chunk_pos).await;
+					}
+				}
+			}
+
+			// Send pixels to chunks
+			for pixel in &pixels {
+				let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
+				if let Some(cell) = fetch_cell(&mut affected_chunks, &chunk_pos) {
+					cell.queued_pixels.push((
+						ChunkPixel {
+							color: pixel.color.clone(),
+							pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
+						},
+						pixel.pos,
+					));
+				} else {
+					// Skip pixel, already set
+					continue;
+				}
+			}
+		}
+
+		// For every affected chunk
+		for cell in &affected_chunks {
+			if cell.queued_pixels.is_empty() {
+				continue;
+			}
+
+			let mut chunk = cell.chunk.lock().await;
+			chunk.allocate_image();
+
+			for (local_pos, global_pos) in &cell.queued_pixels {
+				let color = chunk.get_pixel(local_pos.pos);
+
+				if local_pos.color != color {
+					self.history_add_pixel(GlobalPixel {
+						pos: *global_pos,
+						color,
+					});
+				}
+			}
+
+			if queued {
+				todo!("set pixels queued")
+			} else {
+				let queued_pixels: Vec<ChunkPixel> =
+					cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
+				chunk.set_pixels(&queued_pixels, false).await;
 			}
 		}
 	}
@@ -417,18 +541,28 @@ impl SessionInstance {
 		log::warn!("update_cursor_fill TODO");
 	}
 
-	pub fn queue_send_packet(&mut self, packet: packet_server::Packet) {
-		self.packets_to_send.push_back(packet);
-		//log::trace!("Informed");
-		self.notify_send.notify_waiters();
-	}
-
 	pub async fn send_all(&mut self, writer: &mut ConnectionWriter) -> anyhow::Result<()> {
 		//log::trace!("Sending {} packets", self.packets_to_send.len());
-		while let Some(packet) = self.packets_to_send.pop_front() {
-			writer.send(Message::binary(packet.data)).await?;
+		let packets_to_send;
+		{
+			let mut queue = self.send_queue.lock().unwrap();
+			//FIXME: i don't know how to move this instead of cloning
+			packets_to_send = queue.packets_to_send.clone();
+			queue.packets_to_send.clear();
 		}
+
+		//println!("Sending {} packets", packets_to_send.len());
+
+		for packet in &packets_to_send {
+			writer.send(Message::binary(packet.data.clone())).await?;
+		}
+
 		Ok(())
+	}
+
+	pub fn queue_send_packet(&self, packet: Packet) {
+		let mut queue = self.send_queue.lock().unwrap();
+		queue.send(packet);
 	}
 
 	async fn kick(&mut self, cause: &str) -> Result<(), tokio_websockets::Error> {
@@ -448,7 +582,7 @@ impl SessionInstance {
 		self.cleaned_up = true;
 
 		// Inform sender task to exit itself
-		self.notify_send.notify_one();
+		self.send_queue.lock().unwrap().notify_send.notify_one();
 	}
 
 	pub async fn leave_room(&mut self, session_handle: &SessionHandle) {
@@ -656,7 +790,7 @@ impl SessionInstance {
 
 		self.cursor_down = true;
 		self.cursor_just_clicked = true;
-		self.history_create_snapshot().await;
+		self.history_create_snapshot();
 		self.update_cursor().await;
 
 		Ok(())
@@ -706,6 +840,14 @@ impl SessionInstance {
 		reader: &mut BinaryReader,
 	) -> anyhow::Result<()> {
 		let chunks_received = reader.read_u32()?;
+		if chunks_received > self.chunks_sent {
+			let msg = format!(
+				"\"Chunks received ({})\" value is larger than Chunks sent ({})",
+				chunks_received, self.chunks_sent
+			);
+			return Err(UserError::new(msg.as_str()))?;
+		}
+
 		if chunks_received <= self.chunks_received {
 			return Err(UserError::new("\"Chunks received\" packet not incremented"))?;
 		}
@@ -899,7 +1041,7 @@ impl SessionInstance {
 							let room = opt_room.lock().await;
 							let chunk_mtx = chunk_system.get_chunk(&room, closest_position).await?;
 							let mut chunk = chunk_mtx.lock().await;
-							chunk.link_session(session_handle, session);
+							chunk.link_session(session_handle, session, &self.send_queue);
 							let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
 							drop(chunk_system);
 							drop(room);
