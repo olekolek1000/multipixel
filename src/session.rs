@@ -1,12 +1,12 @@
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
 use glam::IVec2;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::sync::{Arc, Mutex as SyncMutex, Weak};
 use std::time::Duration;
 use std::{fmt, io};
-use tokio::sync::{Mutex, MutexGuard, Notify};
+use tokio::sync::{Mutex, Notify};
 use tokio_websockets::Message;
 
 use crate::chunk::{ChunkInstanceMutex, ChunkInstanceWeak, ChunkPixel};
@@ -41,6 +41,14 @@ impl fmt::Display for UserError {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 		write!(f, "{}", self.message)
 	}
+}
+
+#[derive(Default)]
+struct FloodfillTask {
+	to_replace: Color,
+	start_pos: IVec2,
+	stack: Vec<IVec2>,
+	affected_chunks: HashSet<IVec2>,
 }
 
 struct ToolData {
@@ -103,6 +111,19 @@ impl SendQueue {
 	}
 }
 
+pub struct RoomRefs {
+	room_mtx: RoomInstanceMutex,
+	chunk_system_mtx: ChunkSystemMutex,
+	preview_system_mtx: PreviewSystemMutex,
+	brush_shapes_mtx: Arc<Mutex<BrushShapes>>,
+}
+
+#[derive(Default)]
+struct ChunkCache {
+	pub chunk: ChunkInstanceWeak,
+	pub chunk_pos: Option<IVec2>,
+}
+
 pub struct SessionInstance {
 	pub nick_name: String, // Max 255 characters
 
@@ -121,14 +142,13 @@ pub struct SessionInstance {
 	chunks_sent: u32,     // Number of chunks received by the client
 	chunks_received: u32, // Number of chunks sent by the server
 
+	chunk_cache: ChunkCache,
+
+	room_refs: Option<Arc<RoomRefs>>,
+
 	history_cells: Vec<HistoryCell>,
 
 	tool: ToolData,
-
-	room_mtx: Option<RoomInstanceMutex>,
-	chunk_system_mtx: Option<ChunkSystemMutex>,
-	preview_system_mtx: Option<PreviewSystemMutex>,
-	brush_shapes_mtx: Option<Arc<Mutex<BrushShapes>>>,
 
 	kicked: bool,
 	announced: bool,
@@ -147,11 +167,9 @@ impl SessionInstance {
 			kicked: false,
 			announced: false,
 			needs_boundary_test: false,
+			room_refs: None,
+			chunk_cache: Default::default(),
 			tool: Default::default(),
-			room_mtx: Default::default(),
-			chunk_system_mtx: Default::default(),
-			preview_system_mtx: Default::default(),
-			brush_shapes_mtx: Default::default(),
 			send_queue: Arc::new(SyncMutex::new(Default::default())),
 			chunks_received: 0,
 			chunks_sent: 0,
@@ -160,6 +178,24 @@ impl SessionInstance {
 			history_cells: Default::default(),
 			cleaned_up: false,
 		}
+	}
+
+	async fn get_chunk(&mut self, refs: &RoomRefs, chunk_pos: IVec2) -> Option<ChunkInstanceMutex> {
+		let cache = &mut self.chunk_cache;
+		if let Some(cache_chunk_pos) = cache.chunk_pos {
+			if cache_chunk_pos == chunk_pos {
+				return cache.chunk.upgrade();
+			}
+		}
+
+		let mut chunk_system = refs.chunk_system_mtx.lock().await;
+		if let Ok(chunk) = chunk_system.get_chunk(chunk_pos).await {
+			cache.chunk = Arc::downgrade(&chunk);
+			cache.chunk_pos = Some(chunk_pos);
+			return Some(chunk);
+		}
+
+		None
 	}
 
 	async fn tick_task_runner(
@@ -173,12 +209,15 @@ impl SessionInstance {
 				break;
 			}
 
-			session.tick_cursor(session_handle).await;
-			if let Err(e) = session
-				.tick_boundary_check(session_handle, &session_mtx)
-				.await
-			{
-				session.handle_error(&e).await?;
+			if let Some(room_refs) = &session.room_refs {
+				let room_refs = room_refs.clone();
+				session.tick_cursor(&room_refs, session_handle).await;
+				if let Err(e) = session
+					.tick_boundary_check(&room_refs, session_handle, &session_mtx)
+					.await
+				{
+					session.handle_error(&e).await?;
+				}
 			}
 
 			if ticks % 20 == 0 {
@@ -247,28 +286,36 @@ impl SessionInstance {
 		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
-		match command {
-			ClientCmd::Announce => {
-				self
-					.process_command_announce(reader, session_handle, server_mtx)
-					.await?
+		if command == ClientCmd::Announce {
+			self
+				.process_command_announce(reader, session_handle, server_mtx)
+				.await?;
+			return Ok(());
+		}
+
+		if let Some(refs) = &self.room_refs {
+			let refs = refs.clone();
+			match command {
+				ClientCmd::Announce => {
+					let _ = self.kick("you have already announced").await;
+				}
+				ClientCmd::Message => self.process_command_message(reader).await?,
+				ClientCmd::Ping => self.process_command_ping(reader).await,
+				ClientCmd::CursorPos => {
+					self
+						.process_command_cursor_pos(&refs, reader, session_handle)
+						.await?
+				}
+				ClientCmd::CursorDown => self.process_command_cursor_down(&refs, reader).await?,
+				ClientCmd::CursorUp => self.process_command_cursor_up(&refs, reader).await?,
+				ClientCmd::Boundary => self.process_command_boundary(reader).await?,
+				ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
+				ClientCmd::PreviewRequest => self.process_command_preview_request(&refs, reader).await?,
+				ClientCmd::ToolSize => self.process_command_tool_size(reader).await?,
+				ClientCmd::ToolColor => self.process_command_tool_color(reader).await?,
+				ClientCmd::ToolType => self.process_command_tool_type(reader).await?,
+				ClientCmd::Undo => self.process_command_undo(&refs, reader).await,
 			}
-			ClientCmd::Message => self.process_command_message(reader).await?,
-			ClientCmd::Ping => self.process_command_ping(reader).await,
-			ClientCmd::CursorPos => {
-				self
-					.process_command_cursor_pos(reader, session_handle)
-					.await?
-			}
-			ClientCmd::CursorDown => self.process_command_cursor_down(reader).await?,
-			ClientCmd::CursorUp => self.process_command_cursor_up(reader).await?,
-			ClientCmd::Boundary => self.process_command_boundary(reader).await?,
-			ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
-			ClientCmd::PreviewRequest => self.process_command_preview_request(reader).await?,
-			ClientCmd::ToolSize => self.process_command_tool_size(reader).await?,
-			ClientCmd::ToolColor => self.process_command_tool_color(reader).await?,
-			ClientCmd::ToolType => self.process_command_tool_type(reader).await?,
-			ClientCmd::Undo => self.process_command_undo(reader).await,
 		}
 
 		Ok(())
@@ -345,18 +392,130 @@ impl SessionInstance {
 		}
 	}
 
-	async fn update_cursor(&mut self) {
+	async fn update_cursor(&mut self, refs: &RoomRefs) {
 		if let Some(tool_type) = &self.tool.tool_type {
 			match tool_type {
-				packet_client::ToolType::Brush => self.update_cursor_brush().await,
-				packet_client::ToolType::Fill => self.update_cursor_fill().await,
+				packet_client::ToolType::Brush => self.update_cursor_brush(refs).await,
+				packet_client::ToolType::Fill => self.update_cursor_fill(refs).await,
 			}
 		}
 
 		self.cursor_just_clicked = false;
 	}
 
-	async fn update_cursor_brush(&mut self) {
+	async fn floodfill_check_color(
+		&mut self,
+		refs: &RoomRefs,
+		task: &FloodfillTask,
+		global_pos: IVec2,
+	) -> bool {
+		if let Some(color) = self.get_pixel_global(refs, global_pos).await {
+			if color == self.tool.color {
+				return false;
+			}
+
+			if task.to_replace != color {
+				return false;
+			}
+
+			return true;
+		}
+
+		false
+	}
+
+	async fn update_cursor_fill(&mut self, refs: &RoomRefs) {
+		// Allow single click only
+		if !self.cursor_just_clicked {
+			return;
+		}
+
+		self.queue_send_status_text("Floodfilling...");
+
+		let global_pos = IVec2::new(self.cursor_pos.x, self.cursor_pos.y);
+
+		if !self.is_chunk_linked(ChunkSystem::global_pixel_pos_to_chunk_pos(global_pos)) {
+			return;
+		}
+
+		if let Some(color) = self.get_pixel_global(refs, global_pos).await {
+			if self.tool.color == color {
+				return; // Nothing to do.
+			}
+
+			let mut task = FloodfillTask {
+				to_replace: color,
+				start_pos: global_pos,
+				..Default::default()
+			};
+
+			// Plant a seed
+			task.stack.push(global_pos);
+
+			// Process as long as there are pixels to fill left
+			// FIXME: This code is horribly slow due to async single-pixel operation tasks.
+			loop {
+				if let Some(cell) = task.stack.pop() {
+					if i32::abs(task.start_pos.x - cell.x) > limits::FLOODFILL_MAX_DISTANCE as i32
+						|| i32::abs(task.start_pos.y - cell.y) > limits::FLOODFILL_MAX_DISTANCE as i32
+					{
+						continue;
+					}
+
+					let pixel = GlobalPixel {
+						pos: cell,
+						color: self.tool.color.clone(),
+					};
+					self.set_pixels_global(refs, &[pixel], true, true).await;
+
+					if self
+						.floodfill_check_color(refs, &task, IVec2::new(cell.x - 1, cell.y))
+						.await
+					{
+						task.stack.push(IVec2::new(cell.x - 1, cell.y));
+					}
+
+					if self
+						.floodfill_check_color(refs, &task, IVec2::new(cell.x + 1, cell.y))
+						.await
+					{
+						task.stack.push(IVec2::new(cell.x + 1, cell.y));
+					}
+
+					if self
+						.floodfill_check_color(refs, &task, IVec2::new(cell.x, cell.y - 1))
+						.await
+					{
+						task.stack.push(IVec2::new(cell.x, cell.y - 1));
+					}
+
+					if self
+						.floodfill_check_color(refs, &task, IVec2::new(cell.x, cell.y + 1))
+						.await
+					{
+						task.stack.push(IVec2::new(cell.x, cell.y + 1));
+					}
+
+					let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(IVec2::new(cell.x, cell.y));
+					task.affected_chunks.insert(chunk_pos);
+
+					continue;
+				}
+				break;
+			}
+
+			// Trigger chunk "send" update for all attached sessions to display floodfill result instantly
+			for chunk_pos in task.affected_chunks {
+				if let Some(chunk) = self.get_chunk(refs, chunk_pos).await {
+					chunk.lock().await.flush_queued_pixels().await;
+				}
+			}
+		}
+
+		self.queue_send_status_text("");
+	}
+
+	async fn update_cursor_brush(&mut self, refs: &RoomRefs) {
 		if !self.cursor_down {
 			return;
 		}
@@ -377,73 +536,84 @@ impl SessionInstance {
 			return;
 		}
 
-		if let Some(brush_shapes_mtx) = &self.brush_shapes_mtx {
-			let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let shape_filled = brush_shapes.get_filled(self.tool.size);
+		let shape_outline = brush_shapes.get_outline(self.tool.size);
+		drop(brush_shapes);
 
-			let mut brush_shapes = brush_shapes_mtx.lock().await;
-			let shape_filled = brush_shapes.get_filled(self.tool.size);
-			let shape_outline = brush_shapes.get_outline(self.tool.size);
-			drop(brush_shapes);
+		// Draw line
+		for i in 0..iters {
+			let alpha = (i as f64) / iters as f64;
 
-			// Draw line
-			for i in 0..iters {
-				let alpha = (i as f64) / iters as f64;
+			//Lerp
+			let x = util::lerp(
+				alpha,
+				self.cursor_pos_prev.x as f64,
+				self.cursor_pos.x as f64,
+			) as i32;
 
-				//Lerp
-				let x = util::lerp(
-					alpha,
-					self.cursor_pos_prev.x as f64,
-					self.cursor_pos.x as f64,
-				) as i32;
+			let y = util::lerp(
+				alpha,
+				self.cursor_pos_prev.y as f64,
+				self.cursor_pos.y as f64,
+			)
+			.round() as i32;
 
-				let y = util::lerp(
-					alpha,
-					self.cursor_pos_prev.y as f64,
-					self.cursor_pos.y as f64,
-				)
-				.round() as i32;
-
-				match self.tool.size {
-					1 => GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color),
-					2 => {
-						GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color);
-						GlobalPixel::insert_to_vec(&mut pixels, x - 1, y, &self.tool.color);
-						GlobalPixel::insert_to_vec(&mut pixels, x + 1, y, &self.tool.color);
-						GlobalPixel::insert_to_vec(&mut pixels, x, y - 1, &self.tool.color);
-						GlobalPixel::insert_to_vec(&mut pixels, x, y + 1, &self.tool.color);
-					}
-					_ => {
-						let shape = if i == 0 {
-							&shape_filled
-						} else {
-							&shape_outline
-						};
-						for yy in 0..shape.size {
-							for xx in 0..shape.size {
-								unsafe {
-									if *shape
-										.data
-										.get_unchecked(yy as usize * shape.size as usize + xx as usize)
-										== 1
-									{
-										let pos_x = x as i32 + xx as i32 - (self.tool.size / 2) as i32;
-										let pos_y = y as i32 + yy as i32 - (self.tool.size / 2) as i32;
-										GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
-									}
+			match self.tool.size {
+				1 => GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color),
+				2 => {
+					GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, x - 1, y, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, x + 1, y, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, x, y - 1, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, x, y + 1, &self.tool.color);
+				}
+				_ => {
+					let shape = if i == 0 {
+						&shape_filled
+					} else {
+						&shape_outline
+					};
+					for yy in 0..shape.size {
+						for xx in 0..shape.size {
+							unsafe {
+								if *shape
+									.data
+									.get_unchecked(yy as usize * shape.size as usize + xx as usize)
+									== 1
+								{
+									let pos_x = x as i32 + xx as i32 - (self.tool.size / 2) as i32;
+									let pos_y = y as i32 + yy as i32 - (self.tool.size / 2) as i32;
+									GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
 								}
 							}
 						}
 					}
 				}
 			}
-
-			self.set_pixels_global(pixels, false, true).await;
 		}
+
+		self.set_pixels_global(refs, &pixels, false, true).await;
+	}
+
+	async fn get_pixel_global(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<Color> {
+		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(global_pos);
+
+		if let Some(chunk) = self.get_chunk(refs, chunk_pos).await {
+			let mut chunk = chunk.lock().await;
+			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(global_pos);
+			chunk.allocate_image();
+			return Some(chunk.get_pixel(local_pos));
+		}
+
+		None
 	}
 
 	async fn set_pixels_global(
 		&mut self,
-		pixels: Vec<GlobalPixel>,
+		refs: &RoomRefs,
+		pixels: &[GlobalPixel],
 		queued: bool,
 		with_history: bool,
 	) {
@@ -458,59 +628,54 @@ impl SessionInstance {
 
 		let mut affected_chunks: Vec<ChunkCacheCell> = Vec::new();
 
-		if let Some(chunk_system) = &self.chunk_system_mtx {
-			//log::trace!("setting {} pixels", pixels.len());
-			let mut chunk_system = chunk_system.lock().await;
+		//log::trace!("setting {} pixels", pixels.len());
+		let mut chunk_system = refs.chunk_system_mtx.lock().await;
 
-			fn fetch_cell<'a>(
-				affected_chunks: &'a mut [ChunkCacheCell],
-				chunk_pos: &IVec2,
-			) -> Option<&'a mut ChunkCacheCell> {
-				affected_chunks
-					.iter_mut()
-					.find(|cell| cell.chunk_pos == *chunk_pos)
+		fn fetch_cell<'a>(
+			affected_chunks: &'a mut [ChunkCacheCell],
+			chunk_pos: &IVec2,
+		) -> Option<&'a mut ChunkCacheCell> {
+			affected_chunks
+				.iter_mut()
+				.find(|cell| cell.chunk_pos == *chunk_pos)
+		}
+
+		async fn cache_new_chunk(
+			chunk_system: &mut ChunkSystem,
+			affected_chunks: &mut Vec<ChunkCacheCell>,
+			chunk_pos: &IVec2,
+		) {
+			if let Ok(chunk) = chunk_system.get_chunk(*chunk_pos).await {
+				affected_chunks.push(ChunkCacheCell {
+					chunk_pos: *chunk_pos,
+					chunk,
+					queued_pixels: Vec::new(),
+				});
 			}
+		}
 
-			async fn cache_new_chunk(
-				chunk_system: &mut ChunkSystem,
-				room: &RoomInstance,
-				affected_chunks: &mut Vec<ChunkCacheCell>,
-				chunk_pos: &IVec2,
-			) {
-				if let Ok(chunk) = chunk_system.get_chunk(room, *chunk_pos).await {
-					affected_chunks.push(ChunkCacheCell {
-						chunk_pos: *chunk_pos,
-						chunk,
-						queued_pixels: Vec::new(),
-					});
-				}
+		// Generate affected chunks list
+		for pixel in pixels {
+			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
+			if fetch_cell(&mut affected_chunks, &chunk_pos).is_none() {
+				cache_new_chunk(&mut chunk_system, &mut affected_chunks, &chunk_pos).await;
 			}
+		}
 
-			// Generate affected chunks list
-			for pixel in &pixels {
-				let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-				if fetch_cell(&mut affected_chunks, &chunk_pos).is_none() {
-					if let Some(room) = self.fetch_room().await {
-						cache_new_chunk(&mut chunk_system, &room, &mut affected_chunks, &chunk_pos).await;
-					}
-				}
-			}
-
-			// Send pixels to chunks
-			for pixel in &pixels {
-				let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-				if let Some(cell) = fetch_cell(&mut affected_chunks, &chunk_pos) {
-					cell.queued_pixels.push((
-						ChunkPixel {
-							color: pixel.color.clone(),
-							pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
-						},
-						pixel.pos,
-					));
-				} else {
-					// Skip pixel, already set
-					continue;
-				}
+		// Send pixels to chunks
+		for pixel in pixels {
+			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
+			if let Some(cell) = fetch_cell(&mut affected_chunks, &chunk_pos) {
+				cell.queued_pixels.push((
+					ChunkPixel {
+						color: pixel.color.clone(),
+						pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
+					},
+					pixel.pos,
+				));
+			} else {
+				// Skip pixel, already set
+				continue;
 			}
 		}
 
@@ -545,10 +710,6 @@ impl SessionInstance {
 				chunk.set_pixels(&queued_pixels, false).await;
 			}
 		}
-	}
-
-	async fn update_cursor_fill(&mut self) {
-		log::warn!("update_cursor_fill TODO");
 	}
 
 	pub async fn send_all(&mut self, writer: &mut ConnectionWriter) -> anyhow::Result<()> {
@@ -587,7 +748,10 @@ impl SessionInstance {
 
 	pub async fn cleanup(&mut self, session_handle: &SessionHandle) {
 		// only this for now
-		self.leave_room(session_handle).await;
+		if let Some(refs) = &self.room_refs {
+			let refs = refs.clone();
+			self.leave_room(&refs, session_handle).await;
+		}
 
 		self.cleaned_up = true;
 
@@ -595,26 +759,24 @@ impl SessionInstance {
 		self.send_queue.lock().unwrap().notify_send.notify_one();
 	}
 
-	pub async fn leave_room(&mut self, session_handle: &SessionHandle) {
-		if let Some(room_mtx) = &self.room_mtx {
-			let mut room = room_mtx.lock().await;
+	pub async fn leave_room(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
+		let mut room = refs.room_mtx.lock().await;
 
-			// Remove itself from the room
-			room.remove_session(session_handle);
+		// Remove itself from the room
+		room.remove_session(session_handle);
 
-			// Announce to all other sessions that our session is leaving this room
-			let other_sessions = room.get_all_sessions(None).await;
-			drop(room);
+		// Announce to all other sessions that our session is leaving this room
+		let other_sessions = room.get_all_sessions(None).await;
+		drop(room);
 
-			for other_session in other_sessions {
-				if let Some(session_mtx) = other_session.instance_mtx.upgrade() {
-					session_mtx
-						.lock()
-						.await
-						.queue_send_packet(packet_server::prepare_packet_user_remove(
-							session_handle.id(),
-						));
-				}
+		for other_session in other_sessions {
+			if let Some(session_mtx) = other_session.instance_mtx.upgrade() {
+				session_mtx
+					.lock()
+					.await
+					.queue_send_packet(packet_server::prepare_packet_user_remove(
+						session_handle.id(),
+					));
 			}
 		}
 	}
@@ -631,12 +793,19 @@ impl SessionInstance {
 		let room_mtx = server
 			.add_session_to_room(room_name, session_handle)
 			.await?;
-		self.room_mtx = Some(room_mtx.clone());
 
 		let room = room_mtx.lock().await;
-		self.brush_shapes_mtx = Some(room.brush_shapes.clone());
-		self.chunk_system_mtx = Some(room.chunk_system.clone());
+		let brush_shapes_mtx = room.brush_shapes.clone();
+		let chunk_system_mtx = room.chunk_system.clone();
+		let preview_system_mtx = room.preview_system.clone();
 		drop(room);
+
+		self.room_refs = Some(Arc::new(RoomRefs {
+			room_mtx: room_mtx.clone(),
+			brush_shapes_mtx,
+			chunk_system_mtx,
+			preview_system_mtx,
+		}));
 
 		Ok(room_mtx)
 	}
@@ -778,18 +947,20 @@ impl SessionInstance {
 
 	async fn process_command_cursor_pos(
 		&mut self,
+		refs: &RoomRefs,
 		reader: &mut BinaryReader,
 		_session_handle: &SessionHandle,
 	) -> anyhow::Result<()> {
 		self.cursor_pos_prev = self.cursor_pos.clone();
 		self.cursor_pos = packet_client::PacketCursorPos::read(reader)?;
-		self.update_cursor().await;
+		self.update_cursor(refs).await;
 
 		Ok(())
 	}
 
 	async fn process_command_cursor_down(
 		&mut self,
+		refs: &RoomRefs,
 		_reader: &mut BinaryReader,
 	) -> Result<(), UserError> {
 		//log::trace!("Cursor down");
@@ -801,13 +972,14 @@ impl SessionInstance {
 		self.cursor_down = true;
 		self.cursor_just_clicked = true;
 		self.history_create_snapshot();
-		self.update_cursor().await;
+		self.update_cursor(refs).await;
 
 		Ok(())
 	}
 
 	async fn process_command_cursor_up(
 		&mut self,
+		refs: &RoomRefs,
 		_reader: &mut BinaryReader,
 	) -> Result<(), UserError> {
 		//log::trace!("Cursor up");
@@ -816,7 +988,7 @@ impl SessionInstance {
 		}
 
 		self.cursor_down = false;
-		self.update_cursor().await;
+		self.update_cursor(refs).await;
 		Ok(())
 	}
 
@@ -867,6 +1039,7 @@ impl SessionInstance {
 
 	async fn process_command_preview_request(
 		&mut self,
+		refs: &RoomRefs,
 		reader: &mut BinaryReader,
 	) -> anyhow::Result<()> {
 		let preview_x = reader.read_i32()?;
@@ -875,16 +1048,18 @@ impl SessionInstance {
 
 		let mut image_packet = None;
 
-		if let Some(room) = self.fetch_room().await {
-			if let Ok(Some(data)) =
-				PreviewSystem::request_data(&room, &IVec2::new(preview_x, preview_y), zoom).await
-			{
-				image_packet = Some(packet_server::prepare_packet_preview_image(
-					&IVec2::new(preview_x, preview_y),
-					zoom,
-					&data,
-				));
-			}
+		if let Ok(Some(data)) = refs
+			.preview_system_mtx
+			.lock()
+			.await
+			.request_data(&IVec2::new(preview_x, preview_y), zoom)
+			.await
+		{
+			image_packet = Some(packet_server::prepare_packet_preview_image(
+				&IVec2::new(preview_x, preview_y),
+				zoom,
+				&data,
+			));
 		}
 
 		if let Some(image_packet) = image_packet {
@@ -936,46 +1111,38 @@ impl SessionInstance {
 		self.queue_send_packet(packet_server::prepare_packet_status_text(text));
 	}
 
-	async fn process_command_undo(&mut self, _reader: &mut BinaryReader) {
+	async fn process_command_undo(&mut self, refs: &RoomRefs, _reader: &mut BinaryReader) {
 		if let Some(cell) = self.history_cells.pop() {
 			self.queue_send_status_text(format!("Undoing {} pixels...", cell.pixels.len()).as_str());
-			self.set_pixels_global(cell.pixels, true, false).await;
+			self
+				.set_pixels_global(refs, &cell.pixels, true, false)
+				.await;
 			self.queue_send_status_text("");
 		}
 	}
 
-	async fn fetch_room(&self) -> Option<MutexGuard<RoomInstance>> {
-		if let Some(room_mtx) = &self.room_mtx {
-			let room = room_mtx.lock().await;
-			return Some(room);
-		}
-		None
-	}
-
-	async fn send_cursor_pos_to_all(&mut self, session_handle: &SessionHandle) {
-		if let Some(room) = self.fetch_room().await {
-			// Send our cursor position to other sessions
-			room
-				.broadcast(
-					&packet_server::prepare_packet_user_cursor_pos(
-						session_handle.id(),
-						self.cursor_pos.x,
-						self.cursor_pos.y,
-					),
-					Some(session_handle),
-				)
-				.await;
-		}
+	async fn send_cursor_pos_to_all(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
+		let room = refs.room_mtx.lock().await;
+		room
+			.broadcast(
+				&packet_server::prepare_packet_user_cursor_pos(
+					session_handle.id(),
+					self.cursor_pos.x,
+					self.cursor_pos.y,
+				),
+				Some(session_handle),
+			)
+			.await;
 		self.cursor_pos_sent = Some(self.cursor_pos.clone());
 	}
 
-	pub async fn tick_cursor(&mut self, session_handle: &SessionHandle) {
+	pub async fn tick_cursor(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
 		if let Some(cursor_pos_sent) = &self.cursor_pos_sent {
 			if self.cursor_pos != *cursor_pos_sent {
-				self.send_cursor_pos_to_all(session_handle).await;
+				self.send_cursor_pos_to_all(refs, session_handle).await;
 			}
 		} else {
-			self.send_cursor_pos_to_all(session_handle).await;
+			self.send_cursor_pos_to_all(refs, session_handle).await;
 		}
 	}
 
@@ -1004,6 +1171,7 @@ impl SessionInstance {
 
 	pub async fn tick_boundary_check(
 		&mut self,
+		refs: &RoomRefs,
 		session_handle: &SessionHandle,
 		session: &SessionInstanceMutex,
 	) -> anyhow::Result<()> {
@@ -1053,19 +1221,12 @@ impl SessionInstance {
 					// Announce chunk
 					self.chunks_sent += 1;
 
-					if let Some(opt_room) = &self.room_mtx {
-						if let Some(chunk_system_mtx) = &self.chunk_system_mtx {
-							let mut chunk_system = chunk_system_mtx.lock().await;
-							let room = opt_room.lock().await;
-							let chunk_mtx = chunk_system.get_chunk(&room, closest_position).await?;
-							let mut chunk = chunk_mtx.lock().await;
-							chunk.link_session(session_handle, session, &self.send_queue);
-							let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
-							drop(chunk_system);
-							drop(room);
-							self.link_chunk(linked_chunk);
-							chunk.send_chunk_data_to_session(self.send_queue.clone());
-						}
+					if let Some(chunk_mtx) = self.get_chunk(refs, closest_position).await {
+						let mut chunk = chunk_mtx.lock().await;
+						chunk.link_session(session_handle, session, &self.send_queue);
+						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
+						self.link_chunk(linked_chunk);
+						chunk.send_chunk_data_to_session(self.send_queue.clone());
 					}
 
 					if chunks_to_load.is_empty() {

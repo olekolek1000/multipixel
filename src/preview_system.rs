@@ -13,21 +13,24 @@ pub struct PreviewSystemLayer {
 
 pub struct PreviewSystem {
 	//layers: Vec<PreviewSystemLayer>,
+	database: Arc<Mutex<Database>>,
 }
 
 impl PreviewSystem {
+	pub fn new(database: Arc<Mutex<Database>>) -> Self {
+		Self { database }
+	}
+
 	fn layer_index_to_zoom(index: u8) -> u8 {
 		index + 1
 	}
 
-	pub async fn request_data(
-		room: &RoomInstance,
-		pos: &IVec2,
-		zoom: u8,
-	) -> anyhow::Result<Option<Arc<Vec<u8>>>> {
-		let pos = pos.clone();
-		if let Some(record) = room
+	pub async fn request_data(&self, pos: &IVec2, zoom: u8) -> anyhow::Result<Option<Arc<Vec<u8>>>> {
+		let pos = *pos;
+		if let Some(record) = self
 			.database
+			.lock()
+			.await
 			.client
 			.conn(move |conn| Database::preview_load_data(conn, &pos, zoom))
 			.await?
