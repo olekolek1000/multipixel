@@ -4,15 +4,14 @@ use glam::{IVec2, UVec2};
 use tokio::sync::Mutex;
 
 use crate::{
-	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkPixel},
+	chunk::{ChunkInstance, ChunkInstanceMutex},
 	database::Database,
 	limits::CHUNK_SIZE_PX,
-	pixel::GlobalPixel,
-	room::RoomInstance,
 };
 
 pub struct ChunkSystem {
 	chunks: HashMap<IVec2, ChunkInstanceMutex>,
+	database: Arc<Mutex<Database>>,
 }
 
 fn modulo(x: i32, n: i32) -> i32 {
@@ -20,9 +19,10 @@ fn modulo(x: i32, n: i32) -> i32 {
 }
 
 impl ChunkSystem {
-	pub fn new() -> Self {
+	pub fn new(database: Arc<Mutex<Database>>) -> Self {
 		Self {
 			chunks: HashMap::new(),
+			database,
 		}
 	}
 
@@ -46,11 +46,7 @@ impl ChunkSystem {
 		UVec2::new(x as u32, y as u32)
 	}
 
-	pub async fn get_chunk(
-		&mut self,
-		room: &RoomInstance,
-		chunk_pos: IVec2,
-	) -> anyhow::Result<ChunkInstanceMutex> {
+	pub async fn get_chunk(&mut self, chunk_pos: IVec2) -> anyhow::Result<ChunkInstanceMutex> {
 		if let Some(chunk) = self.chunks.get(&chunk_pos) {
 			// Return previously loaded chunk
 			return Ok(chunk.clone());
@@ -59,8 +55,10 @@ impl ChunkSystem {
 		let mut compressed_chunk_data: Option<Vec<u8>> = None;
 
 		// Load chunk pixels from the database
-		if let Some(record) = room
+		if let Some(record) = self
 			.database
+			.lock()
+			.await
 			.client
 			.conn(move |conn| Database::chunk_load_data(conn, chunk_pos))
 			.await?

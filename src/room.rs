@@ -2,6 +2,7 @@ use crate::{
 	chunk_system::ChunkSystem,
 	database::Database,
 	packet_server,
+	preview_system::PreviewSystem,
 	server::Server,
 	session::{SessionHandle, SessionInstanceWeak},
 	tool::brush::BrushShapes,
@@ -17,9 +18,10 @@ pub struct SessionCell {
 
 pub struct RoomInstance {
 	sessions: Vec<SessionCell>,
-	pub database: Database,
+	pub database: Arc<Mutex<Database>>,
 	pub chunk_system: Arc<Mutex<ChunkSystem>>,
 	pub brush_shapes: Arc<Mutex<BrushShapes>>,
+	pub preview_system: Arc<Mutex<PreviewSystem>>,
 	cleaned_up: bool,
 }
 
@@ -27,11 +29,14 @@ impl RoomInstance {
 	pub async fn new(room_name: &str) -> anyhow::Result<Self> {
 		let db_path = format!("rooms/{}.db", room_name);
 
+		let database = Arc::new(Mutex::new(Database::new(db_path.as_str()).await?));
+
 		Ok(Self {
 			sessions: Vec::new(),
-			database: Database::new(db_path.as_str()).await?,
+			database: database.clone(),
 			cleaned_up: false,
-			chunk_system: Arc::new(Mutex::new(ChunkSystem::new())),
+			chunk_system: Arc::new(Mutex::new(ChunkSystem::new(database.clone()))),
+			preview_system: Arc::new(Mutex::new(PreviewSystem::new(database.clone()))),
 			brush_shapes: Arc::new(Mutex::new(BrushShapes::new())),
 		})
 	}
@@ -63,7 +68,7 @@ impl RoomInstance {
 				}
 			}
 			if let Some(session_mtx) = cell.instance_mtx.upgrade() {
-				let mut session = session_mtx.lock().await;
+				let session = session_mtx.lock().await;
 				session.queue_send_packet(packet.clone());
 			}
 		}
@@ -123,7 +128,7 @@ impl RoomInstance {
 	}
 
 	pub async fn cleanup(&mut self) {
-		self.database.cleanup().await;
+		self.database.lock().await.cleanup().await;
 		self.cleaned_up = true;
 	}
 }
