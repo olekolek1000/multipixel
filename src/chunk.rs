@@ -14,7 +14,7 @@ use crate::{
 	limits::{self, CHUNK_SIZE_PX},
 	packet_server::{self, prepare_packet_pixel_pack, Packet},
 	pixel::Color,
-	session::{SessionHandle, SessionInstance, SessionInstanceMutex, SessionSendQueue},
+	session::{SendQueue, SendQueueMutex, SessionHandle, SessionInstance, SessionInstanceMutex},
 };
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct ChunkPixel {
 
 struct LinkedSession {
 	sesison: SessionInstanceMutex,
-	session_send_queue: Arc<SyncMutex<SessionSendQueue>>,
+	session_send_queue: Arc<SyncMutex<SendQueue>>,
 	handle: SessionHandle,
 }
 
@@ -140,6 +140,56 @@ impl ChunkInstance {
 		unreachable!();
 	}
 
+	pub async fn set_pixels_queued(&mut self, pixels: &[ChunkPixel]) {
+		debug_assert!(self.raw_image_data.is_some());
+
+		if !self.send_chunk_data_instead_of_pixels {
+			self
+				.queued_pixels_to_send
+				.reserve(self.queued_pixels_to_send.len() + pixels.len());
+		}
+
+		if let Some(data) = &mut self.raw_image_data {
+			for pixel in pixels {
+				let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
+				data[offset] = pixel.color.r;
+				data[offset + 1] = pixel.color.g;
+				data[offset + 2] = pixel.color.b;
+
+				if !self.send_chunk_data_instead_of_pixels {
+					self.queued_pixels_to_send.push_back(pixel.clone());
+					if self.queued_pixels_to_send.len() > 5000 {
+						self.queued_pixels_to_send.clear();
+						self.send_chunk_data_instead_of_pixels = true;
+					}
+				}
+			}
+
+			self.set_modified(true);
+		}
+	}
+
+	pub async fn flush_queued_pixels(&mut self) {
+		if self.send_chunk_data_instead_of_pixels {
+			let session_send_queues: Vec<_> = self
+				.linked_sessions
+				.iter()
+				.map(|session| session.session_send_queue.clone())
+				.collect();
+			for send_queue in session_send_queues {
+				self.send_chunk_data_to_session(send_queue);
+			}
+			self.send_chunk_data_instead_of_pixels = false;
+		} else {
+			if self.queued_pixels_to_send.is_empty() {
+				return;
+			}
+
+			let queued_pixels: Vec<ChunkPixel> = self.queued_pixels_to_send.iter().cloned().collect();
+			self.set_pixels(&queued_pixels, true).await;
+		}
+	}
+
 	pub async fn set_pixels(&mut self, pixels: &[ChunkPixel], only_send: bool) {
 		debug_assert!(self.raw_image_data.is_some());
 
@@ -202,17 +252,20 @@ impl ChunkInstance {
 		self.set_modified(true);
 	}
 
-	pub fn send_chunk_data_to_session(&mut self, session: &mut SessionInstance) {
+	pub fn send_chunk_data_to_session(&mut self, session_queue: SendQueueMutex) {
 		let compressed_data = if let Some(compressed) = &self.compressed_image_data {
 			compressed.clone()
 		} else {
 			self.encode_chunk_data(false)
 		};
 
-		session.queue_send_packet(packet_server::prepare_packet_chunk_image(
-			self.position,
-			&compressed_data,
-		))
+		session_queue
+			.lock()
+			.unwrap()
+			.send(packet_server::prepare_packet_chunk_image(
+				self.position,
+				&compressed_data,
+			));
 	}
 
 	pub fn is_linked_sessions_empty(&self) -> bool {
@@ -223,7 +276,7 @@ impl ChunkInstance {
 		&mut self,
 		handle: &SessionHandle,
 		session: &SessionInstanceMutex,
-		session_send_queue: &Arc<SyncMutex<SessionSendQueue>>,
+		session_send_queue: &Arc<SyncMutex<SendQueue>>,
 	) {
 		for s in &self.linked_sessions {
 			if s.handle == *handle {
