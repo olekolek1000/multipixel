@@ -425,7 +425,9 @@ export class Client {
 				break;
 			}
 			case ServerCmd.processing_status_text: {
-				let status_text = new TextDecoder().decode(new DataView(e.data, header_offset));
+				let text_size = dataview.getInt16(0);
+				let view_str = createViewSize(2, text_size);
+				let status_text = (new TextDecoder().decode(view_str));
 				this.multipixel.setProcessingStatusText(status_text);
 				break;
 			}

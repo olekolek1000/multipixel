@@ -28,7 +28,7 @@ pub enum ServerCmd {
 	UserCreate = 1000,           // u16 id, u8 text_size, utf-8 nickname
 	UserRemove = 1001,           // u16 id
 	UserCursorPos = 1002,        // u16 id, s32 x, s32 y
-	ProcessingStatusText = 1100, // utf-8 text
+	ProcessingStatusText = 1100, // u16 text size, utf-8 text
 }
 
 #[derive(Clone)]
@@ -61,6 +61,13 @@ fn prepare_packet_slices(cmd: ServerCmd, slices: &[&[u8]]) -> Packet {
 pub fn prepare_packet_kick(message: &str) -> Packet {
 	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
 	buf.put_u16(ServerCmd::Kick as CommandIndex);
+	put_string_u16(&mut buf, message);
+	Packet { data: buf.into() }
+}
+
+pub fn prepare_packet_status_text(message: &str) -> Packet {
+	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
+	buf.put_u16(ServerCmd::ProcessingStatusText as CommandIndex);
 	put_string_u16(&mut buf, message);
 	Packet { data: buf.into() }
 }

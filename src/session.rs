@@ -89,12 +89,14 @@ struct Boundary {
 }
 
 #[derive(Default)]
-pub struct SessionSendQueue {
+pub struct SendQueue {
 	packets_to_send: VecDeque<packet_server::Packet>,
 	notify_send: Arc<Notify>,
 }
 
-impl SessionSendQueue {
+pub type SendQueueMutex = Arc<SyncMutex<SendQueue>>;
+
+impl SendQueue {
 	pub fn send(&mut self, packet: packet_server::Packet) {
 		self.packets_to_send.push_back(packet);
 		self.notify_send.notify_waiters();
@@ -104,7 +106,7 @@ impl SessionSendQueue {
 pub struct SessionInstance {
 	pub nick_name: String, // Max 255 characters
 
-	pub send_queue: Arc<SyncMutex<SessionSendQueue>>,
+	pub send_queue: SendQueueMutex,
 
 	cursor_pos: packet_client::PacketCursorPos,
 	cursor_pos_prev: packet_client::PacketCursorPos,
@@ -324,7 +326,7 @@ impl SessionInstance {
 	}
 
 	fn history_create_snapshot(&mut self) {
-		if self.history_cells.len() > 10 {
+		if self.history_cells.len() > 20 {
 			self.history_cells.remove(0);
 		}
 
@@ -435,11 +437,16 @@ impl SessionInstance {
 				}
 			}
 
-			self.set_pixels_global(pixels, false).await;
+			self.set_pixels_global(pixels, false, true).await;
 		}
 	}
 
-	async fn set_pixels_global(&mut self, pixels: Vec<GlobalPixel>, queued: bool) {
+	async fn set_pixels_global(
+		&mut self,
+		pixels: Vec<GlobalPixel>,
+		queued: bool,
+		with_history: bool,
+	) {
 		struct ChunkCacheCell {
 			chunk_pos: IVec2,
 			chunk: ChunkInstanceMutex,
@@ -516,22 +523,25 @@ impl SessionInstance {
 			let mut chunk = cell.chunk.lock().await;
 			chunk.allocate_image();
 
-			for (local_pos, global_pos) in &cell.queued_pixels {
-				let color = chunk.get_pixel(local_pos.pos);
+			if with_history {
+				for (local_pos, global_pos) in &cell.queued_pixels {
+					let color = chunk.get_pixel(local_pos.pos);
 
-				if local_pos.color != color {
-					self.history_add_pixel(GlobalPixel {
-						pos: *global_pos,
-						color,
-					});
+					if local_pos.color != color {
+						self.history_add_pixel(GlobalPixel {
+							pos: *global_pos,
+							color,
+						});
+					}
 				}
 			}
 
+			let queued_pixels: Vec<ChunkPixel> = cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
+
 			if queued {
-				todo!("set pixels queued")
+				chunk.set_pixels_queued(&queued_pixels).await;
+				chunk.flush_queued_pixels().await;
 			} else {
-				let queued_pixels: Vec<ChunkPixel> =
-					cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
 				chunk.set_pixels(&queued_pixels, false).await;
 			}
 		}
@@ -922,8 +932,16 @@ impl SessionInstance {
 		Ok(())
 	}
 
+	fn queue_send_status_text(&self, text: &str) {
+		self.queue_send_packet(packet_server::prepare_packet_status_text(text));
+	}
+
 	async fn process_command_undo(&mut self, _reader: &mut BinaryReader) {
-		todo!()
+		if let Some(cell) = self.history_cells.pop() {
+			self.queue_send_status_text(format!("Undoing {} pixels...", cell.pixels.len()).as_str());
+			self.set_pixels_global(cell.pixels, true, false).await;
+			self.queue_send_status_text("");
+		}
 	}
 
 	async fn fetch_room(&self) -> Option<MutexGuard<RoomInstance>> {
@@ -1046,7 +1064,7 @@ impl SessionInstance {
 							drop(chunk_system);
 							drop(room);
 							self.link_chunk(linked_chunk);
-							chunk.send_chunk_data_to_session(self);
+							chunk.send_chunk_data_to_session(self.send_queue.clone());
 						}
 					}
 
