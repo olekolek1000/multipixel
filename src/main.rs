@@ -22,6 +22,7 @@ mod chunk_system;
 mod compression;
 mod config;
 mod database;
+mod event_queue;
 mod id;
 mod limits;
 mod packet_client;

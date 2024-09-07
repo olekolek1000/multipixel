@@ -3,6 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
+	event_queue::EventQueue,
+	packet_server,
 	room::{RoomInstance, RoomInstanceMutex},
 	session::{SessionHandle, SessionInstance, SessionInstanceMutex, SessionVec},
 };
@@ -42,6 +44,7 @@ impl Server {
 	pub async fn add_session_to_room(
 		&mut self,
 		room_name: &str,
+		queue_send: EventQueue<packet_server::Packet>,
 		session_handle: &SessionHandle,
 	) -> anyhow::Result<RoomInstanceMutex> {
 		let room_instance_mtx = self.get_or_load_room(room_name).await?;
@@ -49,7 +52,7 @@ impl Server {
 		room_instance_mtx
 			.lock()
 			.await
-			.add_session(self, session_handle);
+			.add_session(self, queue_send, session_handle);
 
 		Ok(room_instance_mtx)
 	}

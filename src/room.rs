@@ -1,6 +1,7 @@
 use crate::{
 	chunk_system::ChunkSystem,
 	database::Database,
+	event_queue::EventQueue,
 	packet_server,
 	preview_system::PreviewSystem,
 	server::Server,
@@ -13,6 +14,7 @@ use tokio::sync::Mutex;
 #[derive(Clone)]
 pub struct SessionCell {
 	pub instance_mtx: SessionInstanceWeak,
+	pub queue_send: EventQueue<packet_server::Packet>,
 	pub handle: SessionHandle,
 }
 
@@ -41,12 +43,18 @@ impl RoomInstance {
 		})
 	}
 
-	pub fn add_session(&mut self, server: &Server, session_handle: &SessionHandle) {
+	pub fn add_session(
+		&mut self,
+		server: &Server,
+		queue_send: EventQueue<packet_server::Packet>,
+		session_handle: &SessionHandle,
+	) {
 		log::info!("Adding session ID {}", session_handle.id());
 		let session = server.sessions.get(session_handle).unwrap();
 
 		self.sessions.push(SessionCell {
 			handle: *session_handle,
+			queue_send,
 			instance_mtx: Arc::downgrade(session),
 		});
 	}
@@ -60,21 +68,18 @@ impl RoomInstance {
 		self.sessions.is_empty()
 	}
 
-	pub async fn broadcast(&self, packet: &packet_server::Packet, except: Option<&SessionHandle>) {
+	pub fn broadcast(&self, packet: &packet_server::Packet, except: Option<&SessionHandle>) {
 		for cell in &self.sessions {
 			if let Some(except) = except {
 				if cell.handle == *except {
 					continue;
 				}
 			}
-			if let Some(session_mtx) = cell.instance_mtx.upgrade() {
-				let session = session_mtx.lock().await;
-				session.queue_send_packet(packet.clone());
-			}
+			cell.queue_send.send(packet.clone());
 		}
 	}
 
-	pub async fn get_all_sessions(&self, except: Option<&SessionHandle>) -> Vec<SessionCell> {
+	pub fn get_all_sessions(&self, except: Option<&SessionHandle>) -> Vec<SessionCell> {
 		let mut ret: Vec<SessionCell> = Vec::new();
 
 		for cell in &self.sessions {
