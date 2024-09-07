@@ -323,7 +323,7 @@ export class Client {
 				if (chunk) {
 					chunk.putImage(this.multipixel.getRenderer().getContext(), rgb_view);
 				}
-
+				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.chunk_pixel_pack: {

@@ -17,7 +17,9 @@ use crate::{server::Server, session::SessionInstance};
 
 extern crate pretty_env_logger;
 
+mod canvas_cache;
 mod chunk;
+mod chunk_cache;
 mod chunk_system;
 mod compression;
 mod config;

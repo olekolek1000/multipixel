@@ -13,4 +13,4 @@ pub const CHUNK_IMAGE_SIZE_BYTES: usize = (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 3) as
 
 pub const PREVIEW_SYSTEM_LAYER_COUNT: usize = 5;
 
-pub const FLOODFILL_MAX_DISTANCE: u32 = 50; // will be larger in the future
+pub const FLOODFILL_MAX_DISTANCE: u32 = 300;

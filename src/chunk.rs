@@ -34,10 +34,8 @@ pub struct ChunkInstance {
 	new_chunk: bool,
 	position: IVec2,
 	modified: bool,
-	queued_pixels_to_send: VecDeque<ChunkPixel>,
-	raw_image_data: Option<Vec<u8>>,
+	pub raw_image_data: Option<Vec<u8>>,
 	compressed_image_data: Option<Arc<Vec<u8>>>,
-	send_chunk_data_instead_of_pixels: bool,
 	linked_sessions: Vec<LinkedSession>,
 }
 
@@ -56,11 +54,9 @@ impl ChunkInstance {
 		Self {
 			new_chunk: compressed_image_data.is_some(),
 			modified: false,
-			queued_pixels_to_send: Default::default(),
 			position,
 			compressed_image_data: compressed_image_data.map(Arc::new),
 			raw_image_data: None,
-			send_chunk_data_instead_of_pixels: false,
 			linked_sessions: Default::default(),
 		}
 	}
@@ -141,71 +137,11 @@ impl ChunkInstance {
 		unreachable!();
 	}
 
-	pub fn set_pixels_queued(&mut self, pixels: &[ChunkPixel]) {
+	pub fn set_pixels(&mut self, pixels: &[ChunkPixel], only_send: bool, send_whole_chunk: bool) {
 		debug_assert!(self.raw_image_data.is_some());
 
-		if !self.send_chunk_data_instead_of_pixels {
-			self
-				.queued_pixels_to_send
-				.reserve(self.queued_pixels_to_send.len() + pixels.len());
-		}
-
-		if let Some(data) = &mut self.raw_image_data {
+		if send_whole_chunk {
 			for pixel in pixels {
-				let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
-				data[offset] = pixel.color.r;
-				data[offset + 1] = pixel.color.g;
-				data[offset + 2] = pixel.color.b;
-
-				if !self.send_chunk_data_instead_of_pixels {
-					self.queued_pixels_to_send.push_back(pixel.clone());
-					if self.queued_pixels_to_send.len() > 5000 {
-						self.queued_pixels_to_send.clear();
-						self.send_chunk_data_instead_of_pixels = true;
-					}
-				}
-			}
-
-			self.set_modified(true);
-		}
-	}
-
-	pub fn flush_queued_pixels(&mut self) {
-		if self.send_chunk_data_instead_of_pixels {
-			let session_send_queues: Vec<_> = self
-				.linked_sessions
-				.iter()
-				.map(|session| session.queue_send.clone())
-				.collect();
-			for send_queue in session_send_queues {
-				self.send_chunk_data_to_session(send_queue);
-			}
-			self.send_chunk_data_instead_of_pixels = false;
-		} else {
-			if self.queued_pixels_to_send.is_empty() {
-				return;
-			}
-
-			let queued_pixels: Vec<ChunkPixel> = self.queued_pixels_to_send.iter().cloned().collect();
-			self.set_pixels(&queued_pixels, true);
-		}
-	}
-
-	pub fn set_pixels(&mut self, pixels: &[ChunkPixel], only_send: bool) {
-		debug_assert!(self.raw_image_data.is_some());
-
-		// Prepare pixel_pack packet
-		let mut buf = BytesMut::new();
-		let mut pixel_count = 0;
-
-		for pixel in pixels {
-			if !only_send {
-				let color = self.get_pixel(pixel.pos);
-				if pixel.color == color {
-					// Pixel not changed, skip
-					continue;
-				}
-
 				// Update pixel
 				let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
 				if let Some(data) = &mut self.raw_image_data {
@@ -217,36 +153,71 @@ impl ChunkInstance {
 				}
 			}
 
-			// Prepare pixel data
-			buf.put_u8(pixel.pos.x as u8);
-			buf.put_u8(pixel.pos.y as u8);
-			buf.put_u8(pixel.color.r);
-			buf.put_u8(pixel.color.g);
-			buf.put_u8(pixel.color.b);
-			pixel_count += 1;
+			self.set_modified(true);
+
+			let session_send_queues: Vec<_> = self
+				.linked_sessions
+				.iter()
+				.map(|session| session.queue_send.clone())
+				.collect();
+			for send_queue in session_send_queues {
+				self.send_chunk_data_to_session(send_queue);
+			}
+		} else {
+			// Prepare pixel_pack packet
+			let mut buf = BytesMut::new();
+			let mut pixel_count = 0;
+
+			for pixel in pixels {
+				if !only_send {
+					let color = self.get_pixel(pixel.pos);
+					if pixel.color == color {
+						// Pixel not changed, skip
+						continue;
+					}
+
+					// Update pixel
+					let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
+					if let Some(data) = &mut self.raw_image_data {
+						data[offset] = pixel.color.r;
+						data[offset + 1] = pixel.color.g;
+						data[offset + 2] = pixel.color.b;
+					} else {
+						unreachable!()
+					}
+				}
+
+				// Prepare pixel data
+				buf.put_u8(pixel.pos.x as u8);
+				buf.put_u8(pixel.pos.y as u8);
+				buf.put_u8(pixel.color.r);
+				buf.put_u8(pixel.color.g);
+				buf.put_u8(pixel.color.b);
+				pixel_count += 1;
+			}
+
+			if pixel_count == 0 {
+				// Nothing modified
+				return;
+			}
+
+			self.set_modified(true);
+
+			// LZ4-compressed (xyrgb,xyrgb,xyrgb...) data
+			let compressed_buf = compress_lz4(&buf);
+
+			let packet = prepare_packet_pixel_pack(
+				&compressed_buf,
+				self.position.x,
+				self.position.y,
+				pixel_count,
+				buf.len() as u32,
+			);
+
+			for session in &mut self.linked_sessions {
+				session.queue_send.send(packet.clone());
+			}
 		}
-
-		if pixel_count == 0 {
-			// Nothing modified
-			return;
-		}
-
-		// LZ4-compressed (xyrgb,xyrgb,xyrgb...) data
-		let compressed_buf = compress_lz4(&buf);
-
-		let packet = prepare_packet_pixel_pack(
-			&compressed_buf,
-			self.position.x,
-			self.position.y,
-			pixel_count,
-			buf.len() as u32,
-		);
-
-		for session in &mut self.linked_sessions {
-			session.queue_send.send(packet.clone());
-		}
-
-		self.set_modified(true);
 	}
 
 	pub fn send_chunk_data_to_session(
