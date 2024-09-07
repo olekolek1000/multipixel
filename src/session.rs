@@ -1,6 +1,9 @@
+use crate::canvas_cache::CanvasCache;
 use crate::chunk::{self, ChunkInstanceMutex, ChunkInstanceWeak, ChunkPixel};
+use crate::chunk_cache::ChunkCache;
 use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
 use crate::event_queue::EventQueue;
+use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
 use crate::pixel::{Color, GlobalPixel};
 use crate::preview_system::PreviewSystemMutex;
@@ -48,6 +51,8 @@ struct FloodfillTask {
 	start_pos: IVec2,
 	stack: Vec<IVec2>,
 	affected_chunks: HashSet<IVec2>,
+	pixels_changed: Vec<GlobalPixel>,
+	canvas_cache: CanvasCache,
 }
 
 struct ToolData {
@@ -100,31 +105,6 @@ pub struct RoomRefs {
 	chunk_system_mtx: ChunkSystemMutex,
 	preview_system_mtx: PreviewSystemMutex,
 	brush_shapes_mtx: Arc<Mutex<BrushShapes>>,
-}
-
-#[derive(Default)]
-struct ChunkCache {
-	pub chunk: ChunkInstanceWeak,
-	pub chunk_pos: Option<IVec2>,
-}
-
-impl ChunkCache {
-	pub async fn get(&mut self, refs: &RoomRefs, chunk_pos: IVec2) -> Option<ChunkInstanceMutex> {
-		if let Some(cache_chunk_pos) = self.chunk_pos {
-			if cache_chunk_pos == chunk_pos {
-				return self.chunk.upgrade();
-			}
-		}
-
-		let mut chunk_system = refs.chunk_system_mtx.lock().await;
-		if let Ok(chunk) = chunk_system.get_chunk(chunk_pos).await {
-			self.chunk = Arc::downgrade(&chunk);
-			self.chunk_pos = Some(chunk_pos);
-			return Some(chunk);
-		}
-
-		None
-	}
 }
 
 pub struct SessionInstance {
@@ -393,22 +373,23 @@ impl SessionInstance {
 	async fn floodfill_check_color(
 		&mut self,
 		refs: &RoomRefs,
-		task: &FloodfillTask,
+		task: &mut FloodfillTask,
 		global_pos: IVec2,
 	) -> bool {
-		if let Some(color) = self.get_pixel_global(refs, global_pos).await {
-			if color == self.tool.color {
-				return false;
-			}
+		let color = task
+			.canvas_cache
+			.get_pixel(&refs.chunk_system_mtx, &global_pos)
+			.await;
 
-			if task.to_replace != color {
-				return false;
-			}
-
-			return true;
+		if color == self.tool.color {
+			return false;
 		}
 
-		false
+		if task.to_replace != color {
+			return false;
+		}
+
+		true
 	}
 
 	async fn update_cursor_fill(&mut self, refs: &RoomRefs) {
@@ -416,8 +397,6 @@ impl SessionInstance {
 		if !self.cursor_just_clicked {
 			return;
 		}
-
-		self.queue_send_status_text("Floodfilling...");
 
 		let global_pos = IVec2::new(self.cursor_pos.x, self.cursor_pos.y);
 
@@ -440,7 +419,6 @@ impl SessionInstance {
 			task.stack.push(global_pos);
 
 			// Process as long as there are pixels to fill left
-			// FIXME: This code is horribly slow due to async single-pixel operation tasks.
 			loop {
 				if let Some(cell) = task.stack.pop() {
 					if i32::abs(task.start_pos.x - cell.x) > limits::FLOODFILL_MAX_DISTANCE as i32
@@ -453,31 +431,33 @@ impl SessionInstance {
 						pos: cell,
 						color: self.tool.color.clone(),
 					};
-					self.set_pixels_global(refs, &[pixel], true, true).await;
+
+					task.canvas_cache.set_pixel(&pixel.pos, &pixel.color);
+					task.pixels_changed.push(pixel);
 
 					if self
-						.floodfill_check_color(refs, &task, IVec2::new(cell.x - 1, cell.y))
+						.floodfill_check_color(refs, &mut task, IVec2::new(cell.x - 1, cell.y))
 						.await
 					{
 						task.stack.push(IVec2::new(cell.x - 1, cell.y));
 					}
 
 					if self
-						.floodfill_check_color(refs, &task, IVec2::new(cell.x + 1, cell.y))
+						.floodfill_check_color(refs, &mut task, IVec2::new(cell.x + 1, cell.y))
 						.await
 					{
 						task.stack.push(IVec2::new(cell.x + 1, cell.y));
 					}
 
 					if self
-						.floodfill_check_color(refs, &task, IVec2::new(cell.x, cell.y - 1))
+						.floodfill_check_color(refs, &mut task, IVec2::new(cell.x, cell.y - 1))
 						.await
 					{
 						task.stack.push(IVec2::new(cell.x, cell.y - 1));
 					}
 
 					if self
-						.floodfill_check_color(refs, &task, IVec2::new(cell.x, cell.y + 1))
+						.floodfill_check_color(refs, &mut task, IVec2::new(cell.x, cell.y + 1))
 						.await
 					{
 						task.stack.push(IVec2::new(cell.x, cell.y + 1));
@@ -491,15 +471,10 @@ impl SessionInstance {
 				break;
 			}
 
-			// Trigger chunk "send" update for all attached sessions to display floodfill result instantly
-			for chunk_pos in task.affected_chunks {
-				if let Some(chunk) = self.chunk_cache.get(refs, chunk_pos).await {
-					chunk.lock().await.flush_queued_pixels();
-				}
-			}
+			self
+				.set_pixels_global(refs, &task.pixels_changed, true)
+				.await;
 		}
-
-		self.queue_send_status_text("");
 	}
 
 	async fn update_cursor_brush(&mut self, refs: &RoomRefs) {
@@ -581,13 +556,17 @@ impl SessionInstance {
 			}
 		}
 
-		self.set_pixels_global(refs, &pixels, false, true).await;
+		self.set_pixels_global(refs, &pixels, true).await;
 	}
 
 	async fn get_pixel_global(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<Color> {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(global_pos);
 
-		if let Some(chunk) = self.chunk_cache.get(refs, chunk_pos).await {
+		if let Some(chunk) = self
+			.chunk_cache
+			.get(&refs.chunk_system_mtx, chunk_pos)
+			.await
+		{
 			let mut chunk = chunk.lock().await;
 			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(global_pos);
 			chunk.allocate_image();
@@ -601,7 +580,6 @@ impl SessionInstance {
 		&mut self,
 		refs: &RoomRefs,
 		pixels: &[GlobalPixel],
-		queued: bool,
 		with_history: bool,
 	) {
 		struct ChunkCacheCell {
@@ -630,7 +608,7 @@ impl SessionInstance {
 			affected_chunks: &mut Vec<ChunkCacheCell>,
 			chunk_pos: &IVec2,
 		) {
-			if let Some(chunk) = chunk_cache.get(refs, *chunk_pos).await {
+			if let Some(chunk) = chunk_cache.get(&refs.chunk_system_mtx, *chunk_pos).await {
 				affected_chunks.push(ChunkCacheCell {
 					chunk_pos: *chunk_pos,
 					chunk,
@@ -694,12 +672,9 @@ impl SessionInstance {
 
 			let queued_pixels: Vec<ChunkPixel> = cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
 
-			if queued {
-				chunk.set_pixels_queued(&queued_pixels);
-				chunk.flush_queued_pixels();
-			} else {
-				chunk.set_pixels(&queued_pixels, false);
-			}
+			let threshold = CHUNK_SIZE_PX * (CHUNK_SIZE_PX / 5); // over 1/5th of chunk modified
+			let send_whole_chunk = cell.queued_pixels.len() > threshold as usize;
+			chunk.set_pixels(&queued_pixels, false, send_whole_chunk);
 		}
 	}
 
@@ -1090,9 +1065,7 @@ impl SessionInstance {
 	async fn process_command_undo(&mut self, refs: &RoomRefs, _reader: &mut BinaryReader) {
 		if let Some(cell) = self.history_cells.pop() {
 			self.queue_send_status_text(format!("Undoing {} pixels...", cell.pixels.len()).as_str());
-			self
-				.set_pixels_global(refs, &cell.pixels, true, false)
-				.await;
+			self.set_pixels_global(refs, &cell.pixels, false).await;
 			self.queue_send_status_text("");
 		}
 	}
@@ -1197,7 +1170,11 @@ impl SessionInstance {
 					// Announce chunk
 					self.chunks_sent += 1;
 
-					if let Some(chunk_mtx) = self.chunk_cache.get(refs, closest_position).await {
+					if let Some(chunk_mtx) = self
+						.chunk_cache
+						.get(&refs.chunk_system_mtx, closest_position)
+						.await
+					{
 						let mut chunk = chunk_mtx.lock().await;
 						chunk.link_session(session_handle, session, self.queue_send.clone());
 						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
