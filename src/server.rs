@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
+	config,
 	event_queue::EventQueue,
 	packet_server,
 	room::{RoomInstance, RoomInstanceMutex},
@@ -12,15 +13,17 @@ use crate::{
 pub struct Server {
 	pub sessions: SessionVec,
 	pub rooms: HashMap<String /* Room name */, RoomInstanceMutex>,
+	pub config: config::Config,
 }
 
 pub type ServerMutex = Arc<Mutex<Server>>;
 
 impl Server {
-	pub fn new() -> ServerMutex {
+	pub fn new(config: config::Config) -> ServerMutex {
 		Arc::new(Mutex::new(Self {
 			sessions: SessionVec::new(),
 			rooms: HashMap::new(),
+			config,
 		}))
 	}
 
@@ -36,7 +39,9 @@ impl Server {
 		}
 
 		log::info!("Creating room with name {}", room_name);
-		let room = Arc::new(Mutex::new(RoomInstance::new(room_name).await?));
+		let room = Arc::new(Mutex::new(
+			RoomInstance::new(room_name, &self.config).await?,
+		));
 		self.rooms.insert(String::from(room_name), room.clone());
 		Ok(room)
 	}

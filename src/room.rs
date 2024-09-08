@@ -1,5 +1,6 @@
 use crate::{
-	chunk_system::ChunkSystem,
+	chunk_system::{ChunkSystem, ChunkSystemMutex},
+	config::Config,
 	database::Database,
 	event_queue::EventQueue,
 	packet_server,
@@ -21,23 +22,33 @@ pub struct SessionCell {
 pub struct RoomInstance {
 	sessions: Vec<SessionCell>,
 	pub database: Arc<Mutex<Database>>,
-	pub chunk_system: Arc<Mutex<ChunkSystem>>,
+	pub chunk_system: ChunkSystemMutex,
 	pub brush_shapes: Arc<Mutex<BrushShapes>>,
 	pub preview_system: Arc<Mutex<PreviewSystem>>,
 	cleaned_up: bool,
 }
 
 impl RoomInstance {
-	pub async fn new(room_name: &str) -> anyhow::Result<Self> {
+	pub async fn new(room_name: &str, config: &Config) -> anyhow::Result<Self> {
 		let db_path = format!("rooms/{}.db", room_name);
 
 		let database = Arc::new(Mutex::new(Database::new(db_path.as_str()).await?));
+		let chunk_system_mtx = Arc::new(Mutex::new(ChunkSystem::new(
+			database.clone(),
+			config.autosave_interval_ms,
+		)));
+
+		{
+			let mut chunk_system = chunk_system_mtx.lock().await;
+			// Spawn tick task for chunk system
+			ChunkSystem::launch_tick_task(&mut chunk_system, Arc::downgrade(&chunk_system_mtx));
+		}
 
 		Ok(Self {
 			sessions: Vec::new(),
 			database: database.clone(),
 			cleaned_up: false,
-			chunk_system: Arc::new(Mutex::new(ChunkSystem::new(database.clone()))),
+			chunk_system: chunk_system_mtx,
 			preview_system: Arc::new(Mutex::new(PreviewSystem::new(database.clone()))),
 			brush_shapes: Arc::new(Mutex::new(BrushShapes::new())),
 		})
@@ -133,14 +144,17 @@ impl RoomInstance {
 	}
 
 	pub async fn cleanup(&mut self) {
+		self.chunk_system.lock().await.cleanup().await;
 		self.database.lock().await.cleanup().await;
 		self.cleaned_up = true;
+		log::debug!("Room cleaned up");
 	}
 }
 
 impl Drop for RoomInstance {
 	fn drop(&mut self) {
 		assert!(self.cleaned_up, "cleanup() not called");
+		log::debug!("Room dropped");
 	}
 }
 
