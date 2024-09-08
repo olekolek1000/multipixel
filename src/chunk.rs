@@ -15,7 +15,7 @@ use crate::{
 	limits::{self, CHUNK_SIZE_PX},
 	packet_server::{self, prepare_packet_pixel_pack},
 	pixel::Color,
-	session::{SessionHandle, SessionInstanceMutex},
+	session::{SessionHandle, SessionInstanceMutex, SessionInstanceWeak},
 };
 
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct ChunkPixel {
 }
 
 struct LinkedSession {
-	sesison: SessionInstanceMutex,
+	sesison: SessionInstanceWeak,
 	queue_send: EventQueue<packet_server::Packet>,
 	handle: SessionHandle,
 }
@@ -80,6 +80,10 @@ impl ChunkInstance {
 		let mut data: Vec<u8> = Vec::new();
 		data.resize(limits::CHUNK_IMAGE_SIZE_BYTES, 255); // White color
 		self.raw_image_data = Some(data);
+	}
+
+	pub fn is_modified(&self) -> bool {
+		self.modified
 	}
 
 	fn set_modified(&mut self, modified: bool) {
@@ -243,7 +247,7 @@ impl ChunkInstance {
 	pub fn link_session(
 		&mut self,
 		handle: &SessionHandle,
-		session: &SessionInstanceMutex,
+		session: SessionInstanceWeak,
 		session_queue_send: EventQueue<packet_server::Packet>,
 	) {
 		for s in &self.linked_sessions {
@@ -275,8 +279,8 @@ impl ChunkInstance {
 		}
 
 		if self.linked_sessions.is_empty() {
+			// TODO markGarbageCollect
 			//chunk_system->markGarbageCollect();
-			todo!();
 		}
 	}
 }

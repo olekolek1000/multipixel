@@ -28,6 +28,7 @@ impl CanvasCache {
 		} else {
 			let mut chunk_system = chunk_system_mtx.lock().await;
 			if let Ok(chunk) = chunk_system.get_chunk(*chunk_pos).await {
+				drop(chunk_system);
 				let mut chunk = chunk.lock().await;
 				chunk.allocate_image();
 				if let Some(data) = &chunk.raw_image_data {

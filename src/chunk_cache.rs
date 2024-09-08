@@ -27,6 +27,7 @@ impl ChunkCache {
 
 		let mut chunk_system = chunk_system_mtx.lock().await;
 		if let Ok(chunk) = chunk_system.get_chunk(chunk_pos).await {
+			drop(chunk_system);
 			self.chunk = Arc::downgrade(&chunk);
 			self.chunk_pos = Some(chunk_pos);
 			return Some(chunk);

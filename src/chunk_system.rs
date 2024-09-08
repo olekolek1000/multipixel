@@ -1,28 +1,53 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+	collections::HashMap,
+	sync::{Arc, Weak},
+};
 
+use futures_util::{future::Shared, FutureExt};
 use glam::{IVec2, UVec2};
-use tokio::sync::Mutex;
+use tokio::{
+	sync::{Mutex, Notify},
+	task::JoinHandle,
+};
 
 use crate::{
-	chunk::{ChunkInstance, ChunkInstanceMutex},
+	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
 	database::Database,
 	limits::CHUNK_SIZE_PX,
+	time::get_millis,
 };
 
 pub struct ChunkSystem {
 	chunks: HashMap<IVec2, ChunkInstanceMutex>,
 	database: Arc<Mutex<Database>>,
+	notify: Arc<Notify>,
+	cleaned_up: bool,
+	autosave_interval_ms: u32,
+	last_autosave_timestamp: u64,
+	task_tick: Option<JoinHandle<()>>,
 }
 
 fn modulo(x: i32, n: i32) -> i32 {
 	(x % n + n) % n
 }
 
+impl Drop for ChunkSystem {
+	fn drop(&mut self) {
+		assert!(self.cleaned_up, "cleanup() not called");
+		log::debug!("Chunk system dropped");
+	}
+}
+
 impl ChunkSystem {
-	pub fn new(database: Arc<Mutex<Database>>) -> Self {
+	pub fn new(database: Arc<Mutex<Database>>, autosave_interval_ms: u32) -> Self {
 		Self {
 			chunks: HashMap::new(),
 			database,
+			notify: Arc::new(Notify::new()),
+			cleaned_up: false,
+			autosave_interval_ms,
+			last_autosave_timestamp: get_millis(),
+			task_tick: None,
 		}
 	}
 
@@ -76,6 +101,55 @@ impl ChunkSystem {
 
 		Ok(chunk_mtx)
 	}
+
+	pub fn launch_tick_task(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
+		chunk_system.task_tick = Some(
+			tokio::task::Builder::new()
+				.name("Chunk system task")
+				.spawn(async move { ChunkSystem::tick_task_runner(chunk_system_weak).await })
+				.unwrap(),
+		);
+	}
+
+	async fn tick_task_runner(chunk_system_weak: ChunkSystemWeak) {
+		while let Some(chunk_system) = chunk_system_weak.upgrade() {
+			let mut chunk_system = chunk_system.lock().await;
+			chunk_system.tick(&chunk_system_weak).await;
+			drop(chunk_system);
+			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+		}
+	}
+
+	// Called every 1s
+	async fn tick(&mut self, weak: &ChunkSystemWeak) {
+		let time_ms = get_millis();
+		if self.last_autosave_timestamp + (self.autosave_interval_ms as u64) < time_ms {
+			self.last_autosave_timestamp = time_ms;
+
+			let mut to_autosave: Vec<ChunkInstanceWeak> = Vec::new();
+			for chunk in self.chunks.values() {
+				if chunk.lock().await.is_modified() {
+					to_autosave.push(Arc::downgrade(chunk));
+				}
+			}
+			if !to_autosave.is_empty() {
+				log::info!("Performing auto-save");
+				ChunkSystem::save_chunks(to_autosave, weak.clone()).await
+			} else {
+				log::info!("Nothing to save")
+			}
+		}
+	}
+
+	async fn save_chunks(to_autosave: Vec<ChunkInstanceWeak>, weak: ChunkSystemWeak) {}
+
+	pub async fn cleanup(&mut self) {
+		if let Some(task) = &self.task_tick {
+			task.abort();
+		}
+		self.cleaned_up = true;
+	}
 }
 
 pub type ChunkSystemMutex = Arc<Mutex<ChunkSystem>>;
+pub type ChunkSystemWeak = Weak<Mutex<ChunkSystem>>;

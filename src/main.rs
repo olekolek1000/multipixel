@@ -34,6 +34,7 @@ mod preview_system;
 mod room;
 mod server;
 mod session;
+mod time;
 mod tool;
 mod util;
 
@@ -51,11 +52,24 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 	drop(server);
 	log::info!("Created session with ID {}", session_handle.id());
 
-	// Spawn sender task
-	SessionInstance::launch_sender_task(session_handle.id(), Arc::downgrade(&session_mtx), writer);
+	{
+		let mut session_instance = session_mtx.lock().await;
 
-	// Spatn tick task
-	SessionInstance::launch_tick_task(session_handle, Arc::downgrade(&session_mtx));
+		// Spawn sender task
+		SessionInstance::launch_sender_task(
+			session_handle.id(),
+			&mut session_instance,
+			Arc::downgrade(&session_mtx),
+			writer,
+		);
+
+		// Spawn tick task
+		SessionInstance::launch_tick_task(
+			session_handle,
+			&mut session_instance,
+			Arc::downgrade(&session_mtx),
+		);
+	}
 
 	loop {
 		match reader.next().await {
@@ -85,15 +99,24 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 	// Remove session
 	session_mtx.lock().await.cleanup(&session_handle).await;
 
+	let weak_session = Arc::downgrade(&session_mtx);
+
 	server = server_mtx.lock().await;
 	server.remove_session(&session_handle).await;
 	drop(server);
+	drop(session_mtx);
+
+	// for debugging purposes
+	debug_assert!(
+		weak_session.strong_count() == 0,
+		"session count ref is not 0"
+	);
 
 	Ok(())
 }
 
-async fn task_listener(listener: TcpListener) -> anyhow::Result<()> {
-	let server = Server::new();
+async fn task_listener(listener: TcpListener, config: config::Config) -> anyhow::Result<()> {
+	let server = Server::new(config);
 
 	while let Ok((tcp_conn, _)) = listener.accept().await {
 		let s = server.clone();
@@ -118,7 +141,7 @@ async fn run() -> anyhow::Result<()> {
 
 	let listener = TcpListener::bind(listen_addr).await?;
 
-	if let Err(e) = task_listener(listener).await {
+	if let Err(e) = task_listener(listener, config).await {
 		log::error!("Listener error: {}", e);
 	}
 
@@ -128,7 +151,7 @@ async fn run() -> anyhow::Result<()> {
 fn main() {
 	let runtime = tokio::runtime::Builder::new_multi_thread()
 		.enable_time()
-		.worker_threads(2)
+		.worker_threads(8)
 		.thread_name("mp")
 		.thread_stack_size(2 * 1024 * 1024)
 		.enable_io()

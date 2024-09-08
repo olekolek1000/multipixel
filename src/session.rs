@@ -20,6 +20,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use std::{fmt, io};
 use tokio::sync::{Mutex, Notify};
+use tokio::task::JoinHandle;
 use tokio_websockets::Message;
 
 // Any protocol usage error that shouldn't be tolerated.
@@ -137,6 +138,9 @@ pub struct SessionInstance {
 	kicked: bool,
 	announced: bool,
 	cleaned_up: bool,
+
+	task_sender: Option<JoinHandle<()>>,
+	task_tick: Option<JoinHandle<()>>,
 }
 
 impl SessionInstance {
@@ -164,6 +168,8 @@ impl SessionInstance {
 			boundary: Default::default(),
 			history_cells: Default::default(),
 			cleaned_up: false,
+			task_sender: None,
+			task_tick: None,
 		}
 	}
 
@@ -204,46 +210,55 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	pub fn launch_tick_task(session_handle: SessionHandle, session_weak: SessionInstanceWeak) {
-		tokio::task::Builder::new()
-			.name(format!("Session {} tick task", session_handle.id()).as_str())
-			.spawn(async move {
-				if let Err(e) = SessionInstance::tick_task_runner(session_weak, &session_handle).await {
-					log::error!("Session tick task ended abnormally: {}", e);
-				} else {
-					log::trace!("Session tick task ended gracefully");
-				}
-			})
-			.unwrap();
+	pub fn launch_tick_task(
+		session_handle: SessionHandle,
+		session: &mut SessionInstance,
+		session_weak: SessionInstanceWeak,
+	) {
+		session.task_tick = Some(
+			tokio::task::Builder::new()
+				.name(format!("Session {} tick task", session_handle.id()).as_str())
+				.spawn(async move {
+					if let Err(e) = SessionInstance::tick_task_runner(session_weak, &session_handle).await {
+						log::error!("Session tick task ended abnormally: {}", e);
+					} else {
+						log::trace!("Session tick task ended gracefully");
+					}
+				})
+				.unwrap(),
+		);
 	}
 
 	pub fn launch_sender_task(
 		session_id: u32,
+		session: &mut SessionInstance,
 		session_weak: SessionInstanceWeak,
 		mut writer: ConnectionWriter,
 	) {
-		tokio::task::Builder::new()
-			.name(format!("Session {} sender task", session_id).as_str())
-			.spawn(async move {
-				while let Some(session_mtx) = session_weak.upgrade() {
-					let mut session = session_mtx.lock().await;
+		session.task_sender = Some(
+			tokio::task::Builder::new()
+				.name(format!("Session {} sender task", session_id).as_str())
+				.spawn(async move {
+					while let Some(session_mtx) = session_weak.upgrade() {
+						let mut session = session_mtx.lock().await;
 
-					let notifier = session.notifier.clone();
+						let notifier = session.notifier.clone();
 
-					drop(session);
+						drop(session);
 
-					notifier.notified().await;
+						notifier.notified().await;
 
-					session = session_mtx.lock().await;
-					let _ = session.send_all(&mut writer).await;
+						session = session_mtx.lock().await;
+						let _ = session.send_all(&mut writer).await;
 
-					if session.cleaned_up {
-						break; // End this task
+						if session.cleaned_up {
+							break; // End this task
+						}
 					}
-				}
-				log::trace!("Session sender task ended");
-			})
-			.unwrap();
+					log::trace!("Session sender task ended");
+				})
+				.unwrap(),
+		);
 	}
 
 	async fn parse_command(
@@ -701,16 +716,29 @@ impl SessionInstance {
 	}
 
 	pub async fn cleanup(&mut self, session_handle: &SessionHandle) {
-		// only this for now
-		if let Some(refs) = &self.room_refs {
-			let refs = refs.clone();
-			self.leave_room(&refs, session_handle).await;
-		}
-
 		self.cleaned_up = true;
 
-		// Inform sender task to exit itself
-		self.notifier.notify_one();
+		// Cancel all session tasks
+		if let Some(task) = &self.task_sender {
+			task.abort();
+		}
+
+		if let Some(task) = &self.task_tick {
+			task.abort();
+		}
+
+		if let Some(refs) = &self.room_refs {
+			let refs = refs.clone();
+
+			// Unlink all chunks
+			while let Some(lchunk) = self.linked_chunks.last() {
+				self
+					.unlink_chunk(session_handle, lchunk.chunk.clone())
+					.await;
+			}
+
+			self.leave_room(&refs, session_handle).await;
+		}
 	}
 
 	pub async fn leave_room(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
@@ -1118,6 +1146,20 @@ impl SessionInstance {
 			.send(packet_server::prepare_packet_chunk_create(chunk_pos));
 	}
 
+	async fn unlink_chunk(&mut self, session_handle: &SessionHandle, wchunk: ChunkInstanceWeak) {
+		if let Some(chunk) = wchunk.upgrade() {
+			let mut chunk = chunk.lock().await;
+			chunk.unlink_session(session_handle);
+			drop(chunk);
+			for (idx, lchunk) in self.linked_chunks.iter().enumerate() {
+				if Weak::ptr_eq(&lchunk.chunk, &wchunk) {
+					self.linked_chunks.remove(idx);
+					break;
+				}
+			}
+		}
+	}
+
 	pub async fn tick_boundary_check(
 		&mut self,
 		refs: &RoomRefs,
@@ -1176,7 +1218,11 @@ impl SessionInstance {
 						.await
 					{
 						let mut chunk = chunk_mtx.lock().await;
-						chunk.link_session(session_handle, session, self.queue_send.clone());
+						chunk.link_session(
+							session_handle,
+							Arc::downgrade(session),
+							self.queue_send.clone(),
+						);
 						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
 						self.link_chunk(linked_chunk);
 						chunk.send_chunk_data_to_session(self.queue_send.clone());
@@ -1192,13 +1238,15 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	pub async fn tick_chunks_cleanup(&mut self) {}
+	pub async fn tick_chunks_cleanup(&mut self) {
+		// TODO
+	}
 }
 
 impl Drop for SessionInstance {
 	fn drop(&mut self) {
 		assert!(self.cleaned_up, "cleanup() not called");
-		log::trace!("Session dropped");
+		log::debug!("Session dropped");
 	}
 }
 
