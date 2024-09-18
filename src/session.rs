@@ -1,5 +1,5 @@
 use crate::canvas_cache::CanvasCache;
-use crate::chunk::{self, ChunkInstanceMutex, ChunkInstanceWeak, ChunkPixel};
+use crate::chunk::{ChunkInstanceMutex, ChunkInstanceWeak, ChunkPixel};
 use crate::chunk_cache::ChunkCache;
 use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
 use crate::event_queue::EventQueue;

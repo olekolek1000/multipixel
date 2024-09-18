@@ -5,7 +5,7 @@ use std::mem::size_of;
 use bytes::{BufMut, Bytes, BytesMut};
 use glam::IVec2;
 
-use crate::{chunk::ChunkPixel, limits};
+use crate::limits;
 
 pub enum MessageType {
 	PlainText = 0,

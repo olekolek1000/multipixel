@@ -1,11 +1,7 @@
-use std::{
-	collections::VecDeque,
-	sync::{Arc, OnceLock, Weak},
-};
+use std::sync::{Arc, OnceLock, Weak};
 
 use bytes::{BufMut, BytesMut};
 use glam::{IVec2, UVec2};
-use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -15,7 +11,7 @@ use crate::{
 	limits::{self, CHUNK_SIZE_PX},
 	packet_server::{self, prepare_packet_pixel_pack},
 	pixel::Color,
-	session::{SessionHandle, SessionInstanceMutex, SessionInstanceWeak},
+	session::{SessionHandle, SessionInstanceWeak},
 };
 
 #[derive(Clone)]
@@ -32,7 +28,7 @@ struct LinkedSession {
 
 pub struct ChunkInstance {
 	new_chunk: bool,
-	position: IVec2,
+	pub position: IVec2,
 	modified: bool,
 	pub raw_image_data: Option<Vec<u8>>,
 	compressed_image_data: Option<Arc<Vec<u8>>>,
@@ -94,7 +90,7 @@ impl ChunkInstance {
 		}
 	}
 
-	fn encode_chunk_data(&mut self, clear_modified: bool) -> Arc<Vec<u8>> {
+	pub fn encode_chunk_data(&mut self, clear_modified: bool) -> Arc<Vec<u8>> {
 		let compressed = if self.new_chunk {
 			// Return compressed empty chunk
 			return get_empty_chunk().lock().unwrap().clone();
@@ -110,7 +106,8 @@ impl ChunkInstance {
 			self.set_modified(false);
 			self.raw_image_data = None;
 
-			todo!()
+			log::warn!("encode_chunk_data TODO");
+
 			/*
 			auto *preview_system = chunk_system->room->getPreviewSystem();
 
