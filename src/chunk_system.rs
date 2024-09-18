@@ -3,7 +3,6 @@ use std::{
 	sync::{Arc, Weak},
 };
 
-use futures_util::{future::Shared, FutureExt};
 use glam::{IVec2, UVec2};
 use tokio::{
 	sync::{Mutex, Notify},
@@ -12,7 +11,7 @@ use tokio::{
 
 use crate::{
 	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
-	database::Database,
+	database::{Database, DatabaseFunc},
 	limits::CHUNK_SIZE_PX,
 	time::get_millis,
 };
@@ -20,7 +19,6 @@ use crate::{
 pub struct ChunkSystem {
 	chunks: HashMap<IVec2, ChunkInstanceMutex>,
 	database: Arc<Mutex<Database>>,
-	notify: Arc<Notify>,
 	cleaned_up: bool,
 	autosave_interval_ms: u32,
 	last_autosave_timestamp: u64,
@@ -43,7 +41,6 @@ impl ChunkSystem {
 		Self {
 			chunks: HashMap::new(),
 			database,
-			notify: Arc::new(Notify::new()),
 			cleaned_up: false,
 			autosave_interval_ms,
 			last_autosave_timestamp: get_millis(),
@@ -80,15 +77,8 @@ impl ChunkSystem {
 		let mut compressed_chunk_data: Option<Vec<u8>> = None;
 
 		// Load chunk pixels from the database
-		if let Some(record) = self
-			.database
-			.lock()
-			.await
-			.client
-			.conn(move |conn| Database::chunk_load_data(conn, chunk_pos))
-			.await?
-		{
-			compressed_chunk_data = Some(record.data);
+		if let Some(data) = DatabaseFunc::chunk_load_data(&self.database, chunk_pos).await? {
+			compressed_chunk_data = Some(data.data);
 		}
 
 		// Allocate chunk
@@ -112,36 +102,76 @@ impl ChunkSystem {
 	}
 
 	async fn tick_task_runner(chunk_system_weak: ChunkSystemWeak) {
-		while let Some(chunk_system) = chunk_system_weak.upgrade() {
-			let mut chunk_system = chunk_system.lock().await;
-			chunk_system.tick(&chunk_system_weak).await;
-			drop(chunk_system);
+		while chunk_system_weak.strong_count() > 0 {
+			ChunkSystem::tick(&chunk_system_weak).await;
 			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 		}
 	}
 
 	// Called every 1s
-	async fn tick(&mut self, weak: &ChunkSystemWeak) {
-		let time_ms = get_millis();
-		if self.last_autosave_timestamp + (self.autosave_interval_ms as u64) < time_ms {
-			self.last_autosave_timestamp = time_ms;
+	async fn tick(weak: &ChunkSystemWeak) {
+		if let Some(chunk_sytem) = weak.upgrade() {
+			let mut chunk_system = chunk_sytem.lock().await;
 
-			let mut to_autosave: Vec<ChunkInstanceWeak> = Vec::new();
-			for chunk in self.chunks.values() {
-				if chunk.lock().await.is_modified() {
-					to_autosave.push(Arc::downgrade(chunk));
+			let time_ms = get_millis();
+			if chunk_system.last_autosave_timestamp + (chunk_system.autosave_interval_ms as u64) < time_ms
+			{
+				chunk_system.last_autosave_timestamp = time_ms;
+
+				let mut to_autosave: Vec<ChunkInstanceWeak> = Vec::new();
+				for chunk in chunk_system.chunks.values() {
+					if chunk.lock().await.is_modified() {
+						to_autosave.push(Arc::downgrade(chunk));
+					}
 				}
-			}
-			if !to_autosave.is_empty() {
-				log::info!("Performing auto-save");
-				ChunkSystem::save_chunks(to_autosave, weak.clone()).await
-			} else {
-				log::info!("Nothing to save")
+				if !to_autosave.is_empty() {
+					log::info!("Performing auto-save");
+					drop(chunk_system);
+					ChunkSystem::save_chunks(to_autosave, weak.clone()).await;
+				} else {
+					log::info!("Nothing to save")
+				}
 			}
 		}
 	}
 
-	async fn save_chunks(to_autosave: Vec<ChunkInstanceWeak>, weak: ChunkSystemWeak) {}
+	async fn save_chunk(&mut self, chunk: &mut ChunkInstance) -> anyhow::Result<()> {
+		let data = chunk.encode_chunk_data(true);
+
+		DatabaseFunc::chunk_save_data(
+			&self.database,
+			chunk.position,
+			data,
+			crate::database::CompressionType::Lz4,
+		)
+		.await?;
+
+		Ok(())
+	}
+
+	async fn save_chunks(mut to_autosave: Vec<ChunkInstanceWeak>, weak: ChunkSystemWeak) {
+		while let Some(chunk) = to_autosave.pop() {
+			if let Some(chunk) = chunk.upgrade() {
+				let mut chunk = chunk.lock().await;
+				if !chunk.is_modified() {
+					continue;
+				}
+
+				if let Some(chunk_system) = weak.upgrade() {
+					log::info!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
+					let mut chunk_system = chunk_system.lock().await;
+					if let Err(e) = chunk_system.save_chunk(&mut chunk).await {
+						log::error!(
+							"Failed to save chunk at {}x{}: {}",
+							chunk.position.x,
+							chunk.position.y,
+							e
+						);
+					}
+				}
+			}
+		}
+	}
 
 	pub async fn cleanup(&mut self) {
 		if let Some(task) = &self.task_tick {

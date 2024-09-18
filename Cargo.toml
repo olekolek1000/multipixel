@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.86"
-async-sqlite = "0.2.2"
 binary-reader = "0.4.5"
 bytes = "1.6.0"
 console-subscriber = "0.2.0"
@@ -23,3 +22,6 @@ serde_json = "1.0.117"
 sha1_smol = "1.0.0"
 tokio = { version = "1.37.0", features = ["full"] }
 tokio-websockets = { version = "0.8.3", features = ["server", "sha1_smol"] }
+
+# https://github.com/programatik29/tokio-rusqlite/pull/36
+tokio-rusqlite = { git = "https://github.com/JakubKoralewski/tokio-rusqlite.git", branch = "master" }
