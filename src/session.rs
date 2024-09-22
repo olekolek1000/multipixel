@@ -7,7 +7,7 @@ use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
 use crate::pixel::{Color, GlobalPixel};
 use crate::preview_system::PreviewSystemMutex;
-use crate::room::RoomInstanceMutex;
+use crate::room::{self, RoomInstanceMutex};
 use crate::server::ServerMutex;
 use crate::tool::brush::BrushShapes;
 use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
@@ -193,10 +193,10 @@ impl SessionInstance {
 				{
 					session.handle_error(&e).await?;
 				}
-			}
 
-			if ticks % 20 == 0 {
-				session.tick_chunks_cleanup().await;
+				if ticks % 20 == 0 {
+					session.tick_chunks_cleanup(&room_refs).await;
+				}
 			}
 
 			ticks += 1;
@@ -210,7 +210,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	pub fn launch_tick_task(
+	pub fn launch_task_tick(
 		session_handle: SessionHandle,
 		session: &mut SessionInstance,
 		session_weak: SessionInstanceWeak,
@@ -229,7 +229,7 @@ impl SessionInstance {
 		);
 	}
 
-	pub fn launch_sender_task(
+	pub fn launch_task_sender(
 		session_id: u32,
 		session: &mut SessionInstance,
 		session_weak: SessionInstanceWeak,
@@ -914,8 +914,50 @@ impl SessionInstance {
 		}
 	}
 
-	async fn process_command_message(&mut self, _reader: &mut BinaryReader) -> Result<(), UserError> {
-		Err(UserError::new("Messages not supported yet"))
+	async fn process_command_message(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+		let msg_len = reader.read_u16()?;
+		if msg_len > 1000 {
+			return Err(UserError::new(
+				format!("Too long message, got {}, max allowed is {}", msg_len, 1000).as_str(),
+			))?;
+		}
+
+		let msg = reader.read_bytes(msg_len as usize)?;
+		let str = std::str::from_utf8(msg)?;
+
+		if str.is_empty() {
+			return Ok(()); // unexpected but ok, just ignore it
+		}
+
+		if let Some(ch) = str.chars().nth(0) {
+			if ch == '/' {
+				self.handle_chat_command(&str[1..]).await?;
+			} else {
+				self.handle_chat_message(str).await;
+			}
+		}
+
+		Ok(())
+	}
+
+	async fn handle_chat_message(&mut self, msg: &str) {
+		self.queue_send.send(packet_server::prepare_packet_message(
+			packet_server::MessageType::PlainText,
+			format!("<{}> {}", self.nick_name.as_str(), msg).as_str(),
+		));
+	}
+
+	async fn handle_chat_command(&mut self, msg: &str) -> anyhow::Result<()> {
+		match msg {
+			"leave" => self.kick("Goodbye.").await?,
+			_ => {
+				self.queue_send.send(packet_server::prepare_packet_message(
+					packet_server::MessageType::PlainText,
+					"Unknown command",
+				));
+			}
+		}
+		Ok(())
 	}
 
 	async fn process_command_ping(&mut self, _reader: &mut BinaryReader) {
@@ -1238,8 +1280,37 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	pub async fn tick_chunks_cleanup(&mut self) {
-		// TODO
+	pub async fn tick_chunks_cleanup(&mut self, refs: &RoomRefs) {
+		// Remove chunks outside bounds and left for longer time
+		let mut chunks_to_unload: Vec<IVec2> = Vec::new();
+
+		for i in 0..self.linked_chunks.len() {
+			let linked_chunk = &mut self.linked_chunks[i];
+			if let Some(chunk) = linked_chunk.chunk.upgrade() {
+				let pos = chunk.lock().await.position;
+				if self.boundary.zoom <= limits::MIN_ZOOM
+					|| pos.y < self.boundary.start_y
+					|| pos.y > self.boundary.end_y
+					|| pos.x < self.boundary.start_x
+					|| pos.x > self.boundary.end_x
+				{
+					linked_chunk.outside_boundary_duration += 1;
+					if linked_chunk.outside_boundary_duration == 5
+					/* seconds */
+					{
+						chunks_to_unload.push(pos);
+					} else {
+						linked_chunk.outside_boundary_duration = 0;
+					}
+				}
+			}
+		}
+
+		// Deannounce chunks from list
+		for pos in chunks_to_unload {
+			let chunk_system = refs.chunk_system_mtx.lock().await;
+			log::info!("TODO deannounce chunk for session");
+		}
 	}
 }
 
