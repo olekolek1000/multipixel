@@ -180,8 +180,8 @@ pub fn prepare_packet_chunk_image(chunk_pos: IVec2, compressed_chunk_data: &[u8]
 pub fn prepare_packet_message(message_type: MessageType, message: &str) -> Packet {
 	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
 
-	buf.put_u8(message_type as u8);
 	buf.put_u16(ServerCmd::Message as CommandIndex);
+	buf.put_u8(message_type as u8);
 	put_string_u16(&mut buf, message);
 
 	Packet { data: buf.into() }

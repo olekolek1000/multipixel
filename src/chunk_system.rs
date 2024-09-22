@@ -13,6 +13,7 @@ use crate::{
 	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
 	database::{Database, DatabaseFunc},
 	limits::CHUNK_SIZE_PX,
+	preview_system::PreviewSystemMutex,
 	time::get_millis,
 };
 
@@ -23,6 +24,7 @@ pub struct ChunkSystem {
 	autosave_interval_ms: u32,
 	last_autosave_timestamp: u64,
 	task_tick: Option<JoinHandle<()>>,
+	preview_system: PreviewSystemMutex,
 }
 
 fn modulo(x: i32, n: i32) -> i32 {
@@ -37,13 +39,18 @@ impl Drop for ChunkSystem {
 }
 
 impl ChunkSystem {
-	pub fn new(database: Arc<Mutex<Database>>, autosave_interval_ms: u32) -> Self {
+	pub fn new(
+		database: Arc<Mutex<Database>>,
+		preview_system: PreviewSystemMutex,
+		autosave_interval_ms: u32,
+	) -> Self {
 		Self {
 			chunks: HashMap::new(),
 			database,
 			cleaned_up: false,
 			autosave_interval_ms,
 			last_autosave_timestamp: get_millis(),
+			preview_system,
 			task_tick: None,
 		}
 	}
@@ -81,9 +88,12 @@ impl ChunkSystem {
 			compressed_chunk_data = Some(data.data);
 		}
 
+		let queue_cache = self.preview_system.lock().await.update_queue_cache.clone();
+
 		// Allocate chunk
 		let chunk_mtx = Arc::new(Mutex::new(ChunkInstance::new(
 			chunk_pos,
+			queue_cache,
 			compressed_chunk_data,
 		)));
 
@@ -92,7 +102,7 @@ impl ChunkSystem {
 		Ok(chunk_mtx)
 	}
 
-	pub fn launch_tick_task(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
+	pub fn launch_task_tick(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
 		chunk_system.task_tick = Some(
 			tokio::task::Builder::new()
 				.name("Chunk system task")
@@ -128,8 +138,6 @@ impl ChunkSystem {
 					log::info!("Performing auto-save");
 					drop(chunk_system);
 					ChunkSystem::save_chunks(to_autosave, weak.clone()).await;
-				} else {
-					log::info!("Nothing to save")
 				}
 			}
 		}

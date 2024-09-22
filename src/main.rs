@@ -56,7 +56,7 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 		let mut session_instance = session_mtx.lock().await;
 
 		// Spawn sender task
-		SessionInstance::launch_sender_task(
+		SessionInstance::launch_task_sender(
 			session_handle.id(),
 			&mut session_instance,
 			Arc::downgrade(&session_mtx),
@@ -64,7 +64,7 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 		);
 
 		// Spawn tick task
-		SessionInstance::launch_tick_task(
+		SessionInstance::launch_task_tick(
 			session_handle,
 			&mut session_instance,
 			Arc::downgrade(&session_mtx),

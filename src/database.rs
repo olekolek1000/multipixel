@@ -33,7 +33,7 @@ pub struct ChunkDatabaseRecord {
 }
 
 pub struct PreviewDatabaseRecord {
-	pub data: Arc<Vec<u8>>,
+	pub data: Vec<u8>,
 }
 
 impl Database {
@@ -130,7 +130,7 @@ impl Database {
 			},
 		) {
 			//Chunk already exists, update chunk
-
+			log::info!("Updating chunk");
 			if get_unix_timestamp() as i64 - row.timestamp > SECONDS_BETWEEN_SNAPSHOTS as i64 {
 				//Insert a new chunk in its place
 				Self::chunk_insert(conn, pos, data, compression_type)?;
@@ -138,11 +138,17 @@ impl Database {
 				//Replace chunk
 				conn.execute(
 					"UPDATE chunk_data SET modified = ?, data = ?, compression = ? WHERE rowid = ?",
-					params![0i64, data, compression_type as i32, row.chunk_id],
+					params![
+						get_unix_timestamp(),
+						data,
+						compression_type as i32,
+						row.chunk_id
+					],
 				)?;
 			}
 		} else {
 			// Chunk doesn't exist, create chunk
+			log::info!("Creating chunk");
 			Self::chunk_insert(conn, pos, data, compression_type)?;
 		}
 
@@ -198,12 +204,40 @@ impl Database {
 			params![pos.x, pos.y, zoom],
 			|row| Ok(Row { data: row.get(0)? }),
 		) {
-			return Ok(Some(PreviewDatabaseRecord {
-				data: Arc::new(row.data),
-			}));
+			return Ok(Some(PreviewDatabaseRecord { data: row.data }));
 		}
 
 		Ok(None)
+	}
+
+	fn preview_save_data(
+		conn: &rusqlite::Connection,
+		pos: IVec2,
+		zoom: u8,
+		data: &[u8],
+	) -> tokio_rusqlite::Result<()> {
+		if let Ok(rowid) = conn.query_row(
+			"SELECT rowid FROM previews WHERE x=? AND y=? AND zoom=?",
+			params![pos.x, pos.y, zoom],
+			|row| {
+				let res: u32 = row.get(0)?;
+				Ok(res)
+			},
+		) {
+			// Update preview data
+			conn.execute(
+				"UPDATE previews SET x=?, y=?, zoom=?, data=? WHERE rowid=?",
+				params![pos.x, pos.y, zoom, data, rowid],
+			)?;
+		} else {
+			// Insert new preview data
+			conn.execute(
+				"INSERT INTO previews (x,y,zoom,data) VALUES (?,?,?,?)",
+				params![pos.x, pos.y, zoom, data],
+			)?;
+		}
+
+		Ok(())
 	}
 
 	pub async fn cleanup(&mut self) {
@@ -264,6 +298,18 @@ impl DatabaseFunc {
 	) -> anyhow::Result<Option<PreviewDatabaseRecord>> {
 		Database::get_conn(database, move |conn| {
 			Database::preview_load_data(conn, &pos, zoom)
+		})
+		.await
+	}
+
+	pub async fn preview_save_data(
+		database: &Arc<Mutex<Database>>,
+		pos: IVec2,
+		zoom: u8,
+		data: Vec<u8>,
+	) -> anyhow::Result<()> {
+		Database::get_conn(database, move |conn| {
+			Database::preview_save_data(conn, pos, zoom, &data)
 		})
 		.await
 	}

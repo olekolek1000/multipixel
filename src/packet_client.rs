@@ -13,7 +13,7 @@ pub enum ToolType {
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u16)]
 pub enum ClientCmd {
-	Message = 1,  // utf-8 text
+	Message = 1,  // u16 text_size, utf-8 text
 	Announce = 2, // u8 room_name_size, utf-8 room_name, u8 nickname_size, utf-8 nickname
 	Ping = 4,
 	CursorPos = 100, // s32 x, s32 y

@@ -25,7 +25,7 @@ const MessageType = {
 }
 
 enum ClientCmd {
-	message = 1,	// utf-8 text
+	message = 1,	// u16 text_size, utf-8 text
 	announce = 2, // u8 room_name_size, utf-8 room_name, u8 nickname_size, utf-8 nickname
 	ping = 4,
 	cursor_pos = 100, // s32 x, s32 y
@@ -168,11 +168,14 @@ export class Client {
 
 	socketSendMessage(text: any) {
 		let utf8 = textToUTF8(text);
-		let buf = createMessage(ClientCmd.message, utf8.length);
-		let buf_u8 = new Uint8Array(buf);
+		let buf = createMessage(ClientCmd.message, size_u16 + utf8.length);
+		let dataview = new DataView(buf, header_offset);
 
+		dataview.setUint16(0, utf8.length);
+
+		let buf_u8 = new Uint8Array(buf);
 		for (let i = 0; i < utf8.length; i++) {
-			buf_u8[i + header_offset] = utf8[i];
+			buf_u8[i + header_offset + size_u16] = utf8[i];
 		}
 
 		this.socket!.send(buf);

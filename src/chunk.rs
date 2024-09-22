@@ -11,6 +11,7 @@ use crate::{
 	limits::{self, CHUNK_SIZE_PX},
 	packet_server::{self, prepare_packet_pixel_pack},
 	pixel::Color,
+	preview_system::{PreviewSystemMutex, PreviewSystemQueuedChunks},
 	session::{SessionHandle, SessionInstanceWeak},
 };
 
@@ -33,6 +34,7 @@ pub struct ChunkInstance {
 	pub raw_image_data: Option<Vec<u8>>,
 	compressed_image_data: Option<Arc<Vec<u8>>>,
 	linked_sessions: Vec<LinkedSession>,
+	preview_system_queued_chunks: PreviewSystemQueuedChunks,
 }
 
 // Returns LZ4-compressed empty, white chunk. Generates once.
@@ -46,11 +48,16 @@ fn get_empty_chunk() -> &'static std::sync::Mutex<Arc<Vec<u8>>> {
 }
 
 impl ChunkInstance {
-	pub fn new(position: IVec2, compressed_image_data: Option<Vec<u8>>) -> Self {
+	pub fn new(
+		position: IVec2,
+		preview_system_queued_chunks: PreviewSystemQueuedChunks,
+		compressed_image_data: Option<Vec<u8>>,
+	) -> Self {
 		Self {
 			new_chunk: compressed_image_data.is_some(),
 			modified: false,
 			position,
+			preview_system_queued_chunks,
 			compressed_image_data: compressed_image_data.map(Arc::new),
 			raw_image_data: None,
 			linked_sessions: Default::default(),
@@ -106,16 +113,19 @@ impl ChunkInstance {
 			self.set_modified(false);
 			self.raw_image_data = None;
 
-			log::warn!("encode_chunk_data TODO");
-
-			/*
-			auto *preview_system = chunk_system->room->getPreviewSystem();
-
-			Int2 upper_pos;
-			upper_pos.x = position.x >= 0 ? position.x / 2 : (position.x - 1) / 2;
-			upper_pos.y = position.y >= 0 ? position.y / 2 : (position.y - 1) / 2;
-			preview_system->addToQueueFront(upper_pos);
-				 */
+			let upper_pos = IVec2::new(
+				if self.position.x >= 0 {
+					self.position.x / 2
+				} else {
+					(self.position.x - 1) / 2
+				},
+				if self.position.y >= 0 {
+					self.position.y / 2
+				} else {
+					(self.position.y - 1) / 2
+				},
+			);
+			self.preview_system_queued_chunks.send(upper_pos);
 		}
 
 		compressed

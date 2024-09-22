@@ -4,7 +4,7 @@ use crate::{
 	database::Database,
 	event_queue::EventQueue,
 	packet_server,
-	preview_system::PreviewSystem,
+	preview_system::{PreviewSystem, PreviewSystemMutex},
 	server::Server,
 	session::{SessionHandle, SessionInstanceWeak},
 	tool::brush::BrushShapes,
@@ -24,7 +24,7 @@ pub struct RoomInstance {
 	pub database: Arc<Mutex<Database>>,
 	pub chunk_system: ChunkSystemMutex,
 	pub brush_shapes: Arc<Mutex<BrushShapes>>,
-	pub preview_system: Arc<Mutex<PreviewSystem>>,
+	pub preview_system: PreviewSystemMutex,
 	cleaned_up: bool,
 }
 
@@ -33,15 +33,26 @@ impl RoomInstance {
 		let db_path = format!("rooms/{}.db", room_name);
 
 		let database = Arc::new(Mutex::new(Database::new(db_path.as_str()).await?));
+		let preview_system_mtx = Arc::new(Mutex::new(PreviewSystem::new(database.clone())));
+
 		let chunk_system_mtx = Arc::new(Mutex::new(ChunkSystem::new(
 			database.clone(),
+			preview_system_mtx.clone(),
 			config.autosave_interval_ms,
 		)));
 
 		{
+			let mut preview_system = preview_system_mtx.lock().await;
+			PreviewSystem::launch_task_processor(
+				&mut preview_system,
+				Arc::downgrade(&preview_system_mtx),
+			);
+		}
+
+		{
 			let mut chunk_system = chunk_system_mtx.lock().await;
 			// Spawn tick task for chunk system
-			ChunkSystem::launch_tick_task(&mut chunk_system, Arc::downgrade(&chunk_system_mtx));
+			ChunkSystem::launch_task_tick(&mut chunk_system, Arc::downgrade(&chunk_system_mtx));
 		}
 
 		Ok(Self {
@@ -49,7 +60,7 @@ impl RoomInstance {
 			database: database.clone(),
 			cleaned_up: false,
 			chunk_system: chunk_system_mtx,
-			preview_system: Arc::new(Mutex::new(PreviewSystem::new(database.clone()))),
+			preview_system: preview_system_mtx,
 			brush_shapes: Arc::new(Mutex::new(BrushShapes::new())),
 		})
 	}
