@@ -11,7 +11,7 @@ use crate::{
 	limits::{self, CHUNK_SIZE_PX},
 	packet_server::{self, prepare_packet_pixel_pack},
 	pixel::Color,
-	preview_system::{PreviewSystemMutex, PreviewSystemQueuedChunks},
+	preview_system::PreviewSystemQueuedChunks,
 	session::{SessionHandle, SessionInstanceWeak},
 };
 
@@ -22,7 +22,7 @@ pub struct ChunkPixel {
 }
 
 struct LinkedSession {
-	sesison: SessionInstanceWeak,
+	_session: SessionInstanceWeak,
 	queue_send: EventQueue<packet_server::Packet>,
 	handle: SessionHandle,
 }
@@ -247,10 +247,6 @@ impl ChunkInstance {
 		));
 	}
 
-	pub fn is_linked_sessions_empty(&self) -> bool {
-		self.linked_sessions.is_empty()
-	}
-
 	pub fn link_session(
 		&mut self,
 		handle: &SessionHandle,
@@ -265,7 +261,7 @@ impl ChunkInstance {
 
 		self.linked_sessions.push(LinkedSession {
 			handle: *handle,
-			sesison: session.clone(),
+			_session: session.clone(),
 			queue_send: session_queue_send,
 		});
 	}
