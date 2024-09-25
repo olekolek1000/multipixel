@@ -4,10 +4,7 @@ use std::{
 };
 
 use glam::{IVec2, UVec2};
-use tokio::{
-	sync::{Mutex, Notify},
-	task::JoinHandle,
-};
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
 	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
@@ -118,6 +115,16 @@ impl ChunkSystem {
 		}
 	}
 
+	async fn get_chunks_to_save(&self) -> Vec<ChunkInstanceWeak> {
+		let mut to_autosave: Vec<ChunkInstanceWeak> = Vec::new();
+		for chunk in self.chunks.values() {
+			if chunk.lock().await.is_modified() {
+				to_autosave.push(Arc::downgrade(chunk));
+			}
+		}
+		to_autosave
+	}
+
 	// Called every 1s
 	async fn tick(weak: &ChunkSystemWeak) {
 		if let Some(chunk_sytem) = weak.upgrade() {
@@ -128,18 +135,25 @@ impl ChunkSystem {
 			{
 				chunk_system.last_autosave_timestamp = time_ms;
 
-				let mut to_autosave: Vec<ChunkInstanceWeak> = Vec::new();
-				for chunk in chunk_system.chunks.values() {
-					if chunk.lock().await.is_modified() {
-						to_autosave.push(Arc::downgrade(chunk));
-					}
-				}
+				let to_autosave = chunk_system.get_chunks_to_save().await;
 				if !to_autosave.is_empty() {
 					log::info!("Performing auto-save");
 					drop(chunk_system);
-					ChunkSystem::save_chunks(to_autosave, weak.clone()).await;
+					ChunkSystem::save_chunks_lazy(to_autosave, weak.clone()).await;
 				}
 			}
+		}
+	}
+
+	async fn save_chunk_wrapper(&mut self, chunk: &mut ChunkInstance) {
+		log::info!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
+		if let Err(e) = self.save_chunk(chunk).await {
+			log::error!(
+				"Failed to save chunk at {}x{}: {}",
+				chunk.position.x,
+				chunk.position.y,
+				e
+			);
 		}
 	}
 
@@ -157,7 +171,20 @@ impl ChunkSystem {
 		Ok(())
 	}
 
-	async fn save_chunks(mut to_autosave: Vec<ChunkInstanceWeak>, weak: ChunkSystemWeak) {
+	async fn save_chunks(&mut self, mut to_autosave: Vec<ChunkInstanceWeak>) {
+		while let Some(chunk) = to_autosave.pop() {
+			if let Some(chunk) = chunk.upgrade() {
+				let mut chunk = chunk.lock().await;
+				if !chunk.is_modified() {
+					continue;
+				}
+
+				self.save_chunk_wrapper(&mut chunk).await;
+			}
+		}
+	}
+
+	async fn save_chunks_lazy(mut to_autosave: Vec<ChunkInstanceWeak>, weak: ChunkSystemWeak) {
 		while let Some(chunk) = to_autosave.pop() {
 			if let Some(chunk) = chunk.upgrade() {
 				let mut chunk = chunk.lock().await;
@@ -166,16 +193,8 @@ impl ChunkSystem {
 				}
 
 				if let Some(chunk_system) = weak.upgrade() {
-					log::info!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
 					let mut chunk_system = chunk_system.lock().await;
-					if let Err(e) = chunk_system.save_chunk(&mut chunk).await {
-						log::error!(
-							"Failed to save chunk at {}x{}: {}",
-							chunk.position.x,
-							chunk.position.y,
-							e
-						);
-					}
+					chunk_system.save_chunk_wrapper(&mut chunk).await;
 				}
 			}
 		}
@@ -185,6 +204,15 @@ impl ChunkSystem {
 		if let Some(task) = &self.task_tick {
 			task.abort();
 		}
+
+		// Save all modified chunks
+		let to_autosave = self.get_chunks_to_save().await;
+		if !to_autosave.is_empty() {
+			log::info!("Saving chunks before exit");
+			self.save_chunks(to_autosave).await;
+			log::info!("Chunks saved!");
+		}
+
 		self.cleaned_up = true;
 	}
 }
