@@ -13,7 +13,7 @@ use crate::{
 	compression,
 	database::{ChunkDatabaseRecord, Database, DatabaseFunc, PreviewDatabaseRecord},
 	event_queue::EventQueue,
-	limits::CHUNK_SIZE_PX,
+	limits::{self, CHUNK_SIZE_PX},
 };
 
 #[derive(Default)]
@@ -203,8 +203,6 @@ impl PreviewSystemLayer {
 
 			DatabaseFunc::preview_save_data(database, position, self.zoom, compressed).await?;
 
-			let mut upper_pos: Option<IVec2> = None;
-
 			let upper_pos = IVec2::new(
 				/* X */
 				if position.x >= 0 {
@@ -266,7 +264,7 @@ impl PreviewSystem {
 
 		// Init layers
 		let mut layers: Vec<PreviewSystemLayer> = Vec::new();
-		for i in 0..PreviewSystem::get_layer_count() {
+		for i in 0..limits::PREVIEW_SYSTEM_LAYER_COUNT {
 			layers.push(PreviewSystemLayer::new(layer_index_to_zoom(i)));
 		}
 
@@ -289,11 +287,6 @@ impl PreviewSystem {
 		} else {
 			Ok(None)
 		}
-	}
-
-	pub fn get_layer_count() -> u8 {
-		// const for now
-		5
 	}
 
 	pub fn launch_task_processor(
@@ -347,6 +340,17 @@ impl PreviewSystem {
 		}
 
 		Ok(())
+	}
+
+	pub async fn cleanup(&mut self) {
+		if let Some(task) = &self.task_processor {
+			task.abort();
+		}
+
+		//Process pending operations
+		if let Err(e) = self.process_everything().await {
+			log::error!("Failed to process on cleanup: {}", e);
+		}
 	}
 }
 
