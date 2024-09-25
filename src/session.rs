@@ -7,7 +7,7 @@ use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
 use crate::pixel::{Color, GlobalPixel};
 use crate::preview_system::PreviewSystemMutex;
-use crate::room::{self, RoomInstanceMutex};
+use crate::room::RoomInstanceMutex;
 use crate::server::ServerMutex;
 use crate::tool::brush::BrushShapes;
 use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
@@ -195,7 +195,7 @@ impl SessionInstance {
 				}
 
 				if ticks % 20 == 0 {
-					session.tick_chunks_cleanup(&room_refs).await;
+					session.tick_chunks_cleanup(session_handle).await;
 				}
 			}
 
@@ -1192,6 +1192,7 @@ impl SessionInstance {
 		if let Some(chunk) = wchunk.upgrade() {
 			let mut chunk = chunk.lock().await;
 			chunk.unlink_session(session_handle);
+			let chunk_pos = chunk.position;
 			drop(chunk);
 			for (idx, lchunk) in self.linked_chunks.iter().enumerate() {
 				if Weak::ptr_eq(&lchunk.chunk, &wchunk) {
@@ -1199,6 +1200,11 @@ impl SessionInstance {
 					break;
 				}
 			}
+
+			// Send packet to the client
+			self
+				.queue_send
+				.send(packet_server::prepare_packet_chunk_remove(chunk_pos));
 		}
 	}
 
@@ -1280,9 +1286,9 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	pub async fn tick_chunks_cleanup(&mut self, refs: &RoomRefs) {
+	pub async fn tick_chunks_cleanup(&mut self, session_handle: &SessionHandle) {
 		// Remove chunks outside bounds and left for longer time
-		let mut chunks_to_unload: Vec<IVec2> = Vec::new();
+		let mut chunks_to_unload: Vec<ChunkInstanceWeak> = Vec::new();
 
 		for i in 0..self.linked_chunks.len() {
 			let linked_chunk = &mut self.linked_chunks[i];
@@ -1296,20 +1302,19 @@ impl SessionInstance {
 				{
 					linked_chunk.outside_boundary_duration += 1;
 					if linked_chunk.outside_boundary_duration == 5
-					/* seconds */
+					/* 5 seconds */
 					{
-						chunks_to_unload.push(pos);
-					} else {
-						linked_chunk.outside_boundary_duration = 0;
+						chunks_to_unload.push(linked_chunk.chunk.clone());
 					}
+				} else {
+					linked_chunk.outside_boundary_duration = 0;
 				}
 			}
 		}
 
 		// Deannounce chunks from list
-		for pos in chunks_to_unload {
-			let chunk_system = refs.chunk_system_mtx.lock().await;
-			log::info!("TODO deannounce chunk for session");
+		for chunk in &chunks_to_unload {
+			self.unlink_chunk(session_handle, chunk.clone()).await;
 		}
 	}
 }

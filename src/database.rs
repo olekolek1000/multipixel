@@ -2,15 +2,15 @@ use glam::IVec2;
 use num_enum::TryFromPrimitive;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_rusqlite::params;
 use tokio_rusqlite::rusqlite;
-use tokio_rusqlite::{params, Connection};
 
 const SECONDS_BETWEEN_SNAPSHOTS: u32 = 14400;
 
 fn get_unix_timestamp() -> u64 {
 	match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
 		Ok(n) => n.as_secs(),
-		Err(_) => return 0,
+		Err(_) => 0,
 	}
 }
 
@@ -25,6 +25,7 @@ pub struct Database {
 	cleaned_up: bool,
 }
 
+#[allow(dead_code)]
 pub struct ChunkDatabaseRecord {
 	pub compression_type: CompressionType,
 	pub created_at: u64,  //unix timestamp
