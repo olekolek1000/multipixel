@@ -4,13 +4,17 @@ use std::{
 };
 
 use glam::{IVec2, UVec2};
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::{
+	sync::{Mutex, Notify},
+	task::JoinHandle,
+};
 
 use crate::{
 	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
 	database::{Database, DatabaseFunc},
 	limits::CHUNK_SIZE_PX,
 	preview_system::PreviewSystemMutex,
+	signal::Signal,
 	time::get_millis,
 };
 
@@ -20,8 +24,11 @@ pub struct ChunkSystem {
 	cleaned_up: bool,
 	autosave_interval_ms: u32,
 	last_autosave_timestamp: u64,
+	task_processor: Option<JoinHandle<()>>,
 	task_tick: Option<JoinHandle<()>>,
 	preview_system: PreviewSystemMutex,
+	notifier: Arc<Notify>,
+	signal_garbage_collect: Signal,
 }
 
 fn modulo(x: i32, n: i32) -> i32 {
@@ -41,6 +48,8 @@ impl ChunkSystem {
 		preview_system: PreviewSystemMutex,
 		autosave_interval_ms: u32,
 	) -> Self {
+		let notifier = Arc::new(Notify::new());
+
 		Self {
 			chunks: HashMap::new(),
 			database,
@@ -49,6 +58,9 @@ impl ChunkSystem {
 			last_autosave_timestamp: get_millis(),
 			preview_system,
 			task_tick: None,
+			task_processor: None,
+			notifier: notifier.clone(),
+			signal_garbage_collect: Signal::new(notifier),
 		}
 	}
 
@@ -91,6 +103,7 @@ impl ChunkSystem {
 		let chunk_mtx = Arc::new(Mutex::new(ChunkInstance::new(
 			chunk_pos,
 			queue_cache,
+			self.signal_garbage_collect.clone(),
 			compressed_chunk_data,
 		)));
 
@@ -99,20 +112,81 @@ impl ChunkSystem {
 		Ok(chunk_mtx)
 	}
 
-	pub fn launch_task_tick(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
-		chunk_system.task_tick = Some(
+	pub fn launch_task_processor(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
+		chunk_system.task_processor = Some(
 			tokio::task::Builder::new()
-				.name("Chunk system task")
-				.spawn(async move { ChunkSystem::tick_task_runner(chunk_system_weak).await })
+				.name("Chunk system processor task")
+				.spawn(async move {
+					while let Some(chunk_system_mtx) = chunk_system_weak.upgrade() {
+						let mut chunk_system = chunk_system_mtx.lock().await;
+						let notifier = chunk_system.notifier.clone();
+						drop(chunk_system);
+
+						notifier.notified().await;
+
+						chunk_system = chunk_system_mtx.lock().await;
+
+						if chunk_system.signal_garbage_collect.check_triggered() {
+							chunk_system.garbage_collect().await;
+						}
+					}
+					log::trace!("Chunk system processor task ended");
+				})
 				.unwrap(),
 		);
 	}
 
-	async fn tick_task_runner(chunk_system_weak: ChunkSystemWeak) {
-		while chunk_system_weak.strong_count() > 0 {
-			ChunkSystem::tick(&chunk_system_weak).await;
-			tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+	pub async fn garbage_collect(&mut self) {
+		let mut chunks_to_save: Vec<IVec2> = Vec::new();
+		let mut chunks_to_free: Vec<IVec2> = Vec::new();
+
+		for (chunk_pos, chunk_mtx) in &self.chunks {
+			let chunk = chunk_mtx.lock().await;
+			if chunk.is_linked_sessions_empty() {
+				if chunk.is_modified() {
+					chunks_to_save.push(*chunk_pos);
+				}
+				debug_assert!(Arc::strong_count(chunk_mtx) == 1);
+				chunks_to_free.push(*chunk_pos);
+			}
 		}
+
+		// Save pending chunks
+		for chunk_pos in &chunks_to_save {
+			if let Some(chunk) = self.chunks.get(chunk_pos) {
+				let chunk = chunk.clone();
+				let mut chunk = chunk.lock().await;
+				self.save_chunk_wrapper(&mut chunk).await;
+			}
+		}
+
+		// Free chunks
+		for chunk_pos in &chunks_to_free {
+			self.chunks.remove(chunk_pos);
+		}
+
+		if !chunks_to_save.is_empty() || !chunks_to_free.is_empty() {
+			log::info!(
+				"Garbage-collected chunks ({} saved, {} total loaded, {} freed)",
+				chunks_to_save.len(),
+				self.chunks.len(),
+				chunks_to_free.len()
+			);
+		}
+	}
+
+	pub fn launch_task_tick(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
+		chunk_system.task_tick = Some(
+			tokio::task::Builder::new()
+				.name("Chunk system tick task")
+				.spawn(async move {
+					while chunk_system_weak.strong_count() > 0 {
+						ChunkSystem::tick(&chunk_system_weak).await;
+						tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+					}
+				})
+				.unwrap(),
+		);
 	}
 
 	async fn get_chunks_to_save(&self) -> Vec<ChunkInstanceWeak> {

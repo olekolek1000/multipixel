@@ -51,8 +51,9 @@ impl RoomInstance {
 
 		{
 			let mut chunk_system = chunk_system_mtx.lock().await;
-			// Spawn tick task for chunk system
+			// TODO (low priority): make this system completely redundant (tick-less), improving idle power usage
 			ChunkSystem::launch_task_tick(&mut chunk_system, Arc::downgrade(&chunk_system_mtx));
+			ChunkSystem::launch_task_processor(&mut chunk_system, Arc::downgrade(&chunk_system_mtx));
 		}
 
 		Ok(Self {
