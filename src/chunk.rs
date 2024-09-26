@@ -13,6 +13,7 @@ use crate::{
 	pixel::Color,
 	preview_system::PreviewSystemQueuedChunks,
 	session::{SessionHandle, SessionInstanceWeak},
+	signal::Signal,
 };
 
 #[derive(Clone)]
@@ -35,6 +36,7 @@ pub struct ChunkInstance {
 	compressed_image_data: Option<Arc<Vec<u8>>>,
 	linked_sessions: Vec<LinkedSession>,
 	preview_system_queued_chunks: PreviewSystemQueuedChunks,
+	signal_garbage_collect: Signal,
 }
 
 // Returns LZ4-compressed empty, white chunk. Generates once.
@@ -51,6 +53,7 @@ impl ChunkInstance {
 	pub fn new(
 		position: IVec2,
 		preview_system_queued_chunks: PreviewSystemQueuedChunks,
+		signal_garbage_collect: Signal,
 		compressed_image_data: Option<Vec<u8>>,
 	) -> Self {
 		Self {
@@ -58,6 +61,7 @@ impl ChunkInstance {
 			modified: false,
 			position,
 			preview_system_queued_chunks,
+			signal_garbage_collect,
 			compressed_image_data: compressed_image_data.map(Arc::new),
 			raw_image_data: None,
 			linked_sessions: Default::default(),
@@ -282,9 +286,12 @@ impl ChunkInstance {
 		}
 
 		if self.linked_sessions.is_empty() {
-			// TODO markGarbageCollect
-			//chunk_system->markGarbageCollect();
+			self.signal_garbage_collect.notify();
 		}
+	}
+
+	pub fn is_linked_sessions_empty(&self) -> bool {
+		self.linked_sessions.is_empty()
 	}
 }
 

@@ -34,6 +34,7 @@ mod preview_system;
 mod room;
 mod server;
 mod session;
+mod signal;
 mod time;
 mod tool;
 mod util;
