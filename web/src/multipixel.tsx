@@ -31,6 +31,8 @@ enum ToolID {
 
 export class Cursor {
 	just_pressed_down: boolean = false;
+	x_norm: number = 0.0;
+	y_norm: number = 0.0;
 	x: number = 0.0;
 	y: number = 0.0;
 	x_prev: number = 0.0;
@@ -172,12 +174,14 @@ export class Multipixel {
 			let cursor = this.getCursor();
 			cursor.x_prev = cursor.x;
 			cursor.y_prev = cursor.y;
-			cursor.x = e.clientX;
-			cursor.y = e.clientY;
+			cursor.x = e.clientX * this.renderer.display_scale;
+			cursor.y = e.clientY * this.renderer.display_scale;
+			cursor.x_norm = e.clientX / window.innerWidth;
+			cursor.y_norm = e.clientY / window.innerHeight;
 
 			let canvas = this.renderer.getCanvas();
 
-			let boundary = this.map.boundary_visual;
+			let boundary = this.map.boundary;
 			let scrolling = this.map.scrolling;
 
 			let raw_x = boundary.center_x - boundary.width / 2.0 + (cursor.x / canvas.width) * boundary.width;
@@ -271,7 +275,7 @@ export class Multipixel {
 
 		canvas.addEventListener("wheel", (e: WheelEvent) => {
 			if (!this.events_enabled) return;
-			let zoom_diff = clamp(-e.deltaY * 100.0, -1, 1) * 0.2;
+			let zoom_diff = -e.deltaY * 0.0015;
 			this.map.addZoom(zoom_diff);
 			this.needs_boundaries_update = true;
 		});
@@ -345,7 +349,7 @@ export class Multipixel {
 
 		for (let zoom = 1; zoom <= LAYER_COUNT; zoom++) {
 			let layer = this.preview_system.getOrCreateLayer(zoom);
-			let boundary = this.map.getPreviewBoundariesVisual(layer.zoom);
+			let boundary = this.map.getPreviewBoundaries(layer.zoom);
 
 			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
 
