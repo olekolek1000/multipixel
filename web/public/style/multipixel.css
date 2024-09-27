@@ -6,6 +6,9 @@
 	position: fixed;
 	top: 0;
 	left: 0;
+	image-rendering: pixelated;
+	width: 100vw;
+	height: 100vh;
 	cursor: url("../img/cursor.png") 12 12, auto;
 }
 

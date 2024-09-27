@@ -145,8 +145,7 @@ export class ChunkMap {
 	needs_redraw: boolean = true;
 	texture_cursor!: Texture;
 	texture_brush!: Texture;
-	boundary_visual: Boundary = new Boundary();
-	boundary_real: Boundary = new Boundary();
+	boundary: Boundary = new Boundary();
 	text_cache = new Map<string, TextCacheCell>();
 	map = new Map<number, Map<number, Chunk>>();
 
@@ -154,9 +153,6 @@ export class ChunkMap {
 		x: 0,
 		y: 0,
 		zoom: 1.0,
-		zoom_smooth: 1.0,
-		zoom_smooth_prev: 1.0,
-		zoom_interpolated: 1.0
 	}
 
 	constructor(multipixel: Multipixel) {
@@ -176,8 +172,7 @@ export class ChunkMap {
 		});
 
 		this.resize();
-		this.updateBoundaryReal();
-		this.updateBoundaryVisual();
+		this.updateBoundary();
 	}
 
 	textCacheGet(gl: WebGL2RenderingContext, text: string) {
@@ -228,8 +223,13 @@ export class ChunkMap {
 	resize() {
 		let renderer = this.multipixel.getRenderer();
 		let canvas = renderer.getCanvas();
-		canvas.width = window.innerWidth;
-		canvas.height = window.innerHeight;
+
+		renderer.display_scale = window.devicePixelRatio || 1;
+
+		canvas.width = window.innerWidth * renderer.display_scale;
+		canvas.height = window.innerHeight * renderer.display_scale;
+
+		//console.log(renderer.display_scale, canvas.width, canvas.height);
 		this.triggerRerender();
 	}
 
@@ -289,39 +289,27 @@ export class ChunkMap {
 		//console.log("Removed chunk at ", x, y);
 	}
 
-	getChunkBoundaries(boundary: Boundary) {
+	getChunkBoundaries() {
 		return {
-			start_x: Math.floor((boundary.center_x - boundary.width / 2.0) / CHUNK_SIZE),
-			start_y: Math.floor((boundary.center_y - boundary.height / 2.0) / CHUNK_SIZE),
-			end_x: Math.floor((boundary.center_x + boundary.width / 2.0) / CHUNK_SIZE) + 1,
-			end_y: Math.floor((boundary.center_y + boundary.height / 2.0) / CHUNK_SIZE) + 1
+			start_x: Math.floor((this.boundary.center_x - this.boundary.width / 2.0) / CHUNK_SIZE),
+			start_y: Math.floor((this.boundary.center_y - this.boundary.height / 2.0) / CHUNK_SIZE),
+			end_x: Math.floor((this.boundary.center_x + this.boundary.width / 2.0) / CHUNK_SIZE) + 1,
+			end_y: Math.floor((this.boundary.center_y + this.boundary.height / 2.0) / CHUNK_SIZE) + 1
 		};
 	}
 
-	getPreviewBoundaries(boundary: Boundary, zoom: number) {
+	getPreviewBoundaries(zoom: number) {
 		let div = CHUNK_SIZE * Math.pow(2, zoom);
 		return {
-			start_x: Math.floor((boundary.center_x - boundary.width / 2.0) / div),
-			start_y: Math.floor((boundary.center_y - boundary.height / 2.0) / div),
-			end_x: Math.floor((boundary.center_x + boundary.width / 2.0) / div) + 1,
-			end_y: Math.floor((boundary.center_y + boundary.height / 2.0) / div) + 1
+			start_x: Math.floor((this.boundary.center_x - this.boundary.width / 2.0) / div),
+			start_y: Math.floor((this.boundary.center_y - this.boundary.height / 2.0) / div),
+			end_x: Math.floor((this.boundary.center_x + this.boundary.width / 2.0) / div) + 1,
+			end_y: Math.floor((this.boundary.center_y + this.boundary.height / 2.0) / div) + 1
 		};
-	}
-
-	getChunkBoundariesVisual() {
-		return this.getChunkBoundaries(this.boundary_visual);
-	}
-
-	getChunkBoundariesReal() {
-		return this.getChunkBoundaries(this.boundary_real);
-	}
-
-	getPreviewBoundariesVisual(zoom: number) {
-		return this.getPreviewBoundaries(this.boundary_visual, zoom);
 	}
 
 	drawChunks() {
-		let boundary = this.getChunkBoundariesVisual();
+		let boundary = this.getChunkBoundaries();
 		let renderer = this.multipixel.getRenderer();
 
 		for (let y = boundary.start_y; y < boundary.end_y; y++) {
@@ -347,7 +335,7 @@ export class ChunkMap {
 		for (let zoom = LAYER_COUNT; zoom >= 1; zoom--) {
 			let layer = this.multipixel.preview_system.getLayer(zoom);
 			if (!layer) continue;
-			let boundary = this.getPreviewBoundariesVisual(layer.zoom);
+			let boundary = this.getPreviewBoundaries(layer.zoom);
 			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
 
 			for (let y = boundary.start_y; y < boundary.end_y; y++) {
@@ -375,7 +363,7 @@ export class ChunkMap {
 			if (user == null)
 				return;
 
-			let zoom = this.scrolling.zoom_interpolated;
+			let zoom = this.scrolling.zoom;
 
 			if (this.texture_cursor) {
 				let width = this.texture_cursor.width / zoom;
@@ -394,7 +382,7 @@ export class ChunkMap {
 			if (user == null)
 				return;
 
-			let zoom = this.scrolling.zoom_interpolated;
+			let zoom = this.scrolling.zoom;
 
 			let text = this.textCacheGet(renderer.getContext(), user.nickname);
 
@@ -417,18 +405,8 @@ export class ChunkMap {
 		);
 	}
 
-	updateBoundaryVisual() {
-		let boundary = this.boundary_visual;
-		let renderer = this.multipixel.getRenderer();
-		let canvas = renderer.getCanvas();
-		boundary.center_x = -this.scrolling.x;
-		boundary.center_y = -this.scrolling.y;
-		boundary.width = canvas.width / this.scrolling.zoom_interpolated;
-		boundary.height = canvas.height / this.scrolling.zoom_interpolated;
-	}
-
-	updateBoundaryReal() {
-		let boundary = this.boundary_real;
+	updateBoundary() {
+		let boundary = this.boundary;
 		let renderer = this.multipixel.getRenderer();
 		let canvas = renderer.getCanvas();
 		boundary.center_x = -this.scrolling.x;
@@ -438,8 +416,6 @@ export class ChunkMap {
 	}
 
 	tick() {
-		this.scrolling.zoom_smooth_prev = this.scrolling.zoom_smooth;
-		this.scrolling.zoom_smooth = lerp(0.2, this.scrolling.zoom_smooth, this.scrolling.zoom);
 	}
 
 	draw() {
@@ -456,14 +432,11 @@ export class ChunkMap {
 
 		let alpha = this.multipixel.timestep.getAlpha();
 
-		this.scrolling.zoom_interpolated = lerp(alpha, this.scrolling.zoom_smooth_prev, this.scrolling.zoom_smooth);
-
-		this.updateBoundaryVisual();
-		this.updateBoundaryReal();
+		this.updateBoundary();
 
 		let epsilon = 0.01;
 
-		let boundary = this.boundary_visual;
+		let boundary = this.boundary;
 		renderer.setOrtho(
 			boundary.center_x - boundary.width / 2.0 + epsilon,
 			boundary.center_x + boundary.width / 2.0 + epsilon,
@@ -476,9 +449,6 @@ export class ChunkMap {
 		this.drawBrush();
 		this.drawCursors();
 		this.drawCursorNicknames();
-
-		if (Math.abs(this.scrolling.zoom_smooth - this.scrolling.zoom) > 0.001)
-			this.triggerRerender();
 	}
 
 	getScrolling() {
@@ -487,13 +457,31 @@ export class ChunkMap {
 
 	addZoom(num: number) {
 		let scrolling = this.getScrolling();
-		let zoom = scrolling.zoom * (1.0 + num);
-		this.setZoom(zoom)
+
+		let cursor = this.multipixel.getCursor();
+
+		let new_zoom = scrolling.zoom * (1.0 + num);
+		if (new_zoom < 0.015625) new_zoom = 0.015625; //0.5^6
+		if (new_zoom > 80.0) new_zoom = 80.0;
+
+		let canvas = this.multipixel.getRenderer().getCanvas();
+
+		let old_width = canvas.width / scrolling.zoom;
+		let new_width = canvas.width / new_zoom;
+
+		let old_height = canvas.height / scrolling.zoom;
+		let new_height = canvas.height / new_zoom;
+
+		let width_diff = new_width - old_width;
+		let height_diff = new_height - old_height;
+
+		scrolling.x += (cursor.x_norm - 0.5) * width_diff;
+		scrolling.y += (cursor.y_norm - 0.5) * height_diff;
+
+		this.setZoom(new_zoom)
 	}
 
 	setZoom(num: number) {
-		if (num < 0.015625) num = 0.015625; //0.5^6
-		if (num > 80.0) num = 80.0;
 		this.scrolling.zoom = num;
 		this.triggerRerender();
 	}

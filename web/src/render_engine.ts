@@ -151,7 +151,7 @@ export class RenderEngine {
 	canvas: HTMLCanvasElement;
 	gl: WebGL2RenderingContext;
 	projection = glMatrix.mat4.create();
-
+	display_scale: number = 1.0;
 	buffer_quad!: RObject;
 	shader;
 

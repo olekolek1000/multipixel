@@ -237,7 +237,7 @@ export class Client {
 	socketSendBoundary() {
 		let buf = createMessage(ClientCmd.boundary, size_s32 * 4 + size_float);
 		let dataview = new DataView(buf, header_offset);
-		let boundary = this.multipixel.map.getChunkBoundariesReal();
+		let boundary = this.multipixel.map.getChunkBoundaries();
 		let zoom = this.multipixel.map.getZoom();
 
 		let offset = 0;
