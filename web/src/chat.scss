@@ -1,0 +1,13 @@
+@import "globals.scss";
+
+.chat_box {
+	@extend .panel;
+	position: absolute;
+	bottom: 16px;
+	left: 16px;
+}
+
+.chat_input {
+	appearance: none;
+	width: 300px;
+}

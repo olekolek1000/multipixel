@@ -1,13 +1,35 @@
-@import "./glass.scss";
+@import "globals.scss";
 
-.top_panel {
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 48px;
+.users_online {
+	font-size: 0.7em;
+	text-align: center;
+	line-height: 100%;
+}
+
+
+.toolbox {
+	@extend .panel;
+
+	position: absolute;
+	width: 48px;
+  top: 16px;
+	left: 16px;
+	padding-bottom: 8px;
   display: flex;
-  gap: 0.1cm;
-  padding: 0.1cm;
-  @extend .glass;
-  @extend .glass_border_bottom;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+}
+
+.tool_panel {
+	@extend .panel;
+
+	position: absolute;
+	top: 16px;
+	left: 80px;
+
+	display: flex;
+	flex-direction: row;
+	justify-content: center;
+	gap: 4px;
 }

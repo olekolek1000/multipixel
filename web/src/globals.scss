@@ -1,0 +1,20 @@
+$accent-color: rgb(21, 166, 219);
+$highlight-color: rgb(108, 201, 235); 
+
+.panel_appearance {
+	background-color: rgba(255, 255, 255, 0.5);
+	backdrop-filter: blur(24px);
+	color: black;
+	border: 2px solid rgba(0, 0, 0, 0.2);
+}
+
+.panel {
+	@extend .panel_appearance;
+	border-radius: 24px 12px;
+	padding: 4px;
+}
+
+.panel2 {
+	@extend .panel;
+	border-radius: 18px 8px;
+}

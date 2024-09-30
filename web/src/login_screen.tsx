@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import style_login from "./login_screen.scss";
-import { BoxDown, CustomTextField, FormControlSpaced, FormErrorText, TitleSmall, TitleTiny } from "./gui_custom"
-import { Button } from "@mui/material";
+import { BoxDown, Button, LabeledTextField, FormErrorText, TitleSmall, TitleTiny } from "./gui_custom"
 import { Multipixel } from "./multipixel";
 import { globals } from ".";
 
@@ -71,11 +70,11 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 	}
 	else {
 		content = <>
-			<CustomTextField required label="Username" valfunc={[username_val, setUsername]} onReturnPress={start} />
-			<CustomTextField required label="Room name" valfunc={[room_name_val, setRoomName]} onReturnPress={start} />
-			<Button onClick={start}>START</Button>
+			<LabeledTextField required label="Username" valfunc={[username_val, setUsername]} onReturnPress={start} />
+			<LabeledTextField required label="Room name" valfunc={[room_name_val, setRoomName]} onReturnPress={start} />
+			<Button on_click={start}>Join</Button>
 			<TitleTiny>
-				A program that allows you to draw on an infinitely large canvas - in multiplayer!
+				About
 			</TitleTiny>
 			{error.msg}
 		</>
@@ -101,12 +100,14 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 		});
 	}, []);
 
-	return <div className={style_login.parent}>
+	return <div className={style_login.background}>
 		<BoxDown center_vert center_horiz>
-			<FormControlSpaced center_horiz>
-				{logo_container}
-				{content}
-			</FormControlSpaced>
+			<div className={style_login.content_box} >
+				<BoxDown>
+					{logo_container}
+					{content}
+				</BoxDown>
+			</div>
 		</BoxDown>
 	</div>;
 }

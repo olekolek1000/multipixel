@@ -1,17 +1,8 @@
-@import "./glass.scss";
-
-.container {
-	position: absolute;
-	@extend .glass;
-	@extend .glass_border_bottom;
-	@extend .glass_border_right;
-}
+@import "globals.scss";
 
 .color_palette {
-  clear: left;
-  float: left;
-  margin-top: 2px;
-  margin-left: 2px;
+	@extend .panel2;
+	padding: 8px;
 }
 
 .row {
@@ -22,20 +13,10 @@
 .control {
   width: 24px;
   height: 16px;
-  border-radius: 4px;
-  float: left;
   user-select: none;
-  outline: 1px solid rgba(0, 0, 0, 0.3);
-  outline-offset: -1px;
+  outline: 1px solid rgba(0, 0, 0, 0.4);
 }
 
-.inline {
-  float: right;
-}
-
-.clear {
-  clear: left;
-}
 
 .control {
   width: 16px;
@@ -48,6 +29,32 @@
   cursor: pointer;
 }
 
+.cs_buttons_pair {
+	display: flex;
+	flex-direction: row;
+	margin-top: 4px
+}
+
+.cs_buttons {
+	@extend .panel_appearance;
+	display: flex;
+	flex-direction: row;
+	flex-grow: 1;
+	justify-content: center;
+}
+
+.cs_button {
+	@extend .panel_appearance;
+	width: 16px;
+	height: 16px;
+	margin: 2px;
+}
+
+.cs_button:hover {
+	background-color: white;
+	border-color: white;
+}
+
 .cell_selected {
   border-bottom: 4px solid black;
   outline: 2px solid white;
@@ -56,7 +63,7 @@
 }
 
 .cell_small {
-  width: 12px;
+  width: 10px;
 }
 
 .slider {
@@ -102,16 +109,27 @@
 }
 
 .slider_container {
+	@extend .panel2;
 	color: #333;
-	margin-left: 5px;
-	margin-right: 5px;
-	clear: left;
-	float: left;
-	margin-top: 4px;
-	margin-bottom: 4px;
+	display: flex;
+	gap: 4px;
+	padding: 0;
+padding: 8px;
+	width: 100%;
 }
 
 .slider_title {
 	font-weight: bold;
 	font-size: 10px;
+}
+
+.tool_settings_parent {
+	@extend .panel2;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	gap: 4px;
+	padding-left: 12px;
+	padding-right: 12px;
 }

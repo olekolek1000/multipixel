@@ -4,18 +4,19 @@ interface CssExports {
   'cell': string;
   'cell_selected': string;
   'cell_small': string;
-  'clear': string;
   'color_palette': string;
-  'container': string;
   'control': string;
-  'glass': string;
-  'glass_border_bottom': string;
-  'glass_border_right': string;
-  'inline': string;
+  'cs_button': string;
+  'cs_buttons': string;
+  'cs_buttons_pair': string;
+  'panel': string;
+  'panel2': string;
+  'panel_appearance': string;
   'row': string;
   'slider': string;
   'slider_container': string;
   'slider_title': string;
+  'tool_settings_parent': string;
 }
 export const cssExports: CssExports;
 export default cssExports;

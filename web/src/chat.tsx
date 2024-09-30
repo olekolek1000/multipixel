@@ -1,29 +1,14 @@
 import { Client } from "./client";
+import React, { useState } from "react";
+import style_chat from "./chat.scss";
+import { TextField } from "./gui_custom";
 
 export class Chat {
 	client: Client;
-	chat_input: HTMLInputElement;
-	chat_history: HTMLElement;
 
 	constructor(client: Client) {
 		this.client = client;
 		this.client.setChatObject(this);
-
-		this.chat_input = (document.getElementById("mp_chat_input") as HTMLInputElement);
-		this.chat_input.value = "";
-
-		this.chat_history = (document.getElementById("mp_chat_history") as HTMLInputElement);
-
-		this.chat_input.addEventListener("keypress", (e) => {
-			if (e.key == "Enter") {
-				if (this.chat_input.value.length > 0) {
-					this.client.socketSendMessage(this.chat_input.value);
-				}
-				this.chat_input.value = "";
-			}
-		});
-
-		this.chat_history.append()
 	}
 
 	addMessage(str: string, html_mode: boolean) {
@@ -36,7 +21,7 @@ export class Chat {
 		chat_message.style.opacity = "0.0";
 		let this_removed = false;
 
-		this.chat_history.appendChild(chat_message);
+		//this.chat_history.appendChild(chat_message);
 
 		let anim_size = 1.0;
 		let interval_anim = setInterval(() => {
@@ -70,10 +55,29 @@ export class Chat {
 
 				if (opacity < 0.01) {
 					clearInterval(interval);
-					this.chat_history.removeChild(chat_message);
+					//this.chat_history.removeChild(chat_message);
 					chat_message.remove();
 				}
 			}, 33);
 		}, 20000);
 	}
+}
+
+export function ChatRender({ chat }: { chat?: Chat }) {
+	const [text, setText] = useState("");
+
+	if (!chat) {
+		return <></>;
+	}
+
+	return <div className={style_chat.chat_box}>
+		<div className={style_chat.chat_input}>
+			<TextField valfunc={[text, setText]} onReturnPress={() => {
+				if (text.length > 0) {
+					chat.client.socketSendMessage(text);
+				}
+				setText("");
+			}} />
+		</div>
+	</div>
 }
