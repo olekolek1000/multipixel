@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { BoxDown } from "./gui_custom";
+import { BoxDown, BoxRight, Icon } from "./gui_custom";
 import style_toolbox from "./toolbox.scss"
+import style_room from "./room_screen.scss";
 import { Multipixel, rgb2hex } from "./multipixel"
 import { lerp } from "./timestep";
 import Picker from "vanilla-picker";
@@ -233,30 +234,40 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 		</div>);
 	}
 
-	return <div>
-		<div className={style_toolbox.color_palette} >
+	return <div className={style_toolbox.color_palette}>
+		<div>
 			{rows}
 		</div>
-		<div className={style_toolbox.inline}>
-			<div className={style_toolbox.control} onClick={() => {
-				cp.setColumnCount(cp.column_count + 1);
-			}}>+</div>
-			<br />
-			<div className={style_toolbox.control} onClick={() => {
-				cp.setColumnCount(cp.column_count - 1);
-			}}>-</div>
+		<div className={style_toolbox.cs_buttons_pair}>
+			<div className={style_toolbox.cs_buttons}>
+				<div className={style_toolbox.cs_button} onClick={() => {
+					cp.setColumnCount(cp.column_count + 1);
+				}}>
+					<Icon path="img/tool/plus.svg" />
+				</div>
+				<div className={style_toolbox.cs_button} onClick={() => {
+					cp.setColumnCount(cp.column_count - 1);
+				}}>
+					<Icon path="img/tool/minus.svg" />
+				</div>
+			</div>
+			<div className={style_toolbox.cs_buttons}>
+				<div className={style_toolbox.cs_button} onClick={() => {
+					cp.setRowCount(cp.row_count + 1);
+				}}>
+					<Icon path="img/tool/plus.svg" />
+				</div>
+				<div className={style_toolbox.cs_button} onClick={() => {
+					cp.setRowCount(cp.row_count - 1);
+				}}>
+					<Icon path="img/tool/minus.svg" />
+				</div>
+			</div>
 		</div>
-		<div className={style_toolbox.clear}>
-			<div className={style_toolbox.control} onClick={() => {
-				cp.setRowCount(cp.row_count + 1);
-			}}>+</div>
-			<div className={style_toolbox.control} onClick={() => {
-				cp.setRowCount(cp.row_count - 1);
-			}}>-</div>
-		</div></div>;
+	</div>;
 }
 
-export function Toolbox({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) {
+export function ToolPanel({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) {
 	const [tool_type, setToolType] = useState<ToolType>(ToolType.none);
 	const [brush_size, setBrushSize] = useState(1);
 	const [brush_smoothing, setBrushSmoothing] = useState(0.0);
@@ -276,11 +287,12 @@ export function Toolbox({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }
 
 	let tool_settings = undefined;
 
-	if (tool_type == ToolType.none)
+	if (tool_type == ToolType.none) {
 		return <></>;
+	}
 
 	if (tool_type == ToolType.brush) {
-		tool_settings = <>
+		tool_settings = <div className={style_toolbox.tool_settings_parent}>
 			<div className={style_toolbox.slider_container}>
 				<input
 					type="range"
@@ -310,10 +322,11 @@ export function Toolbox({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }
 					}}
 				/>
 				<span className={style_toolbox.slider_title}>Smoothing</span>
-			</div></>;
+			</div>
+		</div>
 	}
 
-	return <div className={style_toolbox.container}>
+	return <div className={style_room.tool_panel}>
 		<ColorPalette toolbox_globals={toolbox_globals} key={key_palette} />
 		{tool_settings}
 	</div>

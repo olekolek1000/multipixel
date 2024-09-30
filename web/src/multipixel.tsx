@@ -7,7 +7,8 @@ import { Preview, PreviewLayer, PreviewSystem } from "./preview_system";
 import { globals } from ".";
 import { RoomRefs, RoomScreen, RoomScreenGlobals } from "./room_screen"
 import React from "react";
-import { ToolboxGlobals } from "./toolbox";
+import { ToolboxGlobals } from "./tool_panel";
+import style from "./style.scss"
 
 function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
@@ -213,7 +214,7 @@ export class Multipixel {
 
 			this.client.socketSendCursorPos(smooth ? cursor.canvas_x_smooth : cursor.canvas_x, smooth ? cursor.canvas_y_smooth : cursor.canvas_y);
 
-			this.room_screen_globals.setMousePosText("" + cursor.canvas_x + "," + cursor.canvas_y);
+			this.room_screen_globals.setMousePosText(<span className={style.cursor_pos}>{"X " + cursor.canvas_x}<br />{"Y " + cursor.canvas_y}</span>);
 
 			if (cursor.down_right) {
 				//Scroll
