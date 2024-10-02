@@ -175,7 +175,20 @@ impl ChunkSystem {
 			return None;
 		}
 
-		let chunks = chunk_system.chunks.clone();
+		let chunks: Vec<(IVec2, ChunkCellWeak)> = chunk_system
+			.chunks
+			.iter()
+			.map(|cell| {
+				(
+					*cell.0,
+					ChunkCellWeak {
+						chunk: Arc::downgrade(&cell.1.chunk),
+						refs: cell.1.refs.clone(),
+					},
+				)
+			})
+			.collect();
+
 		drop(chunk_system);
 
 		let mut chunks_to_save: Vec<ChunkInstanceWeak> = Vec::new();
@@ -183,9 +196,8 @@ impl ChunkSystem {
 		for (chunk_pos, cell) in &chunks {
 			if cell.refs.linked_sessions.lock().unwrap().is_empty() {
 				if *cell.refs.modified.lock().unwrap() {
-					chunks_to_save.push(Arc::downgrade(&cell.chunk));
+					chunks_to_save.push(cell.chunk.clone());
 				}
-				debug_assert!(Arc::strong_count(&cell.chunk) == 1);
 				chunks_to_free.push(*chunk_pos);
 			}
 		}

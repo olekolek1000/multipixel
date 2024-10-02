@@ -53,7 +53,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 					{generateList()}
 				</React.Fragment>
 			}>
-				<Icon path="img/tool/user.svg" />
+				<Icon path="public/img/tool/user.svg" />
 			</Tooltip>
 			<span className={style_room.users_online}>{list.length} {list.length == 1 ? "user" : "users"}</span>
 		</>);
@@ -77,7 +77,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.handleButtonToolBrush();
 						setToolType(ToolType.brush);
 					}}>
-						<Icon path="img/tool/brush.svg" />
+						<Icon path="public/img/tool/brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Floodfill">
@@ -85,7 +85,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.handleButtonToolFloodfill();
 						setToolType(ToolType.floodfill);
 					}}>
-						<Icon path="img/tool/floodfill.svg" />
+						<Icon path="public/img/tool/floodfill.svg" />
 					</ButtonTool>
 				</Tooltip>
 			</div>
@@ -94,14 +94,14 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 					<ButtonTool on_click={() => {
 						multipixel.handleButtonUndo();
 					}}>
-						<Icon path="img/tool/undo.svg" />
+						<Icon path="public/img/tool/undo.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Reset zoom to 100%">
 					<ButtonTool on_click={() => {
 						multipixel.handleButtomZoom1_1();
 					}}>
-						<Icon path="img/tool/100.svg" />
+						<Icon path="public/img/tool/100.svg" />
 					</ButtonTool>
 				</Tooltip>
 				{processing_status_text}

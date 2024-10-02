@@ -4,6 +4,9 @@ import { BoxDown, Button, LabeledTextField, FormErrorText, TitleSmall, TitleTiny
 import { Multipixel } from "./multipixel";
 import { globals } from ".";
 
+import * as defines from "./global_defines";
+
+
 export function LoginScreen({ initial_error_text }: { initial_error_text?: string }) {
 	const [username_val, setUsername] = useState("");
 	const [room_name_val, setRoomName] = useState("main");
@@ -37,7 +40,7 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 				const perform = () => {
 					return new Promise((resolve, reject) => {
 						let multipixel = new Multipixel({
-							host: "ws://127.0.0.1:59900",
+							host: defines.connect_url,
 							nickname: username,
 							room_name: room_name,
 							connection_callback: (error_str) => {
@@ -74,7 +77,7 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 			<LabeledTextField required label="Room name" valfunc={[room_name_val, setRoomName]} onReturnPress={start} />
 			<Button on_click={start}>Join</Button>
 			<TitleTiny>
-				About
+				BETA VERSION, branch {defines.commit_branch}, git hash {defines.commit_hash}
 			</TitleTiny>
 			{error.msg}
 		</>
