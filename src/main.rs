@@ -6,11 +6,13 @@ use futures_util::{
 };
 
 use server::ServerMutex;
+use session::SessionHandle;
 use tokio::{
 	net::{TcpListener, TcpStream},
 	sync::Mutex,
 };
 
+use tokio_util::sync::CancellationToken;
 use tokio_websockets::{Message, ServerBuilder, WebSocketStream};
 
 use crate::{server::Server, session::SessionInstance};
@@ -21,6 +23,7 @@ mod canvas_cache;
 mod chunk;
 mod chunk_cache;
 mod chunk_system;
+mod command;
 mod compression;
 mod config;
 mod database;
@@ -44,12 +47,45 @@ pub type ConnectionWriter = SplitSink<WebSocketStream<TcpStream>, Message>;
 pub type ConnectionReader = SplitStream<WebSocketStream<TcpStream>>;
 pub type ConnectionMutex = Arc<Mutex<Connection>>;
 
-async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow::Result<()> {
+async fn connection_read_packet(
+	reader: &mut SplitStream<WebSocketStream<TcpStream>>,
+	session_handle: &SessionHandle,
+	server_mtx: &ServerMutex,
+	session_mtx: &Arc<Mutex<SessionInstance>>,
+) -> anyhow::Result<()> {
+	match reader.next().await {
+		Some(res) => match res {
+			Ok(msg) => {
+				if msg.is_binary() {
+					let mut session = session_mtx.lock().await;
+					session
+						.process_payload(session_handle, msg.as_payload(), server_mtx)
+						.await?;
+				} else {
+					log::trace!("Got unknown message");
+				}
+			}
+			Err(e) => {
+				log::info!("Session {} error: {}", session_handle.id(), e);
+			}
+		},
+		None => {
+			// Just exit
+			return Err(anyhow::anyhow!("Connection interrupted"));
+		}
+	}
+
+	Ok(())
+}
+
+async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow::Result<()> {
 	let connection = ServerBuilder::new().accept(tcp_conn).await?;
 	let (writer, mut reader) = connection.split();
 
 	let mut server = server_mtx.lock().await;
-	let (session_handle, session_mtx) = server.create_session();
+	let cancel_token = CancellationToken::new();
+
+	let (session_handle, session_mtx) = server.create_session(cancel_token.clone());
 	drop(server);
 	log::info!("Created session with ID {}", session_handle.id());
 
@@ -73,26 +109,17 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 	}
 
 	loop {
-		match reader.next().await {
-			Some(res) => match res {
-				Ok(msg) => {
-					if msg.is_binary() {
-						let mut session = session_mtx.lock().await;
-						session
-							.process_payload(&session_handle, msg.as_payload(), &server_mtx)
-							.await?;
-					} else {
-						log::trace!("Got unknown message");
-					}
-				}
-				Err(e) => {
-					log::info!("Session {} error: {}", session_handle.id(), e);
-				}
-			},
-			None => {
-				// Just exit
-				log::info!("reader.next() returned nothing, exiting");
+		tokio::select! {
+			_ = cancel_token.cancelled() => {
+				log::info!("Got cancel token, freeing session");
 				break;
+			}
+			res = connection_read_packet(&mut reader, &session_handle,&server_mtx,&session_mtx) => {
+				// exit loop on error
+				if let Err(e) = res {
+					log::error!("connection_read_socket error: {}, closing connection", e);
+					break;
+				}
 			}
 		}
 	}
@@ -113,23 +140,47 @@ async fn task_processor(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow:
 		"session count ref is not 0"
 	);
 
+	log::info!("Task processor ended");
+
 	Ok(())
 }
 
-async fn task_listener(listener: TcpListener, config: config::Config) -> anyhow::Result<()> {
-	let server = Server::new(config);
-
+async fn server_listener_loop(listener: TcpListener, server: ServerMutex) -> anyhow::Result<()> {
 	while let Ok((tcp_conn, _)) = listener.accept().await {
 		let s = server.clone();
 		tokio::task::Builder::new()
 			.name("Listener task")
 			.spawn(async move {
-				if let Err(e) = task_processor(tcp_conn, s).await {
+				if let Err(e) = task_connection(tcp_conn, s).await {
 					log::error!("task_processor: {}", e);
 				}
 			})
 			.unwrap();
 	}
+
+	Ok(())
+}
+
+async fn task_listener(listener: TcpListener, config: config::Config) -> anyhow::Result<()> {
+	let cancel_token = CancellationToken::new();
+	let server = Server::new(config, cancel_token.clone());
+
+	let cancel_token_command = CancellationToken::new();
+	command::start(server.clone(), cancel_token_command.clone());
+
+	tokio::select! {
+		_ = cancel_token.cancelled() => {
+			log::info!("Got cancel token, stopping server");
+		}
+		res = server_listener_loop(listener, server.clone()) => {
+			// exit loop on error
+			if let Err(e) = res {
+				log::error!("Listener error: {}", e);
+			}
+		}
+	}
+
+	cancel_token_command.cancel();
 
 	Ok(())
 }
@@ -150,23 +201,25 @@ async fn run() -> anyhow::Result<()> {
 }
 
 fn main() {
-	let runtime = tokio::runtime::Builder::new_multi_thread()
-		.enable_time()
-		.thread_name("mp")
-		.worker_threads(std::thread::available_parallelism().unwrap().get().min(8)) // Max 8 threads
-		.thread_stack_size(2 * 1024 * 1024)
-		.enable_io()
-		.build()
-		.unwrap();
+	{
+		let runtime = tokio::runtime::Builder::new_multi_thread()
+			.enable_time()
+			.thread_name("mp")
+			.worker_threads(std::thread::available_parallelism().unwrap().get().min(8)) // Max 8 threads
+			.thread_stack_size(2 * 1024 * 1024)
+			.enable_io()
+			.build()
+			.unwrap();
 
-	console_subscriber::init();
+		console_subscriber::init();
 
-	std::env::set_var("RUST_LOG", "trace");
-	pretty_env_logger::init();
+		std::env::set_var("RUST_LOG", "trace");
+		pretty_env_logger::init_timed();
 
-	if let Err(e) = runtime.block_on(run()) {
-		log::error!("{}", e);
+		if let Err(e) = runtime.block_on(run()) {
+			log::error!("{}", e);
+		}
 	}
 
-	log::info!("Exiting");
+	log::info!("Server exited gracefully.");
 }
