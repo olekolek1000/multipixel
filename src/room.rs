@@ -156,7 +156,7 @@ impl RoomInstance {
 	}
 
 	pub async fn cleanup(&mut self) {
-		self.chunk_system.lock().await.cleanup().await;
+		ChunkSystem::cleanup(self.chunk_system.clone()).await;
 		self.preview_system.lock().await.cleanup().await;
 		self.database.lock().await.cleanup().await;
 		self.cleaned_up = true;
