@@ -2,6 +2,7 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use bytes::{BufMut, BytesMut};
 use glam::{IVec2, UVec2};
+use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -22,19 +23,24 @@ pub struct ChunkPixel {
 	pub color: Color,
 }
 
-struct LinkedSession {
+pub struct LinkedSession {
 	_session: SessionInstanceWeak,
 	queue_send: EventQueue<packet_server::Packet>,
 	handle: SessionHandle,
 }
 
+#[derive(Clone)]
+pub struct ChunkInstanceRefs {
+	pub modified: Arc<SyncMutex<bool>>,
+	pub linked_sessions: Arc<SyncMutex<Vec<LinkedSession>>>,
+}
+
 pub struct ChunkInstance {
 	new_chunk: bool,
 	pub position: IVec2,
-	modified: bool,
+	refs: ChunkInstanceRefs,
 	pub raw_image_data: Option<Vec<u8>>,
 	compressed_image_data: Option<Arc<Vec<u8>>>,
-	linked_sessions: Vec<LinkedSession>,
 	preview_system_queued_chunks: PreviewSystemQueuedChunks,
 	signal_garbage_collect: Signal,
 }
@@ -52,19 +58,19 @@ fn get_empty_chunk() -> &'static std::sync::Mutex<Arc<Vec<u8>>> {
 impl ChunkInstance {
 	pub fn new(
 		position: IVec2,
+		refs: ChunkInstanceRefs,
 		preview_system_queued_chunks: PreviewSystemQueuedChunks,
 		signal_garbage_collect: Signal,
 		compressed_image_data: Option<Vec<u8>>,
 	) -> Self {
 		Self {
 			new_chunk: compressed_image_data.is_some(),
-			modified: false,
+			refs,
 			position,
 			preview_system_queued_chunks,
 			signal_garbage_collect,
 			compressed_image_data: compressed_image_data.map(Arc::new),
 			raw_image_data: None,
-			linked_sessions: Default::default(),
 		}
 	}
 
@@ -89,12 +95,8 @@ impl ChunkInstance {
 		self.raw_image_data = Some(data);
 	}
 
-	pub fn is_modified(&self) -> bool {
-		self.modified
-	}
-
 	fn set_modified(&mut self, modified: bool) {
-		self.modified = modified;
+		*self.refs.modified.lock().unwrap() = modified;
 		if modified {
 			// Invalidate compressed data
 			self.compressed_image_data = None;
@@ -171,7 +173,10 @@ impl ChunkInstance {
 			self.set_modified(true);
 
 			let session_send_queues: Vec<_> = self
+				.refs
 				.linked_sessions
+				.lock()
+				.unwrap()
 				.iter()
 				.map(|session| session.queue_send.clone())
 				.collect();
@@ -229,7 +234,7 @@ impl ChunkInstance {
 				buf.len() as u32,
 			);
 
-			for session in &mut self.linked_sessions {
+			for session in self.refs.linked_sessions.lock().unwrap().iter() {
 				session.queue_send.send(packet.clone());
 			}
 		}
@@ -257,13 +262,15 @@ impl ChunkInstance {
 		session: SessionInstanceWeak,
 		session_queue_send: EventQueue<packet_server::Packet>,
 	) {
-		for s in &self.linked_sessions {
+		let mut linked_sessions = self.refs.linked_sessions.lock().unwrap();
+
+		for s in linked_sessions.iter() {
 			if s.handle == *handle {
 				log::error!("Session is already linked!");
 			}
 		}
 
-		self.linked_sessions.push(LinkedSession {
+		linked_sessions.push(LinkedSession {
 			handle: *handle,
 			_session: session.clone(),
 			queue_send: session_queue_send,
@@ -272,7 +279,10 @@ impl ChunkInstance {
 
 	pub fn unlink_session(&mut self, handle: &SessionHandle) {
 		let mut to_remove_idx: Option<usize> = None;
-		for (idx, session) in self.linked_sessions.iter().enumerate() {
+
+		let mut linked_sessions = self.refs.linked_sessions.lock().unwrap();
+
+		for (idx, session) in linked_sessions.iter().enumerate() {
 			if session.handle == *handle {
 				to_remove_idx = Some(idx);
 				break;
@@ -280,18 +290,14 @@ impl ChunkInstance {
 		}
 
 		if let Some(idx) = to_remove_idx {
-			self.linked_sessions.remove(idx);
+			linked_sessions.remove(idx);
 		} else {
 			log::warn!("Cannot unlink non-existent session");
 		}
 
-		if self.linked_sessions.is_empty() {
+		if linked_sessions.is_empty() {
 			self.signal_garbage_collect.notify();
 		}
-	}
-
-	pub fn is_linked_sessions_empty(&self) -> bool {
-		self.linked_sessions.is_empty()
 	}
 }
 

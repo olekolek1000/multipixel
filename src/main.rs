@@ -205,7 +205,7 @@ fn main() {
 		let runtime = tokio::runtime::Builder::new_multi_thread()
 			.enable_time()
 			.thread_name("mp")
-			.worker_threads(std::thread::available_parallelism().unwrap().get().min(8)) // Max 8 threads
+			.worker_threads(std::thread::available_parallelism().unwrap().get().min(4)) // Max 4 threads
 			.thread_stack_size(2 * 1024 * 1024)
 			.enable_io()
 			.build()

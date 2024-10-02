@@ -3,6 +3,8 @@ use std::{
 	sync::{Arc, Weak},
 };
 
+use std::sync::Mutex as SyncMutex;
+
 use glam::{IVec2, UVec2};
 use tokio::{
 	sync::{Mutex, Notify},
@@ -10,7 +12,7 @@ use tokio::{
 };
 
 use crate::{
-	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceWeak},
+	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceRefs, ChunkInstanceWeak},
 	database::{Database, DatabaseFunc},
 	limits::CHUNK_SIZE_PX,
 	preview_system::PreviewSystemMutex,
@@ -18,8 +20,19 @@ use crate::{
 	time::get_millis,
 };
 
+#[derive(Clone)]
+struct ChunkCell {
+	chunk: ChunkInstanceMutex,
+	refs: ChunkInstanceRefs,
+}
+
+struct ChunkCellWeak {
+	chunk: ChunkInstanceWeak,
+	refs: ChunkInstanceRefs,
+}
+
 pub struct ChunkSystem {
-	chunks: HashMap<IVec2, ChunkInstanceMutex>,
+	chunks: HashMap<IVec2, ChunkCell>,
 	database: Arc<Mutex<Database>>,
 	cleaned_up: bool,
 	autosave_interval_ms: u32,
@@ -40,6 +53,11 @@ impl Drop for ChunkSystem {
 		assert!(self.cleaned_up, "cleanup() not called");
 		log::debug!("Chunk system dropped");
 	}
+}
+
+struct GarbageCollectData {
+	chunks_to_save: Vec<ChunkInstanceWeak>,
+	chunks_to_free: Vec<IVec2>,
 }
 
 impl ChunkSystem {
@@ -85,9 +103,9 @@ impl ChunkSystem {
 	}
 
 	pub async fn get_chunk(&mut self, chunk_pos: IVec2) -> anyhow::Result<ChunkInstanceMutex> {
-		if let Some(chunk) = self.chunks.get(&chunk_pos) {
+		if let Some(cell) = self.chunks.get(&chunk_pos) {
 			// Return previously loaded chunk
-			return Ok(chunk.clone());
+			return Ok(cell.chunk.clone());
 		}
 
 		let mut compressed_chunk_data: Option<Vec<u8>> = None;
@@ -99,15 +117,27 @@ impl ChunkSystem {
 
 		let queue_cache = self.preview_system.lock().await.update_queue_cache.clone();
 
+		let refs = ChunkInstanceRefs {
+			modified: Arc::new(SyncMutex::new(false)),
+			linked_sessions: Arc::new(SyncMutex::new(Vec::new())),
+		};
+
 		// Allocate chunk
 		let chunk_mtx = Arc::new(Mutex::new(ChunkInstance::new(
 			chunk_pos,
+			refs.clone(),
 			queue_cache,
 			self.signal_garbage_collect.clone(),
 			compressed_chunk_data,
 		)));
 
-		self.chunks.insert(chunk_pos, chunk_mtx.clone());
+		self.chunks.insert(
+			chunk_pos,
+			ChunkCell {
+				chunk: chunk_mtx.clone(),
+				refs,
+			},
+		);
 
 		Ok(chunk_mtx)
 	}
@@ -118,16 +148,17 @@ impl ChunkSystem {
 				.name("Chunk system processor task")
 				.spawn(async move {
 					while let Some(chunk_system_mtx) = chunk_system_weak.upgrade() {
-						let mut chunk_system = chunk_system_mtx.lock().await;
+						let chunk_system = chunk_system_mtx.lock().await;
+						let database = chunk_system.database.clone();
 						let notifier = chunk_system.notifier.clone();
 						drop(chunk_system);
 
 						notifier.notified().await;
 
-						chunk_system = chunk_system_mtx.lock().await;
-
-						if chunk_system.signal_garbage_collect.check_triggered() {
-							chunk_system.garbage_collect().await;
+						if let Some(data) =
+							ChunkSystem::get_chunks_to_garbage_collect(chunk_system_mtx.clone()).await
+						{
+							ChunkSystem::garbage_collect_lazy(chunk_system_mtx, database, data).await;
 						}
 					}
 					log::trace!("Chunk system processor task ended");
@@ -136,41 +167,66 @@ impl ChunkSystem {
 		);
 	}
 
-	pub async fn garbage_collect(&mut self) {
-		let mut chunks_to_save: Vec<IVec2> = Vec::new();
-		let mut chunks_to_free: Vec<IVec2> = Vec::new();
+	async fn get_chunks_to_garbage_collect(
+		chunk_system_mtx: ChunkSystemMutex,
+	) -> Option<GarbageCollectData> {
+		let chunk_system = chunk_system_mtx.lock().await;
+		if !chunk_system.signal_garbage_collect.check_triggered() {
+			return None;
+		}
 
-		for (chunk_pos, chunk_mtx) in &self.chunks {
-			let chunk = chunk_mtx.lock().await;
-			if chunk.is_linked_sessions_empty() {
-				if chunk.is_modified() {
-					chunks_to_save.push(*chunk_pos);
+		let chunks = chunk_system.chunks.clone();
+		drop(chunk_system);
+
+		let mut chunks_to_save: Vec<ChunkInstanceWeak> = Vec::new();
+		let mut chunks_to_free: Vec<IVec2> = Vec::new();
+		for (chunk_pos, cell) in &chunks {
+			if cell.refs.linked_sessions.lock().unwrap().is_empty() {
+				if *cell.refs.modified.lock().unwrap() {
+					chunks_to_save.push(Arc::downgrade(&cell.chunk));
 				}
-				debug_assert!(Arc::strong_count(chunk_mtx) == 1);
+				debug_assert!(Arc::strong_count(&cell.chunk) == 1);
 				chunks_to_free.push(*chunk_pos);
 			}
 		}
 
+		Some(GarbageCollectData {
+			chunks_to_free,
+			chunks_to_save,
+		})
+	}
+
+	async fn garbage_collect_lazy(
+		chunk_system_mtx: ChunkSystemMutex,
+		database: Arc<Mutex<Database>>,
+		data: GarbageCollectData,
+	) {
 		// Save pending chunks
-		for chunk_pos in &chunks_to_save {
-			if let Some(chunk) = self.chunks.get(chunk_pos) {
+		for chunk in &data.chunks_to_save {
+			if let Some(chunk) = chunk.upgrade() {
 				let chunk = chunk.clone();
 				let mut chunk = chunk.lock().await;
-				self.save_chunk_wrapper(&mut chunk).await;
+				ChunkSystem::save_chunk_wrapper(database.clone(), &mut chunk).await;
 			}
 		}
 
-		// Free chunks
-		for chunk_pos in &chunks_to_free {
-			self.chunks.remove(chunk_pos);
-		}
+		let total_loaded = {
+			let mut chunk_system = chunk_system_mtx.lock().await;
 
-		if !chunks_to_save.is_empty() || !chunks_to_free.is_empty() {
+			// Free chunks
+			for chunk_pos in &data.chunks_to_free {
+				chunk_system.chunks.remove(chunk_pos);
+			}
+
+			chunk_system.chunks.len()
+		};
+
+		if !data.chunks_to_save.is_empty() || !data.chunks_to_free.is_empty() {
 			log::info!(
 				"Garbage-collected chunks ({} saved, {} total loaded, {} freed)",
-				chunks_to_save.len(),
-				self.chunks.len(),
-				chunks_to_free.len()
+				data.chunks_to_save.len(),
+				total_loaded,
+				data.chunks_to_free.len()
 			);
 		}
 	}
@@ -180,8 +236,8 @@ impl ChunkSystem {
 			tokio::task::Builder::new()
 				.name("Chunk system tick task")
 				.spawn(async move {
-					while chunk_system_weak.strong_count() > 0 {
-						ChunkSystem::tick(&chunk_system_weak).await;
+					while let Some(chunk_system_mtx) = chunk_system_weak.upgrade() {
+						ChunkSystem::tick(chunk_system_mtx).await;
 						tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 					}
 				})
@@ -189,39 +245,40 @@ impl ChunkSystem {
 		);
 	}
 
-	async fn get_chunks_to_save(&self) -> Vec<ChunkInstanceWeak> {
-		let mut to_autosave: Vec<ChunkInstanceWeak> = Vec::new();
-		for chunk in self.chunks.values() {
-			if chunk.lock().await.is_modified() {
-				to_autosave.push(Arc::downgrade(chunk));
+	async fn get_chunks_to_save(&self) -> Vec<ChunkCellWeak> {
+		let mut to_autosave: Vec<ChunkCellWeak> = Vec::new();
+		for cell in self.chunks.values() {
+			// If modified
+			if *cell.refs.modified.lock().unwrap() {
+				to_autosave.push(ChunkCellWeak {
+					chunk: Arc::downgrade(&cell.chunk),
+					refs: cell.refs.clone(),
+				});
 			}
 		}
 		to_autosave
 	}
 
 	// Called every 1s
-	async fn tick(weak: &ChunkSystemWeak) {
-		if let Some(chunk_sytem) = weak.upgrade() {
-			let mut chunk_system = chunk_sytem.lock().await;
+	async fn tick(chunk_system_mtx: ChunkSystemMutex) {
+		let mut chunk_system = chunk_system_mtx.lock().await;
 
-			let time_ms = get_millis();
-			if chunk_system.last_autosave_timestamp + (chunk_system.autosave_interval_ms as u64) < time_ms
-			{
-				chunk_system.last_autosave_timestamp = time_ms;
+		let time_ms = get_millis();
+		if chunk_system.last_autosave_timestamp + (chunk_system.autosave_interval_ms as u64) < time_ms {
+			chunk_system.last_autosave_timestamp = time_ms;
 
-				let to_autosave = chunk_system.get_chunks_to_save().await;
-				if !to_autosave.is_empty() {
-					log::info!("Performing auto-save");
-					drop(chunk_system);
-					ChunkSystem::save_chunks_lazy(to_autosave, weak.clone()).await;
-				}
+			let to_autosave = chunk_system.get_chunks_to_save().await;
+			if !to_autosave.is_empty() {
+				log::info!("Performing auto-save");
+				drop(chunk_system);
+				ChunkSystem::save_chunks(chunk_system_mtx, to_autosave).await;
 			}
 		}
 	}
 
-	async fn save_chunk_wrapper(&mut self, chunk: &mut ChunkInstance) {
+	async fn save_chunk_wrapper(database: Arc<Mutex<Database>>, chunk: &mut ChunkInstance) {
 		log::info!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
-		if let Err(e) = self.save_chunk(chunk).await {
+		if let Err(e) = ChunkSystem::save_chunk(database, chunk).await {
 			log::error!(
 				"Failed to save chunk at {}x{}: {}",
 				chunk.position.x,
@@ -231,11 +288,14 @@ impl ChunkSystem {
 		}
 	}
 
-	async fn save_chunk(&mut self, chunk: &mut ChunkInstance) -> anyhow::Result<()> {
+	async fn save_chunk(
+		database: Arc<Mutex<Database>>,
+		chunk: &mut ChunkInstance,
+	) -> anyhow::Result<()> {
 		let data = chunk.encode_chunk_data(true);
 
 		DatabaseFunc::chunk_save_data(
-			&self.database,
+			&database,
 			chunk.position,
 			data,
 			crate::database::CompressionType::Lz4,
@@ -245,49 +305,39 @@ impl ChunkSystem {
 		Ok(())
 	}
 
-	async fn save_chunks(&mut self, mut to_autosave: Vec<ChunkInstanceWeak>) {
-		while let Some(chunk) = to_autosave.pop() {
-			if let Some(chunk) = chunk.upgrade() {
+	async fn save_chunks(chunk_system_mtx: ChunkSystemMutex, mut to_autosave: Vec<ChunkCellWeak>) {
+		while let Some(cell) = to_autosave.pop() {
+			if let Some(chunk) = cell.chunk.upgrade() {
 				let mut chunk = chunk.lock().await;
-				if !chunk.is_modified() {
+				if !*cell.refs.modified.lock().unwrap() {
 					continue;
 				}
 
-				self.save_chunk_wrapper(&mut chunk).await;
+				let chunk_system = chunk_system_mtx.lock().await;
+				let database = chunk_system.database.clone();
+				drop(chunk_system);
+
+				ChunkSystem::save_chunk_wrapper(database.clone(), &mut chunk).await;
 			}
 		}
 	}
 
-	async fn save_chunks_lazy(mut to_autosave: Vec<ChunkInstanceWeak>, weak: ChunkSystemWeak) {
-		while let Some(chunk) = to_autosave.pop() {
-			if let Some(chunk) = chunk.upgrade() {
-				let mut chunk = chunk.lock().await;
-				if !chunk.is_modified() {
-					continue;
-				}
-
-				if let Some(chunk_system) = weak.upgrade() {
-					let mut chunk_system = chunk_system.lock().await;
-					chunk_system.save_chunk_wrapper(&mut chunk).await;
-				}
-			}
-		}
-	}
-
-	pub async fn cleanup(&mut self) {
-		if let Some(task) = &self.task_tick {
+	pub async fn cleanup(chunk_system_mtx: ChunkSystemMutex) {
+		let chunk_system = chunk_system_mtx.lock().await;
+		if let Some(task) = &chunk_system.task_tick {
 			task.abort();
 		}
 
 		// Save all modified chunks
-		let to_autosave = self.get_chunks_to_save().await;
+		let to_autosave = chunk_system.get_chunks_to_save().await;
+		drop(chunk_system);
 		if !to_autosave.is_empty() {
 			log::info!("Saving chunks before exit");
-			self.save_chunks(to_autosave).await;
+			ChunkSystem::save_chunks(chunk_system_mtx.clone(), to_autosave).await;
 			log::info!("Chunks saved!");
 		}
 
-		self.cleaned_up = true;
+		chunk_system_mtx.lock().await.cleaned_up = true;
 	}
 }
 
