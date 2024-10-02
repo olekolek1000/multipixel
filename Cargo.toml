@@ -25,3 +25,5 @@ tokio-websockets = { version = "0.8.3", features = ["server", "sha1_smol"] }
 
 # https://github.com/programatik29/tokio-rusqlite/pull/36
 tokio-rusqlite = { git = "https://github.com/JakubKoralewski/tokio-rusqlite.git", branch = "master" }
+tokio-util = "0.7.12"
+libc = "0.2.159"

@@ -70,40 +70,44 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 		<canvas id="canvas_render" ref={canvas_render} width="100%" height="100%"></canvas>
 		<ToolPanel toolbox_globals={multipixel.toolbox_globals} />
 		<ChatRender chat={multipixel.chat} />
-		<div className={style_room.toolbox}>
-			<Tooltip title="Undo">
-				<ButtonTool on_click={() => {
-					multipixel.handleButtonUndo();
-				}}>
-					<Icon path="img/tool/undo.svg" />
-				</ButtonTool>
-			</Tooltip>
-			<Tooltip title="Reset zoom to 100%">
-				<ButtonTool on_click={() => {
-					multipixel.handleButtomZoom1_1();
-				}}>
-					<Icon path="img/tool/100.svg" />
-				</ButtonTool>
-			</Tooltip>
-			<Tooltip title="Brush">
-				<ButtonTool highlighted={tool_type == ToolType.brush} on_click={() => {
-					multipixel.handleButtonToolBrush();
-					setToolType(ToolType.brush);
-				}}>
-					<Icon path="img/tool/brush.svg" />
-				</ButtonTool>
-			</Tooltip>
-			<Tooltip title="Floodfill">
-				<ButtonTool highlighted={tool_type == ToolType.floodfill} on_click={() => {
-					multipixel.handleButtonToolFloodfill();
-					setToolType(ToolType.floodfill);
-				}}>
-					<Icon path="img/tool/floodfill.svg" />
-				</ButtonTool>
-			</Tooltip>
-			{processing_status_text}
-			{player_list}
-			{mouse_pos_text}
+		<div className={style_room.toolboxes}>
+			<div className={style_room.toolbox}>
+				<Tooltip title="Brush">
+					<ButtonTool highlighted={tool_type == ToolType.brush} on_click={() => {
+						multipixel.handleButtonToolBrush();
+						setToolType(ToolType.brush);
+					}}>
+						<Icon path="img/tool/brush.svg" />
+					</ButtonTool>
+				</Tooltip>
+				<Tooltip title="Floodfill">
+					<ButtonTool highlighted={tool_type == ToolType.floodfill} on_click={() => {
+						multipixel.handleButtonToolFloodfill();
+						setToolType(ToolType.floodfill);
+					}}>
+						<Icon path="img/tool/floodfill.svg" />
+					</ButtonTool>
+				</Tooltip>
+			</div>
+			<div className={style_room.toolbox}>
+				<Tooltip title="Undo">
+					<ButtonTool on_click={() => {
+						multipixel.handleButtonUndo();
+					}}>
+						<Icon path="img/tool/undo.svg" />
+					</ButtonTool>
+				</Tooltip>
+				<Tooltip title="Reset zoom to 100%">
+					<ButtonTool on_click={() => {
+						multipixel.handleButtomZoom1_1();
+					}}>
+						<Icon path="img/tool/100.svg" />
+					</ButtonTool>
+				</Tooltip>
+				{processing_status_text}
+				{player_list}
+				{mouse_pos_text}
+			</div>
 		</div>
 	</div>
 }

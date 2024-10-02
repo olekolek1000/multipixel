@@ -6,6 +6,7 @@ interface CssExports {
   'panel_appearance': string;
   'tool_panel': string;
   'toolbox': string;
+  'toolboxes': string;
   'users_online': string;
 }
 export const cssExports: CssExports;

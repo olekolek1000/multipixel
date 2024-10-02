@@ -21,6 +21,7 @@ use std::time::Duration;
 use std::{fmt, io};
 use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tokio_websockets::Message;
 
 // Any protocol usage error that shouldn't be tolerated.
@@ -114,6 +115,8 @@ pub struct SessionInstance {
 	notifier: Arc<Notify>,
 	pub queue_send: EventQueue<packet_server::Packet>,
 
+	cancel_token: CancellationToken,
+
 	cursor_pos: packet_client::PacketCursorPos,
 	cursor_pos_prev: packet_client::PacketCursorPos,
 	cursor_pos_sent: Option<packet_client::PacketCursorPos>,
@@ -139,15 +142,17 @@ pub struct SessionInstance {
 	announced: bool,
 	cleaned_up: bool,
 
+	writer: Option<Arc<Mutex<ConnectionWriter>>>,
 	task_sender: Option<JoinHandle<()>>,
 	task_tick: Option<JoinHandle<()>>,
 }
 
 impl SessionInstance {
-	pub fn new() -> Self {
+	pub fn new(cancel_token: CancellationToken) -> Self {
 		let notifier = Arc::new(Notify::new());
 
 		Self {
+			cancel_token,
 			nick_name: String::new(),
 			cursor_pos: Default::default(),
 			cursor_pos_prev: Default::default(),
@@ -170,6 +175,7 @@ impl SessionInstance {
 			cleaned_up: false,
 			task_sender: None,
 			task_tick: None,
+			writer: None,
 		}
 	}
 
@@ -233,8 +239,9 @@ impl SessionInstance {
 		session_id: u32,
 		session: &mut SessionInstance,
 		session_weak: SessionInstanceWeak,
-		mut writer: ConnectionWriter,
+		writer: ConnectionWriter,
 	) {
+		session.writer = Some(Arc::new(Mutex::new(writer)));
 		session.task_sender = Some(
 			tokio::task::Builder::new()
 				.name(format!("Session {} sender task", session_id).as_str())
@@ -249,7 +256,7 @@ impl SessionInstance {
 						notifier.notified().await;
 
 						session = session_mtx.lock().await;
-						let _ = session.send_all(&mut writer).await;
+						let _ = session.send_all().await;
 
 						if session.cleaned_up {
 							break; // End this task
@@ -693,17 +700,21 @@ impl SessionInstance {
 		}
 	}
 
-	pub async fn send_all(&mut self, writer: &mut ConnectionWriter) -> anyhow::Result<()> {
-		let packets_to_send = self.queue_send.read_all();
+	pub async fn send_all(&mut self) -> anyhow::Result<()> {
+		if let Some(writer) = &self.writer {
+			let mut writer = writer.lock().await;
+			let packets_to_send = self.queue_send.read_all();
 
-		for packet in &packets_to_send {
-			writer.send(Message::binary(packet.data.clone())).await?;
+			for packet in &packets_to_send {
+				writer.send(Message::binary(packet.data.clone())).await?;
+			}
+			Ok(())
+		} else {
+			Err(anyhow::anyhow!("Writer is not set"))
 		}
-
-		Ok(())
 	}
 
-	async fn kick(&mut self, cause: &str) -> Result<(), tokio_websockets::Error> {
+	pub async fn kick(&mut self, cause: &str) -> Result<(), tokio_websockets::Error> {
 		if self.kicked {
 			//Enough
 			return Ok(());
@@ -739,6 +750,8 @@ impl SessionInstance {
 
 			self.leave_room(&refs, session_handle).await;
 		}
+
+		self.cancel_token.cancel();
 	}
 
 	pub async fn leave_room(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {

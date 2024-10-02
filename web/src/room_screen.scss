@@ -6,14 +6,21 @@
 	line-height: 100%;
 }
 
+.toolboxes {
+	position: absolute;
+	top: 16px;
+	left: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
 
 .toolbox {
 	@extend .panel;
 
-	position: absolute;
 	width: 48px;
-  top: 16px;
-	left: 16px;
+  
 	padding-bottom: 8px;
   display: flex;
 	flex-direction: column;
