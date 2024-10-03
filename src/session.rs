@@ -1058,6 +1058,7 @@ impl SessionInstance {
 					} else {
 						self.send_reply(String::from("Preview regeneration started"));
 						ChunkSystem::regenerate_all_previews(refs.chunk_system_mtx.clone()).await;
+						self.send_reply(String::from("Preview regeneration finished"));
 					}
 				}
 				_ => {

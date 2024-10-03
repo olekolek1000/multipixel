@@ -294,17 +294,17 @@ impl ChunkSystem {
 
 	pub async fn regenerate_all_previews(chunk_system_mtx: ChunkSystemMutex) {
 		let chunk_system = chunk_system_mtx.lock().await;
-		let to_process: Vec<IVec2> = chunk_system.chunks.iter().map(|c| *c.0).collect();
-
+		let database = chunk_system.database.clone();
 		let preview_system_mtx = chunk_system.preview_system.clone();
 		drop(chunk_system);
 
 		let queue_cache = preview_system_mtx.lock().await.update_queue_cache.clone();
-		for cell in to_process {
-			queue_cache.send(cell);
+		if let Ok(res) = DatabaseFunc::chunk_list_all(&database).await {
+			for pos in res {
+				queue_cache.send(pos);
+			}
+			PreviewSystem::process_all(preview_system_mtx).await;
 		}
-
-		PreviewSystem::process_all(preview_system_mtx).await;
 	}
 
 	async fn save_chunk_wrapper(database: Arc<Mutex<Database>>, chunk: &mut ChunkInstance) {
