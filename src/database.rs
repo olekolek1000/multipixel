@@ -131,7 +131,7 @@ impl Database {
 			},
 		) {
 			//Chunk already exists, update chunk
-			log::info!("Updating chunk");
+			log::trace!("Updating chunk");
 			if get_unix_timestamp() as i64 - row.timestamp > SECONDS_BETWEEN_SNAPSHOTS as i64 {
 				//Insert a new chunk in its place
 				Self::chunk_insert(conn, pos, data, compression_type)?;
@@ -149,7 +149,7 @@ impl Database {
 			}
 		} else {
 			// Chunk doesn't exist, create chunk
-			log::info!("Creating chunk");
+			log::trace!("Creating chunk");
 			Self::chunk_insert(conn, pos, data, compression_type)?;
 		}
 

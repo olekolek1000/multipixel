@@ -6,7 +6,7 @@ use crate::event_queue::EventQueue;
 use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
 use crate::pixel::{Color, GlobalPixel};
-use crate::preview_system::PreviewSystemMutex;
+use crate::preview_system::{PreviewSystem, PreviewSystemMutex};
 use crate::room::RoomInstanceMutex;
 use crate::server::ServerMutex;
 use crate::tool::brush::BrushShapes;
@@ -14,7 +14,8 @@ use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
 use glam::IVec2;
-use std::collections::HashSet;
+use sanitize_html::sanitize_str;
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -112,6 +113,8 @@ pub struct RoomRefs {
 pub struct SessionInstance {
 	pub nick_name: String, // Max 255 characters
 
+	admin_mode: bool,
+
 	notifier: Arc<Notify>,
 	pub queue_send: EventQueue<packet_server::Packet>,
 
@@ -176,6 +179,7 @@ impl SessionInstance {
 			task_sender: None,
 			task_tick: None,
 			writer: None,
+			admin_mode: false,
 		}
 	}
 
@@ -288,7 +292,11 @@ impl SessionInstance {
 				ClientCmd::Announce => {
 					let _ = self.kick("you have already announced").await;
 				}
-				ClientCmd::Message => self.process_command_message(reader).await?,
+				ClientCmd::Message => {
+					self
+						.process_command_message(reader, &refs, server_mtx)
+						.await?
+				}
 				ClientCmd::Ping => self.process_command_ping(reader).await,
 				ClientCmd::CursorPos => {
 					self
@@ -927,7 +935,12 @@ impl SessionInstance {
 		}
 	}
 
-	async fn process_command_message(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	async fn process_command_message(
+		&mut self,
+		reader: &mut BinaryReader,
+		refs: &RoomRefs,
+		server_mtx: &ServerMutex,
+	) -> anyhow::Result<()> {
 		let msg_len = reader.read_u16()?;
 		if msg_len > 1000 {
 			return Err(UserError::new(
@@ -944,30 +957,115 @@ impl SessionInstance {
 
 		if let Some(ch) = str.chars().nth(0) {
 			if ch == '/' {
-				self.handle_chat_command(&str[1..]).await?;
+				self
+					.handle_chat_command(server_mtx, refs, &str[1..])
+					.await?;
 			} else {
-				self.handle_chat_message(str).await;
+				self.handle_chat_message(refs, str).await;
 			}
 		}
 
 		Ok(())
 	}
 
-	async fn handle_chat_message(&mut self, msg: &str) {
+	fn send_reply(&self, text: String) {
 		self.queue_send.send(packet_server::prepare_packet_message(
 			packet_server::MessageType::PlainText,
-			format!("<{}> {}", self.nick_name.as_str(), msg).as_str(),
+			text.as_str(),
 		));
 	}
 
-	async fn handle_chat_command(&mut self, msg: &str) -> anyhow::Result<()> {
-		match msg {
-			"leave" => self.kick("Goodbye.").await?,
-			_ => {
-				self.queue_send.send(packet_server::prepare_packet_message(
-					packet_server::MessageType::PlainText,
-					"Unknown command",
-				));
+	fn send_reply_html(&self, text: String) {
+		self.queue_send.send(packet_server::prepare_packet_message(
+			packet_server::MessageType::Html,
+			text.as_str(),
+		));
+	}
+
+	fn send_unauthenticated(&self) {
+		self.send_reply_html(String::from("<msg_error>Unauthenticated</msg_error>"));
+	}
+
+	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
+		msg = msg.trim();
+		let msg = format!("<{}> {}", self.nick_name.as_str(), msg);
+		log::info!("Chat message: {}", msg);
+
+		// Broadcast chat message to all sessions
+		let room = refs.room_mtx.lock().await;
+		room.broadcast(
+			&packet_server::prepare_packet_message(packet_server::MessageType::PlainText, msg.as_str()),
+			None,
+		);
+	}
+
+	async fn handle_chat_command(
+		&mut self,
+		server_mtx: &ServerMutex,
+		refs: &RoomRefs,
+		msg: &str,
+	) -> anyhow::Result<()> {
+		log::info!("Command requested: {}", msg);
+
+		let mut parts: VecDeque<&str> = msg.split(" ").collect();
+		if let Some(command) = parts.pop_front() {
+			let redacted = command == "admin";
+
+			self.send_reply_html(format!(
+				"<msg_command>/{}</msg_command>",
+				if redacted {
+					String::from("&ltredacted&gt")
+				} else {
+					sanitize_str(&sanitize_html::rules::predefined::DEFAULT, msg)
+						.unwrap_or(String::from("err"))
+				}
+			));
+
+			match command {
+				"help" | "?" => {
+					self.send_reply_html(String::from(
+						"
+						User commands:<br/>
+						<msg_blue>help</msg_blue>: <i>Show this message</i><br/>
+						<msg_blue>leave</msg_blue>: <i>Kick yourself</i><br/>
+						Admin commands:<br/>
+						<msg_red>admin</msg_red>: <i>Log-in as admin</i><br/>
+						<msg_red>process_preview_system</msg_red>: <i>Force-refresh preview system</i><br/>
+						",
+					));
+				}
+				"leave" => self.kick("Goodbye.").await?,
+				"admin" => {
+					let server = server_mtx.lock().await;
+					if let Some(password) = parts.pop_front() {
+						if let Some(config_password) = &server.config.admin_password {
+							if config_password != password {
+								self.send_reply(String::from("Invalid password"));
+							} else {
+								self.admin_mode = true;
+								self.send_reply_html(String::from("<msg_important>Authenticated</msg_important>"));
+							}
+						} else {
+							self.send_reply(String::from("admin_password in settings.json is not set"));
+						}
+					} else {
+						self.send_reply(String::from("Usage: admin <password>"));
+					}
+				}
+				"process_preview_system" => {
+					if !self.admin_mode {
+						self.send_unauthenticated();
+					} else {
+						self.send_reply(String::from("Preview regeneration started"));
+						let chunk_system_mtx = refs.chunk_system_mtx.clone();
+						tokio::spawn(async {
+							ChunkSystem::regenerate_all_previews(chunk_system_mtx).await;
+						});
+					}
+				}
+				_ => {
+					self.send_reply_html(String::from("<msg_error>Unknown command</msg_error>"));
+				}
 			}
 		}
 		Ok(())

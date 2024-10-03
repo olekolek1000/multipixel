@@ -14,6 +14,7 @@ pub struct Config {
 	pub autosave_interval_ms: u32,
 	pub plugin_list: Vec<String>,
 	pub preview_system: PreviewSystem,
+	pub admin_password: Option<String>,
 }
 
 pub async fn load() -> anyhow::Result<Config> {

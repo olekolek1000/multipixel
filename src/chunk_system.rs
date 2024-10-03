@@ -15,7 +15,7 @@ use crate::{
 	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceRefs, ChunkInstanceWeak},
 	database::{Database, DatabaseFunc},
 	limits::CHUNK_SIZE_PX,
-	preview_system::PreviewSystemMutex,
+	preview_system::{PreviewSystem, PreviewSystemMutex},
 	signal::Signal,
 	time::get_millis,
 };
@@ -233,8 +233,8 @@ impl ChunkSystem {
 			chunk_system.chunks.len()
 		};
 
-		if !data.chunks_to_save.is_empty() || !data.chunks_to_free.is_empty() {
-			log::info!(
+		if !data.chunks_to_save.is_empty() {
+			log::trace!(
 				"Garbage-collected chunks ({} saved, {} total loaded, {} freed)",
 				data.chunks_to_save.len(),
 				total_loaded,
@@ -274,6 +274,7 @@ impl ChunkSystem {
 	// Called every 1s
 	async fn tick(chunk_system_mtx: ChunkSystemMutex) {
 		let mut chunk_system = chunk_system_mtx.lock().await;
+		let preview_system = chunk_system.preview_system.clone();
 
 		let time_ms = get_millis();
 		if chunk_system.last_autosave_timestamp + (chunk_system.autosave_interval_ms as u64) < time_ms {
@@ -284,12 +285,30 @@ impl ChunkSystem {
 				log::info!("Performing auto-save");
 				drop(chunk_system);
 				ChunkSystem::save_chunks(chunk_system_mtx, to_autosave).await;
+				log::info!("Auto-save finished");
+
+				PreviewSystem::process_all(preview_system).await;
 			}
 		}
 	}
 
+	pub async fn regenerate_all_previews(chunk_system_mtx: ChunkSystemMutex) {
+		let chunk_system = chunk_system_mtx.lock().await;
+		let to_process: Vec<IVec2> = chunk_system.chunks.iter().map(|c| *c.0).collect();
+
+		let preview_system_mtx = chunk_system.preview_system.clone();
+		drop(chunk_system);
+
+		let queue_cache = preview_system_mtx.lock().await.update_queue_cache.clone();
+		for cell in to_process {
+			queue_cache.send(cell);
+		}
+
+		PreviewSystem::process_all(preview_system_mtx).await;
+	}
+
 	async fn save_chunk_wrapper(database: Arc<Mutex<Database>>, chunk: &mut ChunkInstance) {
-		log::info!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
+		log::trace!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
 		if let Err(e) = ChunkSystem::save_chunk(database, chunk).await {
 			log::error!(
 				"Failed to save chunk at {}x{}: {}",

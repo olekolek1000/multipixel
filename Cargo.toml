@@ -1,5 +1,5 @@
 [package]
-name = "server"
+name = "multipixel"
 version = "0.1.0"
 edition = "2021"
 
@@ -31,3 +31,5 @@ tokio-websockets = { version = "0.8.3", features = ["server", "sha1_smol"] }
 tokio-rusqlite = { git = "https://github.com/JakubKoralewski/tokio-rusqlite.git", branch = "master" }
 tokio-util = "0.7.12"
 libc = "0.2.159"
+tokio-fd = "0.3.0"
+sanitize_html = "0.8.1"

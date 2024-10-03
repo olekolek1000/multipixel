@@ -42,14 +42,6 @@ impl RoomInstance {
 		)));
 
 		{
-			let mut preview_system = preview_system_mtx.lock().await;
-			PreviewSystem::launch_task_processor(
-				&mut preview_system,
-				Arc::downgrade(&preview_system_mtx),
-			);
-		}
-
-		{
 			let mut chunk_system = chunk_system_mtx.lock().await;
 			// TODO (low priority): make this system completely redundant (tick-less), improving idle power usage
 			ChunkSystem::launch_task_tick(&mut chunk_system, Arc::downgrade(&chunk_system_mtx));
@@ -157,7 +149,7 @@ impl RoomInstance {
 
 	pub async fn cleanup(&mut self) {
 		ChunkSystem::cleanup(self.chunk_system.clone()).await;
-		self.preview_system.lock().await.cleanup().await;
+		PreviewSystem::process_all(self.preview_system.clone()).await;
 		self.database.lock().await.cleanup().await;
 		self.cleaned_up = true;
 		log::debug!("Room cleaned up");

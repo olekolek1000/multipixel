@@ -2,7 +2,9 @@
 // Please do not change this file!
 interface CssExports {
   'chat_box': string;
+  'chat_history': string;
   'chat_input': string;
+  'chat_message': string;
   'panel': string;
   'panel2': string;
   'panel_appearance': string;

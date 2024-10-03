@@ -1,7 +1,6 @@
-use std::{collections::VecDeque, os::fd::AsRawFd, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
-use libc::{fcntl, F_GETFL, F_SETFL, O_NONBLOCK};
-use tokio::{io::AsyncBufReadExt, runtime::Handle, time::timeout};
+use tokio::{io::AsyncReadExt, runtime::Handle, time::timeout};
 use tokio_util::sync::CancellationToken;
 
 use crate::server::ServerMutex;
@@ -23,46 +22,56 @@ fn print_help() {
 	log::info!("exit - Save everything and exit");
 }
 
-fn make_stdin_async() {
-	// prevent hanging infinitely until pressing enter
-	unsafe {
-		let fd = std::io::stdin().as_raw_fd();
-		let flags = fcntl(fd, F_GETFL, 0);
-		fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+async fn process_command(line: String, server: &ServerMutex) -> anyhow::Result<()> {
+	let mut parts: VecDeque<&str> = line.split(" ").collect();
+	if let Some(raw_keyword) = parts.pop_front() {
+		let keyword = raw_keyword.trim();
+		match keyword {
+			"help" | "?" => {
+				print_help();
+			}
+			"dump" => {
+				dump_tasks().await;
+			}
+			"exit" => {
+				if let Err(e) = server.lock().await.save_and_exit().await {
+					log::error!("Cannot exit gracefully: {}.", e);
+				}
+			}
+			_ => {
+				if !keyword.is_empty() {
+					log::error!("Unknown command \"{}\".", keyword);
+				}
+			}
+		}
 	}
+	Ok(())
 }
 
 async fn runner(server: ServerMutex) -> anyhow::Result<()> {
-	loop {
-		let stdin = tokio::io::stdin();
-		let mut reader = tokio::io::BufReader::new(stdin);
-		let mut line = String::new();
+	let mut stdin = tokio_fd::AsyncFd::try_from(libc::STDIN_FILENO)?;
+	let mut buf: Vec<u8> = vec![0; 32];
 
-		// FIXME: this is a dirty hack, make_stdin_async causes stdin to be non-blocking and we are catching those errors to exit the server gracefully
-		// tokio stdin is NOT async and cannot be cancelled (!!)
-		if (reader.read_line(&mut line).await).is_err() {
-			tokio::time::sleep(Duration::from_millis(250)).await;
-			return Ok(()); // stdin is async, it will throw "Resource temporarily unavailable" errors
-		}
-		let mut parts: VecDeque<&str> = line.split(" ").collect();
-		if let Some(raw_keyword) = parts.pop_front() {
-			let keyword = raw_keyword.trim();
-			match keyword {
-				"help" | "?" => {
-					print_help();
+	loop {
+		let mut cmd: Vec<u8> = Vec::new();
+		while let Ok(byte_count) = stdin.read(&mut buf).await {
+			for (idx, byte) in buf.iter().enumerate() {
+				if *byte == b'\r' {
+					//Inferior CRLF encoding, skip
+					continue;
 				}
-				"dump" => {
-					dump_tasks().await;
+
+				if *byte == b'\n' {
+					// Parse line
+					let line = String::from(String::from_utf8_lossy(&cmd));
+					cmd.clear();
+					process_command(line, &server).await?;
+				} else {
+					cmd.push(*byte);
 				}
-				"exit" => {
-					if let Err(e) = server.lock().await.save_and_exit().await {
-						log::error!("Cannot exit gracefully: {}.", e);
-					}
-				}
-				_ => {
-					if !keyword.is_empty() {
-						log::error!("Unknown command \"{}\".", keyword);
-					}
+
+				if idx >= byte_count - 1 {
+					break; // end of buf
 				}
 			}
 		}
@@ -70,8 +79,6 @@ async fn runner(server: ServerMutex) -> anyhow::Result<()> {
 }
 
 pub fn start(server: ServerMutex, cancel_token: CancellationToken) {
-	make_stdin_async();
-
 	tokio::spawn(async move {
 		loop {
 			tokio::select! {

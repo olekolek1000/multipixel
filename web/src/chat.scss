@@ -5,9 +5,26 @@
 	position: absolute;
 	bottom: 16px;
 	left: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
 }
 
 .chat_input {
 	appearance: none;
 	width: 300px;
+}
+
+.chat_history {
+	@extend .panel;
+	overflow-y: scroll;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 100px;
+	font-size: 0.7em;
+}
+
+.chat_message {
+	max-width: 300px;
 }

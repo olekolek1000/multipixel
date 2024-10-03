@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use futures_util::{
 	stream::{SplitSink, SplitStream},
@@ -211,7 +211,19 @@ fn main() {
 			.build()
 			.unwrap();
 
-		console_subscriber::init();
+		let mut args: VecDeque<String> = std::env::args().collect();
+		args.pop_front(); // Ignore program path
+
+		while let Some(arg) = args.pop_front() {
+			match arg.as_str() {
+				"--console-subscriber" => {
+					console_subscriber::init();
+				}
+				_ => {
+					log::info!("Unknown argument: {}", arg);
+				}
+			}
+		}
 
 		std::env::set_var("RUST_LOG", "trace");
 		pretty_env_logger::init_timed();
