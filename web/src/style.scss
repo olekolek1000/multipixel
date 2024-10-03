@@ -39,7 +39,6 @@ body {
 	padding: 0.15cm;
 	padding-left: 0.25cm;
 	padding-right: 0.25cm;
-	margin-left:0.5cm;
 	border: 0;
 	border-radius: 0.5cm 0.25cm 0.5cm 0.25cm;
 	background-color: #FFF;
@@ -51,6 +50,7 @@ body {
 
 .text_input_labeled_bg {
 	@extend .text_input_bg;
+	margin-left:0.5cm;
 	padding: unset;
 	padding-left: 0.5cm;
 	padding-right: 0.5cm;

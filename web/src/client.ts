@@ -285,8 +285,10 @@ export class Client {
 
 		switch (command) {
 			case ServerCmd.message: {
-				let type = dataview.getUint8(0);
-				let view_str = createView(1);
+				let offset = 0;
+				let type = dataview.getUint8(offset); offset += 1;
+				let message_size = dataview.getUint16(offset); offset += 2;
+				let view_str = createViewSize(offset, message_size); offset += message_size;
 				let str = new TextDecoder().decode(view_str);
 				if (type == MessageType.plain_text)
 					this.chat!.addMessage(str, false);

@@ -11,3 +11,33 @@
 	height: 100vh;
 	cursor: url("../img/cursor.png") 12 12, auto;
 }
+
+/* Helper chat message styles formatted by the server */
+msg_command {
+	color: lime;
+	background-color: black;
+	padding: 2px;
+	border-radius: 4px;
+}
+
+msg_error {
+	color: white;
+	background-color: red;
+	padding: 2px;
+	border-radius: 4px;
+}
+
+msg_important {
+	color: yellow;
+	background-color: blue;
+	padding: 2px;
+	border-radius: 4px;
+}
+
+msg_blue {
+	color: blue;
+}
+
+msg_red {
+	color: red;
+}

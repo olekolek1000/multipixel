@@ -4,19 +4,17 @@ use std::sync::{Arc, Weak};
 
 use anyhow::anyhow;
 use glam::IVec2;
-use tokio::{
-	sync::{Mutex, Notify},
-	task::JoinHandle,
-};
+use tokio::sync::{Mutex, Notify};
 
 use crate::{
+	chunk_system::ChunkSystemMutex,
 	compression,
 	database::{ChunkDatabaseRecord, Database, DatabaseFunc, PreviewDatabaseRecord},
 	event_queue::EventQueue,
 	limits::{self, CHUNK_SIZE_PX},
 };
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct PreviewSystemLayer {
 	zoom: u8,
 	update_queue: Vec<IVec2>,
@@ -103,10 +101,11 @@ impl PreviewSystemLayer {
 	}
 
 	async fn process_one_block(
-		&mut self,
 		database: &Arc<Mutex<Database>>,
+		update_queue: &mut Vec<IVec2>,
+		zoom: u8,
 	) -> anyhow::Result<PreviewProcessResult> {
-		if let Some(position) = self.update_queue.pop() {
+		if let Some(position) = update_queue.pop() {
 			// Fuse 2x2 chunks into one preview image
 			let topleft = IVec2::new(position.x * 2, position.y * 2);
 			let topright = IVec2::new(position.x * 2 + 1, position.y * 2);
@@ -120,7 +119,7 @@ impl PreviewSystemLayer {
 				bottomright: Vec<u8>,
 			}
 
-			let compressed = if self.zoom == 1 {
+			let compressed = if zoom == 1 {
 				// Load real chunks data underneath
 				Quad {
 					topleft: extract_chunk_record(DatabaseFunc::chunk_load_data(database, topleft).await?),
@@ -136,16 +135,16 @@ impl PreviewSystemLayer {
 				// Load preview system layer chunks
 				Quad {
 					topleft: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, topleft, self.zoom - 1).await?,
+						DatabaseFunc::preview_load_data(database, topleft, zoom - 1).await?,
 					),
 					topright: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, topright, self.zoom - 1).await?,
+						DatabaseFunc::preview_load_data(database, topright, zoom - 1).await?,
 					),
 					bottomleft: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, bottomleft, self.zoom - 1).await?,
+						DatabaseFunc::preview_load_data(database, bottomleft, zoom - 1).await?,
 					),
 					bottomright: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, bottomright, self.zoom - 1).await?,
+						DatabaseFunc::preview_load_data(database, bottomright, zoom - 1).await?,
 					),
 				}
 			};
@@ -201,7 +200,7 @@ impl PreviewSystemLayer {
 			// Compress downscaled image
 			let compressed = compression::compress_lz4(&downscaled);
 
-			DatabaseFunc::preview_save_data(database, position, self.zoom, compressed).await?;
+			DatabaseFunc::preview_save_data(database, position, zoom, compressed).await?;
 
 			let upper_pos = IVec2::new(
 				/* X */
@@ -218,12 +217,12 @@ impl PreviewSystemLayer {
 				},
 			);
 
-			log::info!(
+			log::trace!(
 				"Processed block at {}x{}, zoom {} ({} remaining)",
 				position.x,
 				position.y,
-				self.zoom,
-				self.update_queue.len()
+				zoom,
+				update_queue.len()
 			);
 
 			Ok(PreviewProcessResult {
@@ -250,12 +249,18 @@ pub struct PreviewSystem {
 
 	notifier: Arc<Notify>,
 	pub update_queue_cache: PreviewSystemQueuedChunks,
-
-	task_processor: Option<JoinHandle<()>>,
 }
 
 fn layer_index_to_zoom(index: u8) -> u8 {
 	index + 1
+}
+
+fn init_layers_vec() -> Vec<PreviewSystemLayer> {
+	let mut layers: Vec<PreviewSystemLayer> = Vec::new();
+	for i in 0..limits::PREVIEW_SYSTEM_LAYER_COUNT {
+		layers.push(PreviewSystemLayer::new(layer_index_to_zoom(i)));
+	}
+	layers
 }
 
 impl PreviewSystem {
@@ -272,8 +277,7 @@ impl PreviewSystem {
 			database,
 			notifier: notifier.clone(),
 			update_queue_cache: PreviewSystemQueuedChunks::new(notifier),
-			task_processor: None,
-			layers,
+			layers: init_layers_vec(),
 		}
 	}
 
@@ -289,51 +293,32 @@ impl PreviewSystem {
 		}
 	}
 
-	pub fn launch_task_processor(
-		preview_system: &mut PreviewSystem,
-		preview_system_weak: PreviewSystemWeak,
-	) {
-		preview_system.task_processor = Some(
-			tokio::task::Builder::new()
-				.name("Preview system processor task")
-				.spawn(async move {
-					while let Some(preview_system_mtx) = preview_system_weak.upgrade() {
-						let mut preview_system = preview_system_mtx.lock().await;
-						let notifier = preview_system.notifier.clone();
-						drop(preview_system);
-
-						notifier.notified().await;
-
-						preview_system = preview_system_mtx.lock().await;
-						preview_system.process_tasks().await;
-						if let Err(e) = preview_system.process_everything().await {
-							// This shouldn't happen on non-corrupted database anyways
-							log::error!("Failed to process previews: {}", e);
-						}
-					}
-					log::trace!("Preview system processor task ended");
-				})
-				.unwrap(),
-		);
-	}
-
-	pub async fn process_tasks(&mut self) {
+	async fn process_queue(&mut self) {
 		for pos in &self.update_queue_cache.read_all() {
 			self.layers[0].add_to_queue(pos);
 		}
 	}
 
-	pub async fn process_everything(&mut self) -> anyhow::Result<()> {
-		for i in 0..self.layers.len() {
+	async fn process_layers(preview_system_mtx: PreviewSystemMutex) -> anyhow::Result<()> {
+		let mut preview_system = preview_system_mtx.lock().await;
+		let mut layers = std::mem::take(&mut preview_system.layers);
+		preview_system.layers = init_layers_vec();
+		let database = preview_system.database.clone();
+		drop(preview_system);
+
+		for i in 0..layers.len() {
 			loop {
-				let layer = &mut self.layers[i];
-				let res = layer.process_one_block(&self.database).await?;
+				let layer = &mut layers[i];
+				let res =
+					PreviewSystemLayer::process_one_block(&database, &mut layer.update_queue, layer.zoom)
+						.await?;
+
 				if !res.has_more {
 					break;
 				}
 
-				if i < self.layers.len() - 1 {
-					let upper_layer = &mut self.layers[i + 1];
+				if i < layers.len() - 1 {
+					let upper_layer = &mut layers[i + 1];
 					upper_layer.add_to_queue(&res.upper_pos);
 				}
 			}
@@ -342,14 +327,14 @@ impl PreviewSystem {
 		Ok(())
 	}
 
-	pub async fn cleanup(&mut self) {
-		if let Some(task) = &self.task_processor {
-			task.abort();
-		}
+	pub async fn process_all(preview_system_mtx: PreviewSystemMutex) {
+		let mut preview_system = preview_system_mtx.lock().await;
+		preview_system.process_queue().await;
+		drop(preview_system);
 
-		//Process pending operations
-		if let Err(e) = self.process_everything().await {
-			log::error!("Failed to process on cleanup: {}", e);
+		if let Err(e) = PreviewSystem::process_layers(preview_system_mtx).await {
+			// This shouldn't happen on non-corrupted database anyways
+			log::error!("Failed to process previews: {}", e);
 		}
 	}
 }
