@@ -1057,10 +1057,7 @@ impl SessionInstance {
 						self.send_unauthenticated();
 					} else {
 						self.send_reply(String::from("Preview regeneration started"));
-						let chunk_system_mtx = refs.chunk_system_mtx.clone();
-						tokio::spawn(async {
-							ChunkSystem::regenerate_all_previews(chunk_system_mtx).await;
-						});
+						ChunkSystem::regenerate_all_previews(refs.chunk_system_mtx.clone()).await;
 					}
 				}
 				_ => {
