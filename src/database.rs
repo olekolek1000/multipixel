@@ -1,5 +1,6 @@
 use glam::IVec2;
 use num_enum::TryFromPrimitive;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_rusqlite::params;
@@ -156,6 +157,29 @@ impl Database {
 		Ok(())
 	}
 
+	fn chunk_list_all(conn: &rusqlite::Connection) -> tokio_rusqlite::Result<HashSet<IVec2>> {
+		struct Row {
+			x: i32,
+			y: i32,
+		}
+
+		let mut stmt = conn.prepare("SELECT x, y FROM chunk_data").unwrap();
+		let iter = stmt.query_map([], |row| {
+			Ok(Row {
+				x: row.get(0)?,
+				y: row.get(1)?,
+			})
+		})?;
+
+		let mut res: HashSet<IVec2> = HashSet::new();
+
+		for row in iter.flatten() {
+			res.insert(IVec2::new(row.x, row.y));
+		}
+
+		Ok(res)
+	}
+
 	fn chunk_load_data(
 		conn: &rusqlite::Connection,
 		pos: IVec2,
@@ -270,6 +294,10 @@ impl Drop for Database {
 pub struct DatabaseFunc {}
 
 impl DatabaseFunc {
+	pub async fn chunk_list_all(database: &Arc<Mutex<Database>>) -> anyhow::Result<HashSet<IVec2>> {
+		Database::get_conn(database, Database::chunk_list_all).await
+	}
+
 	pub async fn chunk_load_data(
 		database: &Arc<Mutex<Database>>,
 		chunk_pos: IVec2,
