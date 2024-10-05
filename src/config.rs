@@ -15,6 +15,7 @@ pub struct Config {
 	pub plugin_list: Vec<String>,
 	pub preview_system: PreviewSystem,
 	pub admin_password: Option<String>,
+	pub enable_console: Option<bool>,
 }
 
 pub async fn load() -> anyhow::Result<Config> {

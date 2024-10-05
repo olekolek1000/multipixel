@@ -1,12 +1,22 @@
-import { Client } from "./client";
+import { ChatMessageType, Client } from "./client";
 import React, { useEffect, useRef, useState } from "react";
 import style_chat from "./chat.scss";
 import { TextField } from "./gui_custom";
+import bbobHTML from '@bbob/html'
+import presetHTML5 from '@bbob/preset-html5'
 
 class ChatLine {
 	message!: string;
-	html_mode!: boolean;
+	type!: ChatMessageType;
 	key!: number;
+}
+
+function StylizedText({ text }: { text: string }) {
+	let processed = bbobHTML(text, presetHTML5(), {
+		onlyAllowTags: ["color", "b", "i", "u", "s"]
+	});
+
+	return <span style={{ whiteSpace: "pre-line" }} dangerouslySetInnerHTML={{ __html: processed }}></span>
 }
 
 export class Chat {
@@ -22,10 +32,10 @@ export class Chat {
 		this.client.setChatObject(this);
 	}
 
-	addMessage(str: string, html_mode: boolean) {
+	addMessage(str: string, type: ChatMessageType) {
 		this.chat_history.push({
 			message: str,
-			html_mode: html_mode,
+			type: type,
 			key: this.message_index++
 		});
 
@@ -36,22 +46,24 @@ export class Chat {
 
 		if (this.setHistory) {
 			this.setHistory(this.chat_history.map((cell) => {
-				let el;
+				let msg: JSX.Element | string;
 
-				if (cell.html_mode) {
-					el = <div key={cell.key} className={style_chat.chat_message} dangerouslySetInnerHTML={{ __html: cell.message }} />
+				if (cell.type == ChatMessageType.stylized) {
+					msg = <StylizedText text={cell.message} />
 				}
 				else {
-					el = <div key={cell.key} className={style_chat.chat_message}>
-						{cell.message}
-					</div>;
+					msg = cell.message;
 				}
 
-				return el;
+				return <div key={cell.key} className={style_chat.chat_message}>
+					{msg}
+				</div>
 			}));
 		}
 	}
 }
+
+
 
 export function ChatRender({ chat }: { chat?: Chat }) {
 	if (!chat) {

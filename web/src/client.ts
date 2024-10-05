@@ -19,9 +19,9 @@ const size_s64 = 8;
 
 const size_float = 4;
 
-const MessageType = {
-	plain_text: 0,
-	html: 1
+export enum ChatMessageType {
+	plain_text = 0,
+	stylized = 1,
 }
 
 enum ClientCmd {
@@ -290,10 +290,7 @@ export class Client {
 				let message_size = dataview.getUint16(offset); offset += 2;
 				let view_str = createViewSize(offset, message_size); offset += message_size;
 				let str = new TextDecoder().decode(view_str);
-				if (type == MessageType.plain_text)
-					this.chat!.addMessage(str, false);
-				else if (type == MessageType.html)
-					this.chat!.addMessage(str, true);
+				this.chat!.addMessage(str, type);
 				break;
 			}
 			case ServerCmd.your_id: {

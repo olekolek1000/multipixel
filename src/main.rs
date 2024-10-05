@@ -6,7 +6,7 @@ use futures_util::{
 };
 
 use server::ServerMutex;
-use session::SessionHandle;
+use session::{SessionHandle, SessionInstanceMutex};
 use tokio::{
 	net::{TcpListener, TcpStream},
 	sync::Mutex,
@@ -51,15 +51,16 @@ async fn connection_read_packet(
 	reader: &mut SplitStream<WebSocketStream<TcpStream>>,
 	session_handle: &SessionHandle,
 	server_mtx: &ServerMutex,
-	session_mtx: &Arc<Mutex<SessionInstance>>,
+	session_mtx: &SessionInstanceMutex,
 ) -> anyhow::Result<()> {
 	match reader.next().await {
 		Some(res) => match res {
 			Ok(msg) => {
 				if msg.is_binary() {
+					let session_weak = Arc::downgrade(session_mtx);
 					let mut session = session_mtx.lock().await;
 					session
-						.process_payload(session_handle, msg.as_payload(), server_mtx)
+						.process_payload(session_weak, session_handle, msg.as_payload(), server_mtx)
 						.await?;
 				} else {
 					log::trace!("Got unknown message");
@@ -163,10 +164,15 @@ async fn server_listener_loop(listener: TcpListener, server: ServerMutex) -> any
 
 async fn task_listener(listener: TcpListener, config: config::Config) -> anyhow::Result<()> {
 	let cancel_token = CancellationToken::new();
+
+	let enable_console = config.enable_console.unwrap_or(false);
+
 	let server = Server::new(config, cancel_token.clone());
 
 	let cancel_token_command = CancellationToken::new();
-	command::start(server.clone(), cancel_token_command.clone());
+	if enable_console {
+		command::start(server.clone(), cancel_token_command.clone());
+	}
 
 	tokio::select! {
 		_ = cancel_token.cancelled() => {
