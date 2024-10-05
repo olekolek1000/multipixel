@@ -36,6 +36,8 @@
     "webpack-dev-server": "^4.4.0"
   },
   "dependencies": {
+    "@bbob/html": "^4.1.1",
+    "@bbob/preset-html5": "^4.1.1",
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
     "buffer": "^6.0.3",

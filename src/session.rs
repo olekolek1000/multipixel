@@ -6,7 +6,7 @@ use crate::event_queue::EventQueue;
 use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
 use crate::pixel::{Color, GlobalPixel};
-use crate::preview_system::{PreviewSystem, PreviewSystemMutex};
+use crate::preview_system::PreviewSystemMutex;
 use crate::room::RoomInstanceMutex;
 use crate::server::ServerMutex;
 use crate::tool::brush::BrushShapes;
@@ -14,7 +14,6 @@ use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
 use glam::IVec2;
-use sanitize_html::sanitize_str;
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::sync::{Arc, Weak};
@@ -276,6 +275,7 @@ impl SessionInstance {
 		&mut self,
 		command: ClientCmd,
 		reader: &mut BinaryReader,
+		session_weak: SessionInstanceWeak,
 		session_handle: &SessionHandle,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
@@ -294,7 +294,7 @@ impl SessionInstance {
 				}
 				ClientCmd::Message => {
 					self
-						.process_command_message(reader, &refs, server_mtx)
+						.process_command_message(reader, session_weak.clone(), &refs, server_mtx)
 						.await?
 				}
 				ClientCmd::Ping => self.process_command_ping(reader).await,
@@ -336,12 +336,13 @@ impl SessionInstance {
 
 	pub async fn process_payload(
 		&mut self,
+		session_weak: SessionInstanceWeak,
 		session_handle: &SessionHandle,
 		data: &[u8],
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
 		if let Err(e) = self
-			.process_payload_wrap(session_handle, data, server_mtx)
+			.process_payload_wrap(session_weak, session_handle, data, server_mtx)
 			.await
 		{
 			self.handle_error(&e).await?;
@@ -352,6 +353,7 @@ impl SessionInstance {
 
 	pub async fn process_payload_wrap(
 		&mut self,
+		session_weak: SessionInstanceWeak,
 		session_handle: &SessionHandle,
 		data: &[u8],
 		server_mtx: &ServerMutex,
@@ -363,7 +365,13 @@ impl SessionInstance {
 
 		//log::trace!("Session ID: {}, command {:?}", session_id, command);
 		self
-			.parse_command(command, &mut reader, session_handle, server_mtx)
+			.parse_command(
+				command,
+				&mut reader,
+				session_weak,
+				session_handle,
+				server_mtx,
+			)
 			.await?;
 
 		Ok(())
@@ -938,6 +946,7 @@ impl SessionInstance {
 	async fn process_command_message(
 		&mut self,
 		reader: &mut BinaryReader,
+		session_weak: SessionInstanceWeak,
 		refs: &RoomRefs,
 		server_mtx: &ServerMutex,
 	) -> anyhow::Result<()> {
@@ -958,7 +967,7 @@ impl SessionInstance {
 		if let Some(ch) = str.chars().nth(0) {
 			if ch == '/' {
 				self
-					.handle_chat_command(server_mtx, refs, &str[1..])
+					.handle_chat_command(session_weak, server_mtx, refs, &str[1..])
 					.await?;
 			} else {
 				self.handle_chat_message(refs, str).await;
@@ -975,15 +984,15 @@ impl SessionInstance {
 		));
 	}
 
-	fn send_reply_html(&self, text: String) {
+	fn send_reply_stylized(&self, text: String) {
 		self.queue_send.send(packet_server::prepare_packet_message(
-			packet_server::MessageType::Html,
+			packet_server::MessageType::Stylized,
 			text.as_str(),
 		));
 	}
 
 	fn send_unauthenticated(&self) {
-		self.send_reply_html(String::from("<msg_error>Unauthenticated</msg_error>"));
+		self.send_reply_stylized(String::from("[error]Unauthenticated[/error]"));
 	}
 
 	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
@@ -1001,6 +1010,7 @@ impl SessionInstance {
 
 	async fn handle_chat_command(
 		&mut self,
+		session_weak: SessionInstanceWeak,
 		server_mtx: &ServerMutex,
 		refs: &RoomRefs,
 		msg: &str,
@@ -1011,26 +1021,25 @@ impl SessionInstance {
 		if let Some(command) = parts.pop_front() {
 			let redacted = command == "admin";
 
-			self.send_reply_html(format!(
-				"<msg_command>/{}</msg_command>",
+			self.send_reply_stylized(format!(
+				"[color=green]/{}[/color]",
 				if redacted {
-					String::from("&ltredacted&gt")
+					String::from("&lt;redacted&gt;")
 				} else {
-					sanitize_str(&sanitize_html::rules::predefined::DEFAULT, msg)
-						.unwrap_or(String::from("err"))
+					String::from(msg)
 				}
 			));
 
 			match command {
 				"help" | "?" => {
-					self.send_reply_html(String::from(
+					self.send_reply_stylized(String::from(
 						"
-						User commands:<br/>
-						<msg_blue>help</msg_blue>: <i>Show this message</i><br/>
-						<msg_blue>leave</msg_blue>: <i>Kick yourself</i><br/>
-						Admin commands:<br/>
-						<msg_red>admin</msg_red>: <i>Log-in as admin</i><br/>
-						<msg_red>process_preview_system</msg_red>: <i>Force-refresh preview system</i><br/>
+						User commands:
+						[color=blue]help[/color]: [i]Show this message[/i]
+						[color=blue]leave[/color]: [i]Kick yourself[/i]
+						Admin commands:
+						[color=red]admin[/color]: [i]Log-in as admin[/i]
+						[color=red]process_preview_system[/color]: [i]Force-refresh preview system[/i]
 						",
 					));
 				}
@@ -1040,13 +1049,15 @@ impl SessionInstance {
 					if let Some(password) = parts.pop_front() {
 						if let Some(config_password) = &server.config.admin_password {
 							if config_password != password {
-								self.send_reply(String::from("Invalid password"));
+								self.send_reply_stylized(String::from("[color=red]Invalid password[/color]"));
 							} else {
 								self.admin_mode = true;
-								self.send_reply_html(String::from("<msg_important>Authenticated</msg_important>"));
+								self.send_reply_stylized(String::from("[color=blue]Authenticated[/color]"));
 							}
 						} else {
-							self.send_reply(String::from("admin_password in settings.json is not set"));
+							self.send_reply_stylized(String::from(
+								"[color=red]admin_password in settings.json is not set[/color]",
+							));
 						}
 					} else {
 						self.send_reply(String::from("Usage: admin <password>"));
@@ -1057,12 +1068,15 @@ impl SessionInstance {
 						self.send_unauthenticated();
 					} else {
 						self.send_reply(String::from("Preview regeneration started"));
-						ChunkSystem::regenerate_all_previews(refs.chunk_system_mtx.clone()).await;
-						self.send_reply(String::from("Preview regeneration finished"));
+						let cs = Arc::downgrade(&refs.chunk_system_mtx);
+
+						tokio::spawn(async {
+							ChunkSystem::regenerate_all_previews(cs).await;
+						});
 					}
 				}
 				_ => {
-					self.send_reply_html(String::from("<msg_error>Unknown command</msg_error>"));
+					self.send_reply_stylized(String::from("[color=red]Unknown command[/color]"));
 				}
 			}
 		}

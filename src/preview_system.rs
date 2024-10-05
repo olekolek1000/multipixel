@@ -7,7 +7,6 @@ use glam::IVec2;
 use tokio::sync::{Mutex, Notify};
 
 use crate::{
-	chunk_system::ChunkSystemMutex,
 	compression,
 	database::{ChunkDatabaseRecord, Database, DatabaseFunc, PreviewDatabaseRecord},
 	event_queue::EventQueue,
@@ -299,27 +298,34 @@ impl PreviewSystem {
 		}
 	}
 
-	async fn process_layers(preview_system_mtx: PreviewSystemMutex) -> anyhow::Result<()> {
+	async fn process_layers(preview_system_weak: PreviewSystemWeak) -> anyhow::Result<()> {
+		let preview_system_mtx = preview_system_weak
+			.upgrade()
+			.ok_or(anyhow!("Preview system expired"))?;
 		let mut preview_system = preview_system_mtx.lock().await;
 		let mut layers = std::mem::take(&mut preview_system.layers);
 		preview_system.layers = init_layers_vec();
-		let database = preview_system.database.clone();
+		let db_weak = Arc::downgrade(&preview_system.database);
 		drop(preview_system);
+		drop(preview_system_mtx);
 
 		for i in 0..layers.len() {
 			loop {
-				let layer = &mut layers[i];
-				let res =
-					PreviewSystemLayer::process_one_block(&database, &mut layer.update_queue, layer.zoom)
-						.await?;
+				if let Some(db) = db_weak.upgrade() {
+					let layer = &mut layers[i];
+					let res =
+						PreviewSystemLayer::process_one_block(&db, &mut layer.update_queue, layer.zoom).await?;
 
-				if !res.has_more {
-					break;
-				}
+					if !res.has_more {
+						break;
+					}
 
-				if i < layers.len() - 1 {
-					let upper_layer = &mut layers[i + 1];
-					upper_layer.add_to_queue(&res.upper_pos);
+					if i < layers.len() - 1 {
+						let upper_layer = &mut layers[i + 1];
+						upper_layer.add_to_queue(&res.upper_pos);
+					}
+				} else {
+					return Err(anyhow!("Database expired"));
 				}
 			}
 		}
@@ -331,11 +337,19 @@ impl PreviewSystem {
 		let mut preview_system = preview_system_mtx.lock().await;
 		preview_system.process_queue().await;
 		drop(preview_system);
+		let weak = Arc::downgrade(&preview_system_mtx);
+		drop(preview_system_mtx);
 
-		if let Err(e) = PreviewSystem::process_layers(preview_system_mtx).await {
+		if let Err(e) = PreviewSystem::process_layers(weak).await {
 			// This shouldn't happen on non-corrupted database anyways
 			log::error!("Failed to process previews: {}", e);
 		}
+	}
+}
+
+impl Drop for PreviewSystem {
+	fn drop(&mut self) {
+		log::trace!("Preview system freed")
 	}
 }
 

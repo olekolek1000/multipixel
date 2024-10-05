@@ -9,7 +9,7 @@ use crate::limits;
 
 pub enum MessageType {
 	PlainText = 0,
-	Html = 1,
+	Stylized = 1,
 }
 
 type CommandIndex = u16;
