@@ -3,6 +3,10 @@ name = "multipixel"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+dump = []
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true

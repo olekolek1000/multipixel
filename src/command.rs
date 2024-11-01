@@ -1,10 +1,14 @@
-use std::{collections::VecDeque, time::Duration};
+use std::collections::VecDeque;
 
-use tokio::{io::AsyncReadExt, runtime::Handle, time::timeout};
+use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
 use crate::server::ServerMutex;
 
+#[cfg(feature = "dump")]
+use {std::time::Duration, tokio::runtime::Handle, tokio::time::timeout};
+
+#[cfg(feature = "dump")]
 async fn dump_tasks() {
 	let handle = Handle::current();
 	if let Ok(dump) = timeout(Duration::from_millis(2000), handle.dump()).await {
@@ -31,7 +35,10 @@ async fn process_command(line: String, server: &ServerMutex) -> anyhow::Result<(
 				print_help();
 			}
 			"dump" => {
+				#[cfg(feature = "dump")]
 				dump_tasks().await;
+				#[cfg(not(feature = "dump"))]
+				log::error!("Feature \"dump\" not enabled");
 			}
 			"exit" => {
 				if let Err(e) = server.lock().await.save_and_exit().await {
