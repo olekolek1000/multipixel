@@ -1010,7 +1010,7 @@ impl SessionInstance {
 
 	async fn handle_chat_command(
 		&mut self,
-		session_weak: SessionInstanceWeak,
+		_session_weak: SessionInstanceWeak,
 		server_mtx: &ServerMutex,
 		refs: &RoomRefs,
 		msg: &str,

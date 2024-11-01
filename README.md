@@ -6,24 +6,28 @@
 
 ## **An app for multiplayer drawing on an infinite canvas.**
 
-Server written in Rust (formerly in C++, see "legacy_cpp" branch), client written in Typescript.
-
-This is the final C++ release of the Multipixel server. See `rust` branch for the most current development status.
+Server written in Rust (formerly in C++, see "cpp" tag), client written in Typescript.
 
 # **[Try it out! (Public server)](https://multipixel.oo8.dev)**
 
+<center>
+
 ![Preview](contrib/preview.webp)
+
+![Menu screen](contrib/menu.webp)
+
+</center>
 
 #
 
 ## Features
 
 - Infinite canvas
-- Lua Plugin support
 - Multiple rooms support
 - Chat
 - Undo support
 - Brush smoothing
+- ~~Lua Plugin support~~ (cpp branch only)
 
 Tools:
 
@@ -35,12 +39,13 @@ Tools:
 
 ## Technical features (Server)
 
-- Full multithreading (per-session)
+- Fully asynchronous multithreading
 - Up to 65535 clients supported
-- Up to 18446744073709551616 pixels ((2^32)\*(2^32)) in one room
+- Up to 18446744073709551616 pixels ((2^32)\*(2^32)) in one room. Good luck finding real boundary limits.
 - LZ4 chunk compression
 - WebSockets
 - SQLite3 room storage
+- Written in Rust 🦀
 
 #
 
@@ -62,7 +67,7 @@ Tools:
 Build commands:
 
 ```bash
-cargo run --manifest-path server/Cargo.toml
+cargo run
 ```
 
 ## Preparing client
@@ -74,23 +79,24 @@ cargo run --manifest-path server/Cargo.toml
 Build commands:
 
 ```bash
-#Change directory
+# Change directory
 cd web
 
-#Install dependencies
+# Install dependencies
 npm install
 
-#Build web application
+# Build web application
 npm run build:prod
+# or:
+npx webpack serve
 ```
 
 Built web app is located in `./web/dist` directory.
 
 ### Changing server address
 
-1. Locate file `./web/index.ts
-2. Go to end of file
-3. Modify address `ws://127.0.0.1:59900` to your preference
+1. `export CONNECT_URL="ws://1.2.3.4:59900"`
+2. Build web app again (commands above)
 
 #
 
