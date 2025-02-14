@@ -9,6 +9,7 @@ pub enum ToolType {
 	Brush = 0,
 	Fill = 1,
 	Spray = 2,
+	Blur = 3,
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]

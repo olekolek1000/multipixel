@@ -464,11 +464,16 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor(&mut self, refs: &RoomRefs) {
+		if !self.cursor_down {
+			return;
+		}
+
 		if let Some(tool_type) = &self.tool.tool_type {
 			match tool_type {
 				packet_client::ToolType::Brush => self.update_cursor_brush(refs).await,
 				packet_client::ToolType::Spray => self.update_cursor_spray(refs).await,
 				packet_client::ToolType::Fill => self.update_cursor_fill(refs).await,
+				packet_client::ToolType::Blur => self.update_cursor_blur(refs).await,
 			}
 		}
 
@@ -583,10 +588,6 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_brush(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
-		}
-
 		let iter = LineMoveIter::iterate(self);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
@@ -632,10 +633,6 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_spray(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
-		}
-
 		let iter = LineMoveIter::iterate(self);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
@@ -663,6 +660,48 @@ impl SessionInstance {
 				let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
 				GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
 			}
+		}
+
+		self.set_pixels_global(refs, &pixels, true).await;
+	}
+
+	async fn update_cursor_blur(&mut self, refs: &RoomRefs) {
+		let tool_size = self.get_tool_size();
+
+		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let shape_filled = brush_shapes.get_filled(tool_size);
+		drop(brush_shapes);
+
+		let blend_intensity = 255 - (self.tool.flow * 255.0) as u8;
+
+		let mut cache = CanvasCache::default();
+
+		for s in shape_filled.iterate() {
+			let pos_x = self.cursor_pos.x + s.local_x as i32 - (tool_size / 2) as i32;
+			let pos_y = self.cursor_pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+
+			let center = cache
+				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
+				.await;
+			let left = cache
+				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x - 1, pos_y))
+				.await;
+			let right = cache
+				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x + 1, pos_y))
+				.await;
+			let top = cache
+				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y - 1))
+				.await;
+			let bottom = cache
+				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y + 1))
+				.await;
+
+			let blended_horiz = Color::blend(127, &left, &right);
+			let blended_vert = Color::blend(127, &top, &bottom);
+			let blended = Color::blend(127, &blended_horiz, &blended_vert);
+			let current = Color::blend(blend_intensity, &center, &blended);
+			GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
 		}
 
 		self.set_pixels_global(refs, &pixels, true).await;
@@ -1297,6 +1336,7 @@ impl SessionInstance {
 			packet_client::ToolType::Fill => 0,
 			packet_client::ToolType::Brush => self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX),
 			packet_client::ToolType::Spray => self.tool.size.min(limits::TOOL_SIZE_SPRAY_MAX),
+			packet_client::ToolType::Blur => self.tool.size.min(limits::TOOL_SIZE_BLUR_MAX),
 		}
 	}
 
