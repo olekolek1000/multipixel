@@ -11,6 +11,8 @@ pub enum ToolType {
 	Spray = 2,
 	Blur = 3,
 	Smudge = 4,
+	SmoothBrush = 5,
+	SquareBrush = 6,
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]

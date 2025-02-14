@@ -81,6 +81,22 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						<Icon path="public/img/tool/brush.svg" />
 					</ButtonTool>
 				</Tooltip>
+				<Tooltip title="Square brush">
+					<ButtonTool highlighted={tool_type == ToolType.square_brush} on_click={() => {
+						multipixel.selectTool(tool.ToolID.SquareBrush);
+						setToolType(ToolType.square_brush);
+					}}>
+						<Icon path="public/img/tool/square_brush.svg" />
+					</ButtonTool>
+				</Tooltip>
+				<Tooltip title="Smooth brush">
+					<ButtonTool highlighted={tool_type == ToolType.smooth_brush} on_click={() => {
+						multipixel.selectTool(tool.ToolID.SmoothBrush);
+						setToolType(ToolType.smooth_brush);
+					}}>
+						<Icon path="public/img/tool/smooth_brush.svg" />
+					</ButtonTool>
+				</Tooltip>
 				<Tooltip title="Floodfill">
 					<ButtonTool highlighted={tool_type == ToolType.floodfill} on_click={() => {
 						multipixel.selectTool(tool.ToolID.Floodfill);
