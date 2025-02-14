@@ -68,7 +68,7 @@ impl Default for ToolData {
 	fn default() -> Self {
 		Self {
 			size: 1,
-			flow: 0.1,
+			flow: 0.5,
 			color: Default::default(),
 			tool_type: Default::default(),
 		}
@@ -113,6 +113,7 @@ pub struct RoomRefs {
 
 struct LineMoveIter {
 	index: u32,
+	step: u8,
 	iter_count: u32,
 	start_x: i32,
 	start_y: i32,
@@ -121,10 +122,10 @@ struct LineMoveIter {
 }
 
 impl LineMoveIter {
-	fn iterate(instance: &SessionInstance) -> Self {
+	fn iterate(instance: &SessionInstance, step: u8) -> Self {
 		let iter_count = std::cmp::max(
 			1,
-			util::distance(
+			util::distance64(
 				instance.cursor_pos.x as f64,
 				instance.cursor_pos.y as f64,
 				instance.cursor_pos_prev.x as f64,
@@ -139,6 +140,7 @@ impl LineMoveIter {
 			end_x: instance.cursor_pos.x,
 			end_y: instance.cursor_pos.y,
 			index: 0,
+			step,
 		}
 	}
 }
@@ -169,8 +171,44 @@ impl Iterator for LineMoveIter {
 			y,
 		};
 
-		self.index += 1;
+		self.index += self.step as u32;
 		Some(item)
+	}
+}
+
+#[derive(Default)]
+struct History {
+	cells: Vec<HistoryCell>,
+	modified_pixel_coords: HashSet<IVec2>,
+}
+
+impl History {
+	fn create_snapshot(&mut self) {
+		if self.cells.len() > 50 {
+			self.cells.remove(0);
+		}
+
+		self.modified_pixel_coords.clear();
+
+		self.cells.push(HistoryCell {
+			pixels: Default::default(),
+		});
+	}
+
+	fn add_pixel(&mut self, pixel: GlobalPixel) {
+		if self.cells.is_empty() {
+			self.create_snapshot();
+		}
+
+		if let Some(last) = self.cells.last_mut() {
+			if self.modified_pixel_coords.insert(pixel.pos) {
+				last.pixels.push(pixel);
+			}
+		}
+	}
+
+	fn undo(&mut self) -> Option<HistoryCell> {
+		self.cells.pop()
 	}
 }
 
@@ -201,7 +239,7 @@ pub struct SessionInstance {
 
 	room_refs: Option<Arc<RoomRefs>>,
 
-	history_cells: Vec<HistoryCell>,
+	history: History,
 
 	tool: ToolData,
 
@@ -238,7 +276,7 @@ impl SessionInstance {
 			chunks_sent: 0,
 			linked_chunks: Default::default(),
 			boundary: Default::default(),
-			history_cells: Default::default(),
+			history: Default::default(),
 			cleaned_up: false,
 			task_sender: None,
 			task_tick: None,
@@ -443,26 +481,6 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	fn history_create_snapshot(&mut self) {
-		if self.history_cells.len() > 20 {
-			self.history_cells.remove(0);
-		}
-
-		self.history_cells.push(HistoryCell {
-			pixels: Default::default(),
-		});
-	}
-
-	fn history_add_pixel(&mut self, pixel: GlobalPixel) {
-		if self.history_cells.is_empty() {
-			self.history_create_snapshot();
-		}
-
-		if let Some(last) = self.history_cells.last_mut() {
-			last.pixels.push(pixel);
-		}
-	}
-
 	async fn update_cursor(&mut self, refs: &RoomRefs) {
 		if !self.cursor_down {
 			return;
@@ -470,7 +488,9 @@ impl SessionInstance {
 
 		if let Some(tool_type) = &self.tool.tool_type {
 			match tool_type {
-				packet_client::ToolType::Brush => self.update_cursor_brush(refs).await,
+				packet_client::ToolType::Brush => self.update_cursor_brush(refs, false).await,
+				packet_client::ToolType::SquareBrush => self.update_cursor_brush(refs, true).await,
+				packet_client::ToolType::SmoothBrush => self.update_cursor_smooth_brush(refs).await,
 				packet_client::ToolType::Spray => self.update_cursor_spray(refs).await,
 				packet_client::ToolType::Fill => self.update_cursor_fill(refs).await,
 				packet_client::ToolType::Blur => self.update_cursor_blur(refs).await,
@@ -588,8 +608,8 @@ impl SessionInstance {
 		}
 	}
 
-	async fn update_cursor_brush(&mut self, refs: &RoomRefs) {
-		let iter = LineMoveIter::iterate(self);
+	async fn update_cursor_brush(&mut self, refs: &RoomRefs, square: bool) {
+		let iter = LineMoveIter::iterate(self, 1);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
@@ -600,8 +620,17 @@ impl SessionInstance {
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixel> = Vec::new();
-		let shape_filled = brush_shapes.get_filled(tool_size);
-		let shape_outline = brush_shapes.get_outline(tool_size);
+		let shape_filled = if square {
+			brush_shapes.get_square_filled(tool_size)
+		} else {
+			brush_shapes.get_circle_filled(tool_size)
+		};
+
+		let shape_outline = if square {
+			brush_shapes.get_square_outline(tool_size)
+		} else {
+			brush_shapes.get_circle_outline(tool_size)
+		};
 		drop(brush_shapes);
 
 		for line in iter {
@@ -633,8 +662,57 @@ impl SessionInstance {
 		self.set_pixels_global(refs, &pixels, true).await;
 	}
 
+	async fn update_cursor_smooth_brush(&mut self, refs: &RoomRefs) {
+		let tool_size = self.get_tool_size().max(4);
+		let step = 1 + tool_size / 8;
+		let iter = LineMoveIter::iterate(self, step);
+		if iter.iter_count > 250 {
+			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+			self.cursor_down = false;
+			return;
+		}
+
+		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut cache = CanvasCache::default();
+
+		let intensity = (self.tool.flow.powf(2.0) * 255.0) as u8;
+		let center_pos = (tool_size / 2) as f32 + 0.01 /* prevent NaN */;
+
+		for line in iter {
+			for brush_y in 0..tool_size {
+				for brush_x in 0..tool_size {
+					let pos_x = line.x + brush_x as i32 - tool_size as i32 / 2;
+					let pos_y = line.y + brush_y as i32 - tool_size as i32 / 2;
+
+					let current = cache
+						.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
+						.await;
+
+					let mult = (util::distance32(brush_x as f32, brush_y as f32, center_pos, center_pos)
+						/ (tool_size / 2) as f32)
+						.clamp(0.0, 1.0); // normalized from 0.0 to 1.0
+
+					if mult <= 0.0 {
+						continue;
+					}
+
+					let blended = Color::blend(
+						(intensity as f32 * (1.0 - mult)) as u8,
+						&current,
+						&self.tool.color,
+					);
+
+					cache.set_pixel(&IVec2::new(pos_x, pos_y), &blended);
+					GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+				}
+			}
+		}
+
+		self.set_pixels_global(refs, &pixels, true).await;
+	}
+
 	async fn update_cursor_spray(&mut self, refs: &RoomRefs) {
-		let iter = LineMoveIter::iterate(self);
+		let iter = LineMoveIter::iterate(self, 1);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
@@ -645,7 +723,7 @@ impl SessionInstance {
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixel> = Vec::new();
-		let shape_filled = brush_shapes.get_filled(tool_size);
+		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
 		let threshold = 0.001 + self.tool.flow.powf(4.0) * 0.05;
@@ -671,10 +749,10 @@ impl SessionInstance {
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixel> = Vec::new();
-		let shape_filled = brush_shapes.get_filled(tool_size);
+		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
-		let blend_intensity = 255 - (self.tool.flow * 255.0) as u8;
+		let blend_intensity = (self.tool.flow * 255.0) as u8;
 
 		let mut cache = CanvasCache::default();
 
@@ -719,30 +797,34 @@ impl SessionInstance {
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixel> = Vec::new();
-		let shape_filled = brush_shapes.get_filled(tool_size);
+		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
 		let blend_intensity = (self.tool.flow * 255.0) as u8;
 
 		let mut cache = CanvasCache::default();
 
-		for s in shape_filled.iterate() {
-			let pos_x = self.cursor_pos.x + s.local_x as i32 - (tool_size / 2) as i32;
-			let pos_y = self.cursor_pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+		let iter = LineMoveIter::iterate(self, 1);
 
-			let prev = cache
-				.get_pixel(
-					&refs.chunk_system_mtx,
-					&IVec2::new(pos_x - diff_x, pos_y - diff_y),
-				)
-				.await;
+		for line in iter {
+			for s in shape_filled.iterate() {
+				let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
+				let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
 
-			let center = cache
-				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
-				.await;
+				let prev = cache
+					.get_pixel(
+						&refs.chunk_system_mtx,
+						&IVec2::new(pos_x - diff_x, pos_y - diff_y),
+					)
+					.await;
 
-			let blended = Color::blend(blend_intensity, &prev, &center);
-			GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+				let center = cache
+					.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
+					.await;
+
+				let blended = Color::blend(blend_intensity, &center, &prev);
+				GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+			}
 		}
 
 		self.set_pixels_global(refs, &pixels, true).await;
@@ -851,7 +933,7 @@ impl SessionInstance {
 					let color = chunk.get_pixel(local_pos.pos);
 
 					if local_pos.color != color {
-						self.history_add_pixel(GlobalPixel {
+						self.history.add_pixel(GlobalPixel {
 							pos: *global_pos,
 							color,
 						});
@@ -1264,7 +1346,7 @@ impl SessionInstance {
 
 		self.cursor_down = true;
 		self.cursor_just_clicked = true;
-		self.history_create_snapshot();
+		self.history.create_snapshot();
 		self.update_cursor(refs).await;
 
 		Ok(())
@@ -1376,6 +1458,12 @@ impl SessionInstance {
 		match tool_type {
 			packet_client::ToolType::Fill => 0,
 			packet_client::ToolType::Brush => self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX),
+			packet_client::ToolType::SmoothBrush => {
+				self.tool.size.min(limits::TOOL_SIZE_SMOOTH_BRUSH_MAX)
+			}
+			packet_client::ToolType::SquareBrush => {
+				self.tool.size.min(limits::TOOL_SIZE_SQUARE_BRUSH_MAX)
+			}
 			packet_client::ToolType::Spray => self.tool.size.min(limits::TOOL_SIZE_SPRAY_MAX),
 			packet_client::ToolType::Blur => self.tool.size.min(limits::TOOL_SIZE_BLUR_MAX),
 			packet_client::ToolType::Smudge => self.tool.size.min(limits::TOOL_SIZE_SMUDGE_MAX),
@@ -1426,7 +1514,7 @@ impl SessionInstance {
 	}
 
 	async fn process_command_undo(&mut self, refs: &RoomRefs, _reader: &mut BinaryReader) {
-		if let Some(cell) = self.history_cells.pop() {
+		if let Some(cell) = self.history.undo() {
 			self.queue_send_status_text(format!("Undoing {} pixels...", cell.pixels.len()).as_str());
 			self.set_pixels_global(refs, &cell.pixels, false).await;
 			self.queue_send_status_text("");
@@ -1536,7 +1624,7 @@ impl SessionInstance {
 					let mut closest_distance: f64 = f64::MAX;
 
 					for ch in &chunks_to_load {
-						let distance = util::distance(center_x, center_y, ch.x as f64, ch.y as f64);
+						let distance = util::distance64(center_x, center_y, ch.x as f64, ch.y as f64);
 						if distance < closest_distance {
 							closest_distance = distance;
 							closest_position = *ch;

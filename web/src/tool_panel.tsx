@@ -9,6 +9,8 @@ import Picker from "vanilla-picker";
 export enum ToolType {
 	none,
 	brush,
+	square_brush,
+	smooth_brush,
 	spray,
 	floodfill,
 	blur,
@@ -320,7 +322,7 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 	const [tool_type, setToolType] = useState<ToolType>(ToolType.none);
 	const [tool_size, setToolSize] = useState(1);
 	const [tool_smoothing, setToolSmoothing] = useState(0.0);
-	const [tool_flow, setToolFlow] = useState(0.1);
+	const [tool_flow, setToolFlow] = useState(0.5);
 	const [key_palette, setKeyPalette] = useState(0);
 
 	globals.tool_type = tool_type;
@@ -344,33 +346,40 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 		return <></>;
 	}
 
-	if (tool_type == ToolType.brush) {
-		tool_settings = <ToolList>
-			<ToolSize max={16} globals={globals} />
-			<ToolSmoothing globals={globals} />
-		</ToolList>
+	switch (tool_type) {
+		case ToolType.brush:
+		case ToolType.square_brush: {
+			tool_settings = <ToolList>
+				<ToolSize max={16} globals={globals} />
+				<ToolSmoothing globals={globals} />
+			</ToolList>
+			break;
+		}
+		case ToolType.spray:
+		case ToolType.blur:
+		case ToolType.smudge:
+		case ToolType.smooth_brush: {
+			let size = 16;
+			switch (tool_type) {
+				case ToolType.spray: {
+					size = 32;
+					break;
+				}
+				case ToolType.smooth_brush: {
+					size = 24;
+					break;
+				}
+			}
+
+			tool_settings = <ToolList>
+				<ToolSize max={size} globals={globals} />
+				<ToolFlow globals={globals} />
+				<ToolSmoothing globals={globals} />
+			</ToolList>
+			break;
+		}
 	}
-	else if (tool_type == ToolType.spray) {
-		tool_settings = <ToolList>
-			<ToolSize max={32} globals={globals} />
-			<ToolFlow globals={globals} />
-			<ToolSmoothing globals={globals} />
-		</ToolList>
-	}
-	else if (tool_type == ToolType.blur) {
-		tool_settings = <ToolList>
-			<ToolSize max={16} globals={globals} />
-			<ToolFlow globals={globals} />
-			<ToolSmoothing globals={globals} />
-		</ToolList>
-	}
-	else if (tool_type == ToolType.smudge) {
-		tool_settings = <ToolList>
-			<ToolSize max={16} globals={globals} />
-			<ToolFlow globals={globals} />
-			<ToolSmoothing globals={globals} />
-		</ToolList>
-	}
+
 
 	return <div className={style_room.tool_panel}>
 		<ColorPalette toolbox_globals={globals} key={key_palette} />
