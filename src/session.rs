@@ -474,6 +474,7 @@ impl SessionInstance {
 				packet_client::ToolType::Spray => self.update_cursor_spray(refs).await,
 				packet_client::ToolType::Fill => self.update_cursor_fill(refs).await,
 				packet_client::ToolType::Blur => self.update_cursor_blur(refs).await,
+				packet_client::ToolType::Smudge => self.update_cursor_smudge(refs).await,
 			}
 		}
 
@@ -702,6 +703,46 @@ impl SessionInstance {
 			let blended = Color::blend(127, &blended_horiz, &blended_vert);
 			let current = Color::blend(blend_intensity, &center, &blended);
 			GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
+		}
+
+		self.set_pixels_global(refs, &pixels, true).await;
+	}
+
+	async fn update_cursor_smudge(&mut self, refs: &RoomRefs) {
+		let diff_x = self.cursor_pos.x - self.cursor_pos_prev.x;
+		let diff_y = self.cursor_pos.y - self.cursor_pos_prev.y;
+		if diff_x == 0 && diff_y == 0 {
+			return; // Nothing to smudge
+		}
+
+		let tool_size = self.get_tool_size();
+
+		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let shape_filled = brush_shapes.get_filled(tool_size);
+		drop(brush_shapes);
+
+		let blend_intensity = (self.tool.flow * 255.0) as u8;
+
+		let mut cache = CanvasCache::default();
+
+		for s in shape_filled.iterate() {
+			let pos_x = self.cursor_pos.x + s.local_x as i32 - (tool_size / 2) as i32;
+			let pos_y = self.cursor_pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+
+			let prev = cache
+				.get_pixel(
+					&refs.chunk_system_mtx,
+					&IVec2::new(pos_x - diff_x, pos_y - diff_y),
+				)
+				.await;
+
+			let center = cache
+				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
+				.await;
+
+			let blended = Color::blend(blend_intensity, &prev, &center);
+			GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
 		}
 
 		self.set_pixels_global(refs, &pixels, true).await;
@@ -1337,6 +1378,7 @@ impl SessionInstance {
 			packet_client::ToolType::Brush => self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX),
 			packet_client::ToolType::Spray => self.tool.size.min(limits::TOOL_SIZE_SPRAY_MAX),
 			packet_client::ToolType::Blur => self.tool.size.min(limits::TOOL_SIZE_BLUR_MAX),
+			packet_client::ToolType::Smudge => self.tool.size.min(limits::TOOL_SIZE_SMUDGE_MAX),
 		}
 	}
 
