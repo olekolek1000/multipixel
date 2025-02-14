@@ -7,6 +7,16 @@ pub struct Color {
 	pub b: u8,
 }
 
+impl Color {
+	pub fn blend(alpha: u8, from: &Color, to: &Color) -> Color {
+		Color {
+			r: ((from.r as u16 * alpha as u16 + to.r as u16 * (255 - alpha) as u16) / 255) as u8,
+			g: ((from.g as u16 * alpha as u16 + to.g as u16 * (255 - alpha) as u16) / 255) as u8,
+			b: ((from.b as u16 * alpha as u16 + to.b as u16 * (255 - alpha) as u16) / 255) as u8,
+		}
+	}
+}
+
 #[derive(Default)]
 pub struct GlobalPixel {
 	pub pos: IVec2,

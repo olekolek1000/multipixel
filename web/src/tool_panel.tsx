@@ -11,6 +11,7 @@ export enum ToolType {
 	brush,
 	spray,
 	floodfill,
+	blur,
 }
 
 export class ColorPaletteGlobals {
@@ -351,6 +352,13 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 	else if (tool_type == ToolType.spray) {
 		tool_settings = <ToolList>
 			<ToolSize max={32} globals={globals} />
+			<ToolFlow globals={globals} />
+			<ToolSmoothing globals={globals} />
+		</ToolList>
+	}
+	else if (tool_type == ToolType.blur) {
+		tool_settings = <ToolList>
+			<ToolSize max={16} globals={globals} />
 			<ToolFlow globals={globals} />
 			<ToolSmoothing globals={globals} />
 		</ToolList>
