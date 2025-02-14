@@ -1,5 +1,7 @@
 {
 	"listen_ip": "127.0.0.1",
+	"enable_console": false,
+	"admin_password": "admin",
 	"listen_port": 59900,
 	"autosave_interval_ms": 20000,
 	"plugin_list": ["example"],

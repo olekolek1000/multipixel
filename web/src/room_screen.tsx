@@ -4,6 +4,7 @@ import { ToolPanel, ToolType } from "./tool_panel"
 import style_room from "./room_screen.scss"
 import { BoxDown, BoxRight, ButtonTool, Icon, Tooltip } from "./gui_custom";
 import { ChatRender } from "./chat";
+import tool from "./tool";
 
 export class RoomRefs {
 	canvas_render!: HTMLElement;
@@ -68,21 +69,29 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 
 	return <div id="mp_screen">
 		<canvas id="canvas_render" ref={canvas_render} width="100%" height="100%"></canvas>
-		<ToolPanel toolbox_globals={multipixel.toolbox_globals} />
+		<ToolPanel globals={multipixel.toolbox_globals} />
 		<ChatRender chat={multipixel.chat} />
 		<div className={style_room.toolboxes}>
 			<div className={style_room.toolbox}>
 				<Tooltip title="Brush">
 					<ButtonTool highlighted={tool_type == ToolType.brush} on_click={() => {
-						multipixel.handleButtonToolBrush();
+						multipixel.selectTool(tool.ToolID.Brush);
 						setToolType(ToolType.brush);
 					}}>
 						<Icon path="public/img/tool/brush.svg" />
 					</ButtonTool>
 				</Tooltip>
+				<Tooltip title="Spray">
+					<ButtonTool highlighted={tool_type == ToolType.spray} on_click={() => {
+						multipixel.selectTool(tool.ToolID.Spray);
+						setToolType(ToolType.spray);
+					}}>
+						<Icon path="public/img/tool/spray.svg" />
+					</ButtonTool>
+				</Tooltip>
 				<Tooltip title="Floodfill">
 					<ButtonTool highlighted={tool_type == ToolType.floodfill} on_click={() => {
-						multipixel.handleButtonToolFloodfill();
+						multipixel.selectTool(tool.ToolID.Floodfill);
 						setToolType(ToolType.floodfill);
 					}}>
 						<Icon path="public/img/tool/floodfill.svg" />

@@ -9,6 +9,7 @@ import { RoomRefs, RoomScreen, RoomScreenGlobals } from "./room_screen"
 import React from "react";
 import { ToolboxGlobals } from "./tool_panel";
 import style from "./style.scss"
+import tool from "./tool"
 
 function clamp(num: number, min: number, max: number) {
 	return num <= min ? min : num >= max ? max : num;
@@ -25,11 +26,6 @@ export function rgb2hex(red: number, green: number, blue: number) {
 	return '#' + dec2hex(red) + dec2hex(green) + dec2hex(blue);
 }
 
-enum ToolID {
-	Brush = 0,
-	Floodfill = 1
-}
-
 export class Cursor {
 	just_pressed_down: boolean = false;
 	x_norm: number = 0.0;
@@ -44,8 +40,8 @@ export class Cursor {
 	canvas_y_smooth: number = 0.0;
 	down_left: boolean = false;
 	down_right: boolean = false;
-	brush_size: number = 1;
-	tool_id: number = ToolID.Brush;
+	tool_size: number = 1;
+	tool_id: tool.ToolID = tool.ToolID.Brush;
 }
 
 export const LAYER_COUNT = 5;
@@ -144,14 +140,6 @@ export class Multipixel {
 		this.client.socketSendUndo();
 	}
 
-	handleButtonToolBrush() {
-		this.selectTool(ToolID.Brush);
-	}
-
-	handleButtonToolFloodfill() {
-		this.selectTool(ToolID.Floodfill);
-	}
-
 	initGUI(refs: RoomRefs) {
 		document.addEventListener('keydown', (event) => {
 			if (event.ctrlKey && event.key === 'z') {
@@ -194,11 +182,11 @@ export class Multipixel {
 			let smooth = false;
 			let smooth_val = 1.0;
 
-			if (this.cursor.down_left && this.cursor.tool_id == ToolID.Brush) {
+			if (this.cursor.down_left && tool.supportsSmoothing(this.cursor.tool_id)) {
 				//Check brush smoothing
-				if (this.toolbox_globals.brush_smoothing) {
+				if (this.toolbox_globals.param_tool_smoothing) {
 					smooth = true;
-					smooth_val = 1.0 - this.toolbox_globals.brush_smoothing / 1.01;
+					smooth_val = 1.0 - this.toolbox_globals.param_tool_smoothing / 1.01;
 				}
 			}
 
@@ -318,7 +306,7 @@ export class Multipixel {
 		return arr;
 	}
 
-	selectTool(tool_id: ToolID) {
+	selectTool(tool_id: tool.ToolID) {
 		this.cursor.tool_id = tool_id;
 		this.client.socketSendToolType(tool_id);
 	}

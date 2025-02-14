@@ -34,10 +34,11 @@ enum ClientCmd {
 	boundary = 103,
 	chunks_received = 104,
 	preview_request = 105, // s32 previewX, s32 previewY, u8 zoom
-	tool_size = 200,			 // u8 size
+	tool_type = 200,			 // u8 type
 	tool_color = 201,			 // u8 red, u8 green, u8 blue
-	tool_type = 202,			 // u8 type
-	undo = 203
+	tool_size = 202,			 // u8 size
+	tool_flow = 203,			 // f32 flow
+	undo = 300
 }
 
 enum ServerCmd {
@@ -181,10 +182,17 @@ export class Client {
 		this.socket!.send(buf);
 	}
 
-	socketSendBrushSize(size: number) {
+	socketSendToolSize(size: number) {
 		let buf = createMessage(ClientCmd.tool_size, size_u8);
 		let dataview = new DataView(buf, header_offset);
 		dataview.setUint8(0, size);
+		this.socket!.send(buf);
+	}
+
+	socketSendToolFlow(flow: number) {
+		let buf = createMessage(ClientCmd.tool_flow, size_float);
+		let dataview = new DataView(buf, header_offset);
+		dataview.setFloat32(0, flow);
 		this.socket!.send(buf);
 	}
 

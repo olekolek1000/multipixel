@@ -59,6 +59,7 @@ struct FloodfillTask {
 
 struct ToolData {
 	pub size: u8,
+	pub flow: f32,
 	pub color: Color,
 	pub tool_type: Option<packet_client::ToolType>,
 }
@@ -66,7 +67,8 @@ struct ToolData {
 impl Default for ToolData {
 	fn default() -> Self {
 		Self {
-			size: 2,
+			size: 1,
+			flow: 0.1,
 			color: Default::default(),
 			tool_type: Default::default(),
 		}
@@ -107,6 +109,69 @@ pub struct RoomRefs {
 	chunk_system_mtx: ChunkSystemMutex,
 	preview_system_mtx: PreviewSystemMutex,
 	brush_shapes_mtx: Arc<Mutex<BrushShapes>>,
+}
+
+struct LineMoveIter {
+	index: u32,
+	iter_count: u32,
+	start_x: i32,
+	start_y: i32,
+	end_x: i32,
+	end_y: i32,
+}
+
+impl LineMoveIter {
+	fn iterate(instance: &SessionInstance) -> Self {
+		let iter_count = std::cmp::max(
+			1,
+			util::distance(
+				instance.cursor_pos.x as f64,
+				instance.cursor_pos.y as f64,
+				instance.cursor_pos_prev.x as f64,
+				instance.cursor_pos_prev.y as f64,
+			) as u32,
+		);
+
+		Self {
+			iter_count,
+			start_x: instance.cursor_pos_prev.x,
+			start_y: instance.cursor_pos_prev.y,
+			end_x: instance.cursor_pos.x,
+			end_y: instance.cursor_pos.y,
+			index: 0,
+		}
+	}
+}
+
+struct LineMoveCell {
+	x: i32,
+	y: i32,
+	index: u32,
+}
+
+impl Iterator for LineMoveIter {
+	type Item = LineMoveCell;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		if self.index >= self.iter_count {
+			return None;
+		}
+
+		let alpha = (self.index as f64) / self.iter_count as f64;
+
+		//Lerp
+		let x = util::lerp(alpha, self.start_x as f64, self.end_x as f64) as i32;
+		let y = util::lerp(alpha, self.start_y as f64, self.end_y as f64).round() as i32;
+
+		let item = LineMoveCell {
+			index: self.index,
+			x,
+			y,
+		};
+
+		self.index += 1;
+		Some(item)
+	}
 }
 
 pub struct SessionInstance {
@@ -309,6 +374,7 @@ impl SessionInstance {
 				ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
 				ClientCmd::PreviewRequest => self.process_command_preview_request(&refs, reader).await?,
 				ClientCmd::ToolSize => self.process_command_tool_size(reader).await?,
+				ClientCmd::ToolFlow => self.process_command_tool_flow(reader).await?,
 				ClientCmd::ToolColor => self.process_command_tool_color(reader).await?,
 				ClientCmd::ToolType => self.process_command_tool_type(reader).await?,
 				ClientCmd::Undo => self.process_command_undo(&refs, reader).await,
@@ -401,6 +467,7 @@ impl SessionInstance {
 		if let Some(tool_type) = &self.tool.tool_type {
 			match tool_type {
 				packet_client::ToolType::Brush => self.update_cursor_brush(refs).await,
+				packet_client::ToolType::Spray => self.update_cursor_spray(refs).await,
 				packet_client::ToolType::Fill => self.update_cursor_fill(refs).await,
 			}
 		}
@@ -520,77 +587,81 @@ impl SessionInstance {
 			return;
 		}
 
-		let iters = std::cmp::max(
-			1,
-			util::distance(
-				self.cursor_pos_prev.x as f32,
-				self.cursor_pos_prev.y as f32,
-				self.cursor_pos.x as f32,
-				self.cursor_pos.y as f32,
-			) as u32,
-		);
-
-		if iters > 250 {
+		let iter = LineMoveIter::iterate(self);
+		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
 		}
 
+		let tool_size = self.get_tool_size();
+
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixel> = Vec::new();
-		let shape_filled = brush_shapes.get_filled(self.tool.size);
-		let shape_outline = brush_shapes.get_outline(self.tool.size);
+		let shape_filled = brush_shapes.get_filled(tool_size);
+		let shape_outline = brush_shapes.get_outline(tool_size);
 		drop(brush_shapes);
 
-		// Draw line
-		for i in 0..iters {
-			let alpha = (i as f64) / iters as f64;
-
-			//Lerp
-			let x = util::lerp(
-				alpha,
-				self.cursor_pos_prev.x as f64,
-				self.cursor_pos.x as f64,
-			) as i32;
-
-			let y = util::lerp(
-				alpha,
-				self.cursor_pos_prev.y as f64,
-				self.cursor_pos.y as f64,
-			)
-			.round() as i32;
-
-			match self.tool.size {
-				1 => GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color),
+		for line in iter {
+			match tool_size {
+				1 => GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y, &self.tool.color),
 				2 => {
-					GlobalPixel::insert_to_vec(&mut pixels, x, y, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, x - 1, y, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, x + 1, y, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, x, y - 1, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, x, y + 1, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, line.x - 1, line.y, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, line.x + 1, line.y, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y - 1, &self.tool.color);
+					GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y + 1, &self.tool.color);
 				}
 				_ => {
-					let shape = if i == 0 {
+					let shape = if line.index == 0 {
 						&shape_filled
 					} else {
 						&shape_outline
 					};
-					for yy in 0..shape.size {
-						for xx in 0..shape.size {
-							unsafe {
-								if *shape
-									.data
-									.get_unchecked(yy as usize * shape.size as usize + xx as usize)
-									== 1
-								{
-									let pos_x = x as i32 + xx as i32 - (self.tool.size / 2) as i32;
-									let pos_y = y as i32 + yy as i32 - (self.tool.size / 2) as i32;
-									GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
-								}
-							}
-						}
+
+					for s in shape.iterate() {
+						let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
+						let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
+						GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
 					}
 				}
+			}
+		}
+
+		self.set_pixels_global(refs, &pixels, true).await;
+	}
+
+	async fn update_cursor_spray(&mut self, refs: &RoomRefs) {
+		if !self.cursor_down {
+			return;
+		}
+
+		let iter = LineMoveIter::iterate(self);
+		if iter.iter_count > 250 {
+			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+			self.cursor_down = false;
+			return;
+		}
+
+		let tool_size = self.get_tool_size();
+
+		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let shape_filled = brush_shapes.get_filled(tool_size);
+		drop(brush_shapes);
+
+		let threshold = 0.001 + self.tool.flow.powf(4.0) * 0.05;
+
+		for line in iter {
+			for s in shape_filled.iterate() {
+				let rand = fastrand::f32();
+				if rand > threshold {
+					continue;
+				}
+
+				let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
+				let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
+				GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
 			}
 		}
 
@@ -1213,12 +1284,29 @@ impl SessionInstance {
 
 	async fn process_command_tool_size(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let size = reader.read_u8()?;
-		//log::trace!("Tool size {}", size);
-		if size > limits::TOOL_SIZE_MAX {
-			Err(UserError::new("Invalid tool size"))?;
+		self.tool.size = size;
+		Ok(())
+	}
+
+	fn get_tool_size(&self) -> u8 {
+		let Some(tool_type) = &self.tool.tool_type else {
+			return 0;
+		};
+
+		match tool_type {
+			packet_client::ToolType::Fill => 0,
+			packet_client::ToolType::Brush => self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX),
+			packet_client::ToolType::Spray => self.tool.size.min(limits::TOOL_SIZE_SPRAY_MAX),
+		}
+	}
+
+	async fn process_command_tool_flow(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+		let flow = reader.read_f32()?;
+		if !flow.is_finite() {
+			Err(UserError::new("Invalid tool flow"))?;
 		}
 
-		self.tool.size = size;
+		self.tool.flow = flow.clamp(0.0, 1.0);
 		Ok(())
 	}
 
@@ -1359,14 +1447,14 @@ impl SessionInstance {
 
 				for _iterations in 0..to_send {
 					// Get closest chunk (circular loading)
-					let center_x = self.cursor_pos.x as f32 / limits::CHUNK_SIZE_PX as f32;
-					let center_y = self.cursor_pos.y as f32 / limits::CHUNK_SIZE_PX as f32;
+					let center_x = self.cursor_pos.x as f64 / limits::CHUNK_SIZE_PX as f64;
+					let center_y = self.cursor_pos.y as f64 / limits::CHUNK_SIZE_PX as f64;
 
 					let mut closest_position = IVec2 { x: 0, y: 0 };
-					let mut closest_distance: f32 = f32::MAX;
+					let mut closest_distance: f64 = f64::MAX;
 
 					for ch in &chunks_to_load {
-						let distance = util::distance(center_x, center_y, ch.x as f32, ch.y as f32);
+						let distance = util::distance(center_x, center_y, ch.x as f64, ch.y as f64);
 						if distance < closest_distance {
 							closest_distance = distance;
 							closest_position = *ch;
