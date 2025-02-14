@@ -8,6 +8,7 @@ use num_enum::TryFromPrimitive;
 pub enum ToolType {
 	Brush = 0,
 	Fill = 1,
+	Spray = 2,
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -22,10 +23,11 @@ pub enum ClientCmd {
 	Boundary = 103,
 	ChunksReceived = 104,
 	PreviewRequest = 105, // s32 previewX, s32 previewY, u8 zoom
-	ToolSize = 200,       // u8 size
+	ToolType = 200,       // u8 type
 	ToolColor = 201,      // u8 red, u8 green, u8 blue
-	ToolType = 202,       // u8 type
-	Undo = 203,
+	ToolSize = 202,       // u8 size,
+	ToolFlow = 203,       // u32 flow
+	Undo = 300,
 }
 
 pub fn read_string_u8(reader: &mut BinaryReader) -> anyhow::Result<String> {

@@ -9,6 +9,7 @@ import Picker from "vanilla-picker";
 export enum ToolType {
 	none,
 	brush,
+	spray,
 	floodfill,
 }
 
@@ -94,11 +95,14 @@ export class ToolboxGlobals {
 	tool_type: ToolType = ToolType.none;
 	setToolType: any;
 
-	brush_size: number = 1; //in pixels
-	setBrushSize: any;
+	param_tool_size: number = 1; //in pixels
+	setToolSize: any;
 
-	brush_smoothing: number = 0.0; // 0.0 - 1.0
-	setBrushSmoothing: any;
+	param_tool_smoothing: number = 0.0; // 0.0 - 1.0
+	setToolSmoothing: any;
+
+	param_tool_flow: number = 0.1; // 0.0 - 1.0
+	setToolFlow: any;
 
 	key_palette: number = 0;
 	setKeyPalette: any;
@@ -267,23 +271,70 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 	</div>;
 }
 
-export function ToolPanel({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) {
+function ToolSlider({ name, min, max, initial, onChange }: { name: string, min: number, max: number, initial: number, onChange: (val: number) => void }) {
+	return <div className={style_toolbox.slider_container}>
+		<input
+			type="range"
+			min={min}
+			max={max}
+			defaultValue={initial}
+			className={style_toolbox.slider}
+			onChange={(e) => {
+				onChange(parseInt(e.target.value));
+			}}
+		/>
+		<span className={style_toolbox.slider_title}>{name}</span>
+	</div>
+}
+
+function ToolSize({ globals, max }: { globals: ToolboxGlobals, max: number }) {
+	return <ToolSlider name={"Size"} min={1} max={max} initial={globals.param_tool_size} onChange={(val) => {
+		globals.setToolSize(val);
+		globals.multipixel.getCursor().tool_size = val;
+		globals.multipixel.client.socketSendToolSize(val);
+	}} />
+}
+
+function ToolSmoothing({ globals }: { globals: ToolboxGlobals }) {
+	return <ToolSlider name={"Smoothing"} min={0} max={100} initial={globals.param_tool_smoothing * 100.0} onChange={(val) => {
+		globals.setToolSmoothing(val / 100.0);
+	}} />
+}
+
+function ToolFlow({ globals }: { globals: ToolboxGlobals }) {
+	return <ToolSlider name={"Flow"} min={0} max={100} initial={globals.param_tool_flow * 100.0} onChange={(val) => {
+		globals.setToolFlow(val / 100.0);
+		globals.multipixel.client.socketSendToolFlow(val / 100.0);
+	}} />
+}
+
+function ToolList({ children }: { children: JSX.Element[] }) {
+	return <div className={style_toolbox.tool_settings_parent}>
+		{children}
+	</div>
+}
+
+export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 	const [tool_type, setToolType] = useState<ToolType>(ToolType.none);
-	const [brush_size, setBrushSize] = useState(1);
-	const [brush_smoothing, setBrushSmoothing] = useState(0.0);
+	const [tool_size, setToolSize] = useState(1);
+	const [tool_smoothing, setToolSmoothing] = useState(0.0);
+	const [tool_flow, setToolFlow] = useState(0.1);
 	const [key_palette, setKeyPalette] = useState(0);
 
-	toolbox_globals.tool_type = tool_type;
-	toolbox_globals.setToolType = setToolType;
+	globals.tool_type = tool_type;
+	globals.setToolType = setToolType;
 
-	toolbox_globals.brush_size = brush_size;
-	toolbox_globals.setBrushSize = setBrushSize;
+	globals.param_tool_size = tool_size;
+	globals.setToolSize = setToolSize;
 
-	toolbox_globals.brush_smoothing = brush_smoothing;
-	toolbox_globals.setBrushSmoothing = setBrushSmoothing;
+	globals.param_tool_smoothing = tool_smoothing;
+	globals.setToolSmoothing = setToolSmoothing;
 
-	toolbox_globals.key_palette = key_palette;
-	toolbox_globals.setKeyPalette = setKeyPalette;
+	globals.param_tool_flow = tool_flow;
+	globals.setToolFlow = setToolFlow;
+
+	globals.key_palette = key_palette;
+	globals.setKeyPalette = setKeyPalette;
 
 	let tool_settings = undefined;
 
@@ -292,42 +343,21 @@ export function ToolPanel({ toolbox_globals }: { toolbox_globals: ToolboxGlobals
 	}
 
 	if (tool_type == ToolType.brush) {
-		tool_settings = <div className={style_toolbox.tool_settings_parent}>
-			<div className={style_toolbox.slider_container}>
-				<input
-					type="range"
-					min="1"
-					max="16"
-					value={brush_size}
-					className={style_toolbox.slider}
-					onChange={(e) => {
-						let size = parseInt(e.target.value);
-						setBrushSize(size);
-
-						toolbox_globals.multipixel.getCursor().brush_size = size;
-						toolbox_globals.multipixel.client.socketSendBrushSize(size);
-					}}
-				/>
-				<span className={style_toolbox.slider_title}>Size</span>
-			</div>
-			<div className={style_toolbox.slider_container}>
-				<input
-					type="range"
-					min="0"
-					max="100"
-					value={brush_smoothing * 100.0}
-					className={style_toolbox.slider}
-					onChange={(e) => {
-						setBrushSmoothing(parseInt(e.target.value) / 100.0);
-					}}
-				/>
-				<span className={style_toolbox.slider_title}>Smoothing</span>
-			</div>
-		</div>
+		tool_settings = <ToolList>
+			<ToolSize max={16} globals={globals} />
+			<ToolSmoothing globals={globals} />
+		</ToolList>
+	}
+	else if (tool_type == ToolType.spray) {
+		tool_settings = <ToolList>
+			<ToolSize max={32} globals={globals} />
+			<ToolFlow globals={globals} />
+			<ToolSmoothing globals={globals} />
+		</ToolList>
 	}
 
 	return <div className={style_room.tool_panel}>
-		<ColorPalette toolbox_globals={toolbox_globals} key={key_palette} />
+		<ColorPalette toolbox_globals={globals} key={key_palette} />
 		{tool_settings}
 	</div>
 }

@@ -5,6 +5,57 @@ pub struct BrushShape {
 	pub data: Vec<u8>,
 }
 
+pub struct BrushShapeIterCell {
+	pub local_x: u8,
+	pub local_y: u8,
+}
+
+pub struct BrushShapeIter<'a> {
+	shape: &'a BrushShape,
+	cur_x: u8,
+	cur_y: u8,
+}
+
+impl BrushShapeIter<'_> {
+	fn go_next(&mut self) {
+		self.cur_x += 1;
+		if self.cur_x >= self.shape.size {
+			self.cur_x = 0;
+			self.cur_y += 1;
+		}
+	}
+}
+
+impl Iterator for BrushShapeIter<'_> {
+	type Item = BrushShapeIterCell;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		loop {
+			if self.cur_y >= self.shape.size {
+				return None;
+			}
+
+			unsafe {
+				if *self
+					.shape
+					.data
+					.get_unchecked((self.cur_y as u32 * self.shape.size as u32 + self.cur_x as u32) as usize)
+					== 1
+				{
+					let cell = BrushShapeIterCell {
+						local_x: self.cur_x,
+						local_y: self.cur_y,
+					};
+					self.go_next();
+					return Some(cell);
+				}
+			}
+
+			self.go_next();
+		}
+	}
+}
+
 impl BrushShape {
 	pub fn new(size: u8, filled: bool) -> Self {
 		let data = (0..size)
@@ -23,6 +74,14 @@ impl BrushShape {
 			.collect::<Vec<u8>>();
 
 		Self { size, data }
+	}
+
+	pub fn iterate(&self) -> BrushShapeIter {
+		BrushShapeIter {
+			shape: self,
+			cur_x: 0,
+			cur_y: 0,
+		}
 	}
 }
 

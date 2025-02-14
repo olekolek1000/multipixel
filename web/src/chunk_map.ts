@@ -396,7 +396,7 @@ export class ChunkMap {
 		if (!this.texture_brush) return;
 		let cursor = this.multipixel.getCursor();
 		let renderer = this.multipixel.getRenderer();
-		let brush_size = cursor.brush_size;
+		let brush_size = cursor.tool_size;
 		renderer.drawRect(
 			this.texture_brush,
 			cursor.canvas_x - brush_size / 2.0 + 0.5,
