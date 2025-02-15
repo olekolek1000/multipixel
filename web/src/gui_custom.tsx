@@ -349,7 +349,7 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 				style={{
 					left: handle_shift + "px"
 				}}>
-				{Math.round(mapped_value)}
+				{Math.floor(mapped_value)}
 			</div>
 		</div>
 		{title}
