@@ -155,7 +155,7 @@ impl Iterator for LineMoveIter {
 	type Item = LineMoveCell;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.index >= self.iter_count {
+		if self.index > self.iter_count {
 			return None;
 		}
 
@@ -609,14 +609,14 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_brush(&mut self, refs: &RoomRefs, square: bool) {
-		let iter = LineMoveIter::iterate(self, 1);
+		let tool_size = self.get_tool_size();
+		let step = 1 + tool_size / 6;
+		let iter = LineMoveIter::iterate(self, step);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
 		}
-
-		let tool_size = self.get_tool_size();
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixel> = Vec::new();
@@ -664,7 +664,7 @@ impl SessionInstance {
 
 	async fn update_cursor_smooth_brush(&mut self, refs: &RoomRefs) {
 		let tool_size = self.get_tool_size().max(4);
-		let step = 1 + tool_size / 8;
+		let step = 1 + tool_size / 6;
 		let iter = LineMoveIter::iterate(self, step);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
@@ -696,7 +696,7 @@ impl SessionInstance {
 						continue;
 					}
 
-					let blended = Color::blend(
+					let blended = Color::blend_gamma_corrected(
 						(intensity as f32 * (1.0 - mult)) as u8,
 						&current,
 						&self.tool.color,
@@ -776,10 +776,10 @@ impl SessionInstance {
 				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y + 1))
 				.await;
 
-			let blended_horiz = Color::blend(127, &left, &right);
-			let blended_vert = Color::blend(127, &top, &bottom);
-			let blended = Color::blend(127, &blended_horiz, &blended_vert);
-			let current = Color::blend(blend_intensity, &center, &blended);
+			let blended_horiz = Color::blend_gamma_corrected(127, &left, &right);
+			let blended_vert = Color::blend_gamma_corrected(127, &top, &bottom);
+			let blended = Color::blend_gamma_corrected(127, &blended_horiz, &blended_vert);
+			let current = Color::blend_gamma_corrected(blend_intensity, &center, &blended);
 			GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
 		}
 
@@ -787,16 +787,12 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_smudge(&mut self, refs: &RoomRefs) {
-		let diff_x = self.cursor_pos.x - self.cursor_pos_prev.x;
-		let diff_y = self.cursor_pos.y - self.cursor_pos_prev.y;
-		if diff_x == 0 && diff_y == 0 {
-			return; // Nothing to smudge
-		}
-
 		let tool_size = self.get_tool_size();
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut pixels_final: Vec<GlobalPixel> = Vec::new();
+		let mut pixels_temp: Vec<GlobalPixel> = Vec::new();
+
 		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
@@ -806,7 +802,17 @@ impl SessionInstance {
 
 		let iter = LineMoveIter::iterate(self, 1);
 
+		let mut line_x_prev = self.cursor_pos_prev.x;
+		let mut line_y_prev = self.cursor_pos_prev.y;
+
 		for line in iter {
+			let diff_x = line_x_prev - line.x;
+			let diff_y = line_y_prev - line.y;
+			if diff_x == 0 && diff_y == 0 {
+				continue; // Nothing to smudge
+			}
+
+			pixels_temp.clear();
 			for s in shape_filled.iterate() {
 				let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
 				let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
@@ -814,7 +820,7 @@ impl SessionInstance {
 				let prev = cache
 					.get_pixel(
 						&refs.chunk_system_mtx,
-						&IVec2::new(pos_x - diff_x, pos_y - diff_y),
+						&IVec2::new(pos_x + diff_x, pos_y + diff_y),
 					)
 					.await;
 
@@ -822,12 +828,20 @@ impl SessionInstance {
 					.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
 					.await;
 
-				let blended = Color::blend(blend_intensity, &center, &prev);
-				GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+				let blended = Color::blend_gamma_corrected(blend_intensity, &center, &prev);
+				GlobalPixel::insert_to_vec(&mut pixels_temp, pos_x, pos_y, &blended);
 			}
+
+			for pixel in &pixels_temp {
+				cache.set_pixel(&pixel.pos, &pixel.color);
+			}
+			pixels_final.append(&mut pixels_temp);
+
+			line_x_prev = line.x;
+			line_y_prev = line.y;
 		}
 
-		self.set_pixels_global(refs, &pixels, true).await;
+		self.set_pixels_global(refs, &pixels_final, true).await;
 	}
 
 	async fn get_pixel_global(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<Color> {

@@ -1,9 +1,9 @@
-pub const TOOL_SIZE_BRUSH_MAX: u8 = 16;
-pub const TOOL_SIZE_SMOOTH_BRUSH_MAX: u8 = 24;
-pub const TOOL_SIZE_SQUARE_BRUSH_MAX: u8 = 16;
-pub const TOOL_SIZE_BLUR_MAX: u8 = 16;
-pub const TOOL_SIZE_SMUDGE_MAX: u8 = 16;
-pub const TOOL_SIZE_SPRAY_MAX: u8 = 32;
+pub const TOOL_SIZE_BRUSH_MAX: u8 = 32;
+pub const TOOL_SIZE_SMOOTH_BRUSH_MAX: u8 = 48;
+pub const TOOL_SIZE_SQUARE_BRUSH_MAX: u8 = 32;
+pub const TOOL_SIZE_BLUR_MAX: u8 = 32;
+pub const TOOL_SIZE_SMUDGE_MAX: u8 = 32;
+pub const TOOL_SIZE_SPRAY_MAX: u8 = 48;
 
 pub const ROOM_NAME_LEN_MIN: u8 = 3;
 pub const ROOM_NAME_LEN_MAX: u8 = 24;
