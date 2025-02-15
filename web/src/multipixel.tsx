@@ -186,7 +186,7 @@ export class Multipixel {
 				//Check brush smoothing
 				if (this.toolbox_globals.param_tool_smoothing) {
 					smooth = true;
-					smooth_val = 1.0 - this.toolbox_globals.param_tool_smoothing / 1.01;
+					smooth_val = 1.0 - Math.pow(this.toolbox_globals.param_tool_smoothing, 0.1) / 1.01;
 				}
 			}
 

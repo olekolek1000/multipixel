@@ -1,6 +1,5 @@
 @import "./globals.scss";
 
-
 @font-face {
 	font-family: "font";
 	src: url("public/Comfortaa-VariableFont_wght.ttf");
@@ -8,9 +7,15 @@
 
 body {
 	margin: 0;
-	font-family: "font";	
+	font-family: "font";
 	font-weight: 900;
-	color: #FFF;
+	color: #fff;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+img {
+	pointer-events: none;
 }
 
 .text_input_title {
@@ -41,23 +46,24 @@ body {
 	padding-right: 0.25cm;
 	border: 0;
 	border-radius: 0.5cm 0.25cm 0.5cm 0.25cm;
-	background-color: #FFF;
+	background-color: #fff;
 	display: flex;
 	align-items: center;
-	font-size:  0.75em;
+	font-size: 0.75em;
 	border: 2px solid rgba(0, 0, 0, 0.2);
 }
 
 .text_input_labeled_bg {
 	@extend .text_input_bg;
-	margin-left:0.5cm;
+	margin-left: 0.5cm;
 	padding: unset;
 	padding-left: 0.5cm;
 	padding-right: 0.5cm;
 	padding-left: 0;
 	border-radius: 0 0.25cm 0.5cm 0;
-	border: unset;;
-	font-size: 1.25em;height:1.5cm;
+	border: unset;
+	font-size: 1.25em;
+	height: 1.5cm;
 }
 
 .text_input {
@@ -81,7 +87,6 @@ body {
 	background-color: $accent-color;
 	color: #fff;
 }
-
 
 .text_tiny {
 	font-size: 0.75em;
@@ -124,7 +129,6 @@ body {
 	transform: translateY(2px);
 }
 
-
 .button_tool {
 	border-radius: 18px 8px;
 	width: 48px;
@@ -137,10 +141,8 @@ body {
 	font-weight: 900;
 	cursor: pointer;
 	box-sizing: border-box;
-	border: 2px solid rgba(0,0,0,0.2);
+	border: 2px solid rgba(0, 0, 0, 0.2);
 }
-
-
 
 .button_tool_highlighted {
 	border: solid 2px rgba(0, 0, 0, 0.5);
@@ -156,7 +158,7 @@ body {
 		transform: scale(1.05);
 	}
 	100% {
-		transform: scale(1.0);
+		transform: scale(1);
 	}
 }
 
@@ -167,8 +169,8 @@ body {
 }
 
 .icon {
-	width:100%;
-	height:100%;
+	width: 100%;
+	height: 100%;
 	color: black;
 	user-select: none;
 }
@@ -179,22 +181,22 @@ body {
 	text-wrap: nowrap;
 	line-height: 100%;
 	font-size: 0.8em;
-		opacity: 0.5;
+	opacity: 0.5;
 }
 
 @keyframes tooltip_showup {
 	0% {
-		transform: scaleX(0.0) scaleY(0.5);
-		opacity: 0.0;
+		transform: scaleX(0) scaleY(0.5);
+		opacity: 0;
 	}
 	100% {
-		transform: scaleX(1.0) scaleY(1.0);
-		opacity: 1.0;
+		transform: scaleX(1) scaleY(1);
+		opacity: 1;
 	}
 }
 
 .tooltip {
-	position:absolute;
+	position: absolute;
 	z-index: 10;
 	border-radius: 0px 12px 24px 0px;
 	padding-left: 16px;
@@ -206,7 +208,7 @@ body {
 	display: flex;
 	justify-content: center;
 	align-items: center;
-	border: 2px solid rgba(0,0,0,0.2);
+	border: 2px solid rgba(0, 0, 0, 0.2);
 	text-wrap: nowrap;
 	min-height: 36px;
 
@@ -215,3 +217,69 @@ body {
 	transform-origin: 0% 50%;
 }
 
+.slider_line {
+	height: 12px;
+	position: absolute;
+	width: 2px;
+	background-color: rgba(255, 255, 255, 0.5);
+	transform: rotate(10deg); // this looks cool
+}
+
+.slider_container {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 8px;
+}
+
+.slider {
+	height: 28px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	position: relative;
+}
+
+.slider_value {
+	position: absolute;
+	color: #fff;
+	font-size: 12px;
+	font-weight: 900;
+	color: #fff;
+	left: 0;
+	transform: translateX(-50%);
+	text-shadow: 1px 1px black;
+}
+
+.slider_bar {
+	width: 100%;
+	height: 10px;
+	border-radius: 16px;
+	border: 2px solid rgb(0, 0, 0);
+	position: relative;
+	background-color: rgba(0, 0, 0, 0.5);
+}
+
+.slider_filling {
+	position: absolute;
+	height: 10px;
+	width: 50px;
+	background-color: $accent-color;
+	border-radius: 16px 0px 0px 16px;
+	border: 2px solid rgb(0, 0, 0);
+	top: -2px;
+	left: -2px;
+}
+
+.slider_handle {
+	position: absolute;
+	width: 24px;
+	height: 24px;
+	border-radius: 24px;
+	top: 5px;
+	left: -2px;
+	box-sizing: border-box;
+	background-color: $accent-color;
+	border: 2px solid black;
+	box-shadow: 0px 1px 3px black;
+}

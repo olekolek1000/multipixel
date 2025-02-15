@@ -13,9 +13,6 @@ interface CssExports {
   'panel2': string;
   'panel_appearance': string;
   'row': string;
-  'slider': string;
-  'slider_container': string;
-  'slider_title': string;
   'tool_settings_parent': string;
 }
 export const cssExports: CssExports;

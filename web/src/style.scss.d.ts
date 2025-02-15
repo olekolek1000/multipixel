@@ -9,6 +9,13 @@ interface CssExports {
   'panel': string;
   'panel2': string;
   'panel_appearance': string;
+  'slider': string;
+  'slider_bar': string;
+  'slider_container': string;
+  'slider_filling': string;
+  'slider_handle': string;
+  'slider_line': string;
+  'slider_value': string;
   'text_big': string;
   'text_input': string;
   'text_input_bg': string;

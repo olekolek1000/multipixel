@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { BoxDown, BoxRight, Icon } from "./gui_custom";
+import { BoxDown, BoxRight, Icon, Slider } from "./gui_custom";
 import style_toolbox from "./toolbox.scss"
 import style_room from "./room_screen.scss";
 import { Multipixel, rgb2hex } from "./multipixel"
@@ -275,24 +275,16 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 	</div>;
 }
 
-function ToolSlider({ name, min, max, initial, onChange }: { name: string, min: number, max: number, initial: number, onChange: (val: number) => void }) {
-	return <div className={style_toolbox.slider_container}>
-		<input
-			type="range"
-			min={min}
-			max={max}
-			defaultValue={initial}
-			className={style_toolbox.slider}
-			onChange={(e) => {
-				onChange(parseInt(e.target.value));
-			}}
-		/>
-		<span className={style_toolbox.slider_title}>{name}</span>
-	</div>
+function ToolSlider({ name, min, max, steps, initial, onChange }: { name: string, min: number, max: number, steps?: number, initial: number, onChange: (val: number) => void }) {
+	const [value, setValue] = useState(initial);
+
+	return <Slider title={name} mapped_value={value} setMappedValue={setValue} steps={steps} min={min} max={max} width={200} on_change={(num) => {
+		onChange(num);
+	}} />
 }
 
 function ToolSize({ globals, max }: { globals: ToolboxGlobals, max: number }) {
-	return <ToolSlider name={"Size"} min={1} max={max} initial={globals.param_tool_size} onChange={(val) => {
+	return <ToolSlider name={"Size"} min={1} max={max} steps={max} initial={globals.param_tool_size} onChange={(val) => {
 		globals.setToolSize(val);
 		globals.multipixel.getCursor().tool_size = val;
 		globals.multipixel.client.socketSendToolSize(val);
@@ -350,7 +342,7 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 		case ToolType.brush:
 		case ToolType.square_brush: {
 			tool_settings = <ToolList>
-				<ToolSize max={16} globals={globals} />
+				<ToolSize max={32} globals={globals} />
 				<ToolSmoothing globals={globals} />
 			</ToolList>
 			break;
@@ -359,14 +351,14 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 		case ToolType.blur:
 		case ToolType.smudge:
 		case ToolType.smooth_brush: {
-			let size = 16;
+			let size = 32;
 			switch (tool_type) {
 				case ToolType.spray: {
-					size = 32;
+					size = 48;
 					break;
 				}
 				case ToolType.smooth_brush: {
-					size = 24;
+					size = 48;
 					break;
 				}
 			}
