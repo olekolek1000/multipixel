@@ -1,7 +1,7 @@
-import React, { Dispatch, SetStateAction, useEffect, useState } from "react";
+import React, { useState } from "react";
 import ReactDOM from "react-dom/client";
 import { LoginScreen } from "./login_screen";
-import style from "./style.scss"
+import { JSX } from "react/jsx-runtime";
 
 export namespace globals {
 	export let state: JSX.Element | null = null;

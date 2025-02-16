@@ -1,19 +1,15 @@
-import { ChunkMap, CHUNK_SIZE } from "./chunk_map";
+import { ChunkMap } from "./chunk_map";
 import { Client, User } from "./client";
 import { Chat } from "./chat";
 import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
-import { Preview, PreviewLayer, PreviewSystem } from "./preview_system";
+import { Preview, PreviewSystem } from "./preview_system";
 import { globals } from ".";
 import { RoomRefs, RoomScreen, RoomScreenGlobals } from "./room_screen"
-import React from "react";
 import { ToolboxGlobals } from "./tool_panel";
-import style from "./style.scss"
+import style from "./style.module.scss"
 import tool from "./tool"
 
-function clamp(num: number, min: number, max: number) {
-	return num <= min ? min : num >= max ? max : num;
-}
 
 function dec2hex(n: number) {
 	n = Math.round(n);
@@ -140,7 +136,7 @@ export class Multipixel {
 		this.client.socketSendUndo();
 	}
 
-	initGUI(refs: RoomRefs) {
+	initGUI(_refs: RoomRefs) {
 		document.addEventListener('keydown', (event) => {
 			if (event.ctrlKey && event.key === 'z') {
 				this.client.socketSendUndo();
@@ -152,7 +148,7 @@ export class Multipixel {
 		this.events_enabled = enabled;
 	}
 
-	initListeners(refs: RoomRefs) {
+	initListeners(_refs: RoomRefs) {
 		setInterval(() => { this.updateBoundary() }, 200);
 
 		setInterval(() => { this.client.socketSendPing() }, 8000);
@@ -339,8 +335,6 @@ export class Multipixel {
 		for (let zoom = 1; zoom <= LAYER_COUNT; zoom++) {
 			let layer = this.preview_system.getOrCreateLayer(zoom);
 			let boundary = this.map.getPreviewBoundaries(layer.zoom);
-
-			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
 
 			for (let y = boundary.start_y; y < boundary.end_y; y++) {
 				for (let x = boundary.start_x; x < boundary.end_x; x++) {

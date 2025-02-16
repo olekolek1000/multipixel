@@ -1,21 +1,7 @@
 {
-	"compilerOptions": {
-		"strict": true,
-		"allowJs": false,
-		"module": "es6",
-		"target": "es6",
-		"sourceMap": true,
-		"moduleResolution": "node",
-		"jsx": "react",
-		"plugins": [{ "name": "typescript-plugin-css-modules" }],
-		"allowSyntheticDefaultImports": true,
-		"lib": [
-			"dom",
-			"dom.iterable",
-			"esnext"
-		],
-	},
-	"files": [
-		"src/index.tsx"
-	],
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }

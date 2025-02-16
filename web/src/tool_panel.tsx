@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
-import { BoxDown, BoxRight, Icon, Slider } from "./gui_custom";
-import style_toolbox from "./toolbox.scss"
-import style_room from "./room_screen.scss";
+import { useState } from "react";
+import { Icon, Slider } from "./gui_custom";
+import style_toolbox from "./toolbox.module.scss"
+import style_room from "./room_screen.module.scss";
 import { Multipixel, rgb2hex } from "./multipixel"
 import { lerp } from "./timestep";
 import Picker from "vanilla-picker";
+import { JSX } from "react/jsx-runtime";
 
 export enum ToolType {
 	none,

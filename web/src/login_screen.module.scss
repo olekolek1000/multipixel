@@ -1,0 +1,17 @@
+@use "./globals.scss";
+
+.background {
+	background-color: globals.$accent-color;
+	width: 100%;
+	min-height: 100vh;
+	display: flex;
+	justify-content: center;
+}
+
+.content_box {
+	padding: 0.75cm;
+	padding-left: 1.5cm;
+	padding-right: 1.5cm;
+	border-radius: 1cm 0.5cm 1cm 0.5cm;
+	border: 2px solid white;
+}

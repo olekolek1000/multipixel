@@ -1,4 +1,4 @@
-@import "globals.scss";
+@use "globals.scss";
 
 .users_online {
 	font-size: 0.7em;
@@ -15,14 +15,13 @@
 	gap: 4px;
 }
 
-
 .toolbox {
 	@extend .panel;
 
 	width: 48px;
-  
+
 	padding-bottom: 8px;
-  display: flex;
+	display: flex;
 	flex-direction: column;
 	align-items: center;
 	gap: 4px;

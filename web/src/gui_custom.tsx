@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import scss from "./style.scss"
+import React, { JSX, useEffect, useRef, useState } from "react";
+import scss from "./style.module.scss"
 
 export function LabeledTextField(
 	{ required, label, valfunc, type, onReturnPress }:
