@@ -1,6 +1,6 @@
 ## Thank you to everyone who took part in this project!
 
-olekolek1000 (2021-2024): Lead developer
+olekolek1000 (2021-2025): Lead developer
 
 KuczaRacza (2021): Database engine
 

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import style_login from "./login_screen.scss";
-import { BoxDown, Button, LabeledTextField, FormErrorText, TitleSmall, TitleTiny } from "./gui_custom"
+import style_login from "./login_screen.module.scss";
+import { BoxDown, Button, LabeledTextField, FormErrorText, TitleTiny } from "./gui_custom"
 import { Multipixel } from "./multipixel";
 import { globals } from ".";
 
 import * as defines from "./global_defines";
+import { JSX } from "react/jsx-runtime";
 
 
 export function LoginScreen({ initial_error_text }: { initial_error_text?: string }) {
@@ -39,7 +40,7 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 
 				const perform = () => {
 					return new Promise((resolve, reject) => {
-						let multipixel = new Multipixel({
+						new Multipixel({
 							host: defines.connect_url,
 							nickname: username,
 							room_name: room_name,

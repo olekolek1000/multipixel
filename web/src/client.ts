@@ -2,20 +2,18 @@ import { Chat } from "./chat";
 import { Multipixel } from "./multipixel";
 import { CHUNK_SIZE } from "./chunk_map";
 
-var renderer;
-
 //Size in bytes
 const header_offset = 2;
 
 const size_u8 = 1;
 const size_u16 = 2;
 const size_u32 = 4;
-const size_u64 = 8;
+//const size_u64 = 8;
 
 const size_s8 = 1;
-const size_s16 = 2;
+//const size_s16 = 2;
 const size_s32 = 4;
-const size_s64 = 8;
+//const size_s64 = 8;
 
 const size_float = 4;
 
@@ -80,8 +78,7 @@ export class User {
 };
 
 import { Buffer } from "buffer";
-var LZ4 = eval('require')("lz4")
-
+import * as lz4 from "lz4js";
 
 export class Client {
 	multipixel: Multipixel;
@@ -325,8 +322,7 @@ export class Client {
 
 				let uncompressed_buffer = Buffer.alloc(raw_size);
 				let compressed_data = raw_data.slice(header_offset + offset);
-				let decoded_bytes = LZ4.decodeBlock(Buffer.from(compressed_data), uncompressed_buffer);
-				decoded_bytes;
+				lz4.decompressBlock(Buffer.from(compressed_data), uncompressed_buffer, 0, raw_size, 0);
 
 				let rgb_view = new DataView(uncompressed_buffer.buffer);
 				let chunk = map.getChunk(chunk_x, chunk_y);
@@ -346,8 +342,7 @@ export class Client {
 
 				let uncompressed_buffer = Buffer.alloc(raw_size);
 				let compressed_data = raw_data.slice(header_offset + offset);
-				let decoded_bytes = LZ4.decodeBlock(Buffer.from(compressed_data), uncompressed_buffer);
-				decoded_bytes;
+				lz4.decompressBlock(Buffer.from(compressed_data), uncompressed_buffer, 0, raw_size, 0);
 
 				let pixel_view = new DataView(uncompressed_buffer.buffer);
 
@@ -396,7 +391,7 @@ export class Client {
 				let rgb = Buffer.alloc(CHUNK_SIZE * CHUNK_SIZE * 3);
 				const data_from = header_offset + offset;
 				let compressed = raw_data.slice(data_from, data_from + data_size);
-				LZ4.decodeBlock(Buffer.from(compressed), rgb);
+				lz4.decompressBlock(Buffer.from(compressed), rgb, 0, data_size, 0);
 
 				let preview = this.multipixel.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);
 				preview.setData(new Uint8Array(rgb));

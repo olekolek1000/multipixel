@@ -1,6 +1,6 @@
 import { ChatMessageType, Client } from "./client";
-import React, { useEffect, useRef, useState } from "react";
-import style_chat from "./chat.scss";
+import React, { JSX, useEffect, useRef, useState } from "react";
+import style_chat from "./chat.module.scss";
 import { TextField } from "./gui_custom";
 import bbobHTML from '@bbob/html'
 import presetHTML5 from '@bbob/preset-html5'
@@ -23,7 +23,7 @@ export class Chat {
 	client: Client;
 	chat_history: Array<ChatLine>;
 	setHistory: any;
-	ref_history?: React.RefObject<HTMLInputElement>;
+	ref_history?: React.RefObject<HTMLDivElement | null>;
 	message_index: number = 0;
 
 	constructor(client: Client) {
@@ -40,8 +40,8 @@ export class Chat {
 		});
 
 		// max 100 messages at once
-		if (this.chat_history.length > 100) {
-			this.chat_history.splice(0);
+		while (this.chat_history.length > 100) {
+			this.chat_history.shift();
 		}
 
 		if (this.setHistory) {
@@ -72,7 +72,7 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 
 	const [text, setText] = useState("");
 	const [history, setHistory] = useState<JSX.Element>(<></>);
-	const ref_history = useRef<HTMLInputElement>(null);
+	const ref_history = useRef<HTMLDivElement | null>(null);
 	chat.setHistory = setHistory;
 	chat.ref_history = ref_history;
 

@@ -1,8 +1,8 @@
-@import "./globals.scss";
+@use "./globals.scss";
 
 @font-face {
 	font-family: "font";
-	src: url("public/Comfortaa-VariableFont_wght.ttf");
+	src: url("assets/Comfortaa-VariableFont_wght.ttf");
 }
 
 body {
@@ -34,7 +34,7 @@ img {
 
 .text_input_label {
 	font-style: italic;
-	color: $accent-color;
+	color: globals.$accent-color;
 	font-size: 0.75em;
 	margin-top: 0.1cm;
 	user-select: none;
@@ -80,11 +80,11 @@ img {
 .text_input_labeled {
 	@extend .text_input;
 	font-size: unset;
-	color: $accent-color;
+	color: globals.$accent-color;
 }
 
 ::selection {
-	background-color: $accent-color;
+	background-color: globals.$accent-color;
 	color: #fff;
 }
 
@@ -120,12 +120,12 @@ img {
 
 .button:hover {
 	background-color: white;
-	color: $accent-color;
+	color: globals.$accent-color;
 }
 
 .button:active {
 	background-color: white;
-	color: $accent-color;
+	color: globals.$accent-color;
 	transform: translateY(2px);
 }
 
@@ -146,11 +146,11 @@ img {
 
 .button_tool_highlighted {
 	border: solid 2px rgba(0, 0, 0, 0.5);
-	background-color: $accent-color;
+	background-color: globals.$accent-color;
 }
 
 .button_tool:hover {
-	background-color: $highlight-color;
+	background-color: globals.$highlight-color;
 }
 
 @keyframes tool_click {
@@ -163,7 +163,7 @@ img {
 }
 
 .button_tool:active {
-	background-color: $highlight-color;
+	background-color: globals.$highlight-color;
 	animation-name: tool_click;
 	animation-duration: 0.2s;
 }
@@ -264,7 +264,7 @@ img {
 	position: absolute;
 	height: 10px;
 	width: 50px;
-	background-color: $accent-color;
+	background-color: globals.$accent-color;
 	border-radius: 16px 0px 0px 16px;
 	border: 2px solid rgb(0, 0, 0);
 	top: -2px;
@@ -279,7 +279,7 @@ img {
 	top: 5px;
 	left: -2px;
 	box-sizing: border-box;
-	background-color: $accent-color;
+	background-color: globals.$accent-color;
 	border: 2px solid black;
 	box-shadow: 0px 1px 3px black;
 }

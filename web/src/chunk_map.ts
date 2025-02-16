@@ -1,7 +1,6 @@
 import { User } from "./client";
 import { LAYER_COUNT, Multipixel } from "./multipixel";
 import { Texture } from "./render_engine";
-import { lerp } from "./timestep";
 
 export const CHUNK_SIZE = 256;
 
@@ -29,7 +28,7 @@ class Chunk {
 
 	pixel_queue: Array<PixelQueueCell> = [];
 
-	constructor(gl: WebGL2RenderingContext, x: number, y: number) {
+	constructor(_gl: WebGL2RenderingContext, x: number, y: number) {
 		this.x = x;
 		this.y = y;
 	}
@@ -425,12 +424,9 @@ export class ChunkMap {
 		this.needs_redraw = false;
 
 		let renderer = this.multipixel.getRenderer();
-		let gl = renderer.getContext();
 
 		renderer.viewportFullscreen();
 		renderer.clear(1.0, 1.0, 1.0, 1);
-
-		let alpha = this.multipixel.timestep.getAlpha();
 
 		this.updateBoundary();
 

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Multipixel } from "./multipixel";
 import { ToolPanel, ToolType } from "./tool_panel"
-import style_room from "./room_screen.scss"
-import { BoxDown, BoxRight, ButtonTool, Icon, Tooltip } from "./gui_custom";
+import style_room from "./room_screen.module.scss"
+import { BoxRight, ButtonTool, Icon, Tooltip } from "./gui_custom";
 import { ChatRender } from "./chat";
 import tool from "./tool";
+import { JSX } from "react/jsx-runtime";
 
 export class RoomRefs {
 	canvas_render!: HTMLElement;
@@ -40,9 +41,9 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 			let arr = new Array<JSX.Element>();
 
 			for (let name of list) {
-				arr.push(<div key={name}>
+				arr.push(<span key={name}>
 					{name}
-				</div>)
+				</span>)
 			}
 
 			return arr;
@@ -50,9 +51,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 
 		setPlayerList(<>
 			<Tooltip title={
-				<React.Fragment>
-					{generateList()}
-				</React.Fragment>
+				<BoxRight nowrap>{generateList()}</BoxRight>
 			}>
 				<Icon path="public/img/tool/user.svg" />
 			</Tooltip>
