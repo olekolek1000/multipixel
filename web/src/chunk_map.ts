@@ -158,11 +158,11 @@ export class ChunkMap {
 		this.multipixel = multipixel;
 		let renderer = this.multipixel.getRenderer();
 
-		renderer.loadTextureImage("public/img/cursor.png", (tex: Texture) => {
+		renderer.loadTextureImage("img/cursor.png", (tex: Texture) => {
 			this.texture_cursor = tex;
 		});
 
-		renderer.loadTextureImage("public/img/brush.png", (tex: Texture) => {
+		renderer.loadTextureImage("img/brush.png", (tex: Texture) => {
 			this.texture_brush = tex;
 		});
 
