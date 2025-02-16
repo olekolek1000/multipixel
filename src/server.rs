@@ -8,8 +8,10 @@ use crate::{
 	event_queue::EventQueue,
 	packet_server,
 	room::{RoomInstance, RoomInstanceMutex},
-	session::{SessionHandle, SessionInstance, SessionInstanceMutex, SessionVec},
+	session::{self, SessionHandle, SessionInstance, SessionInstanceMutex, SessionVec},
 };
+
+use std::sync::Mutex as SyncMutex;
 
 pub struct Server {
 	cancel_token: CancellationToken,
@@ -45,7 +47,7 @@ impl Server {
 			if let Some(cell) = cell {
 				let handle = SessionVec::get_handle(cell, idx);
 				log::info!("Cleaning-up session ID {}", idx);
-				let mut session = cell.obj.lock().await;
+				let mut session = cell.obj.session.lock().await;
 				session.kick("Server closed").await?;
 				// Send remaining data to the client
 				let _dont_care = session.send_all().await;
@@ -65,8 +67,16 @@ impl Server {
 		&mut self,
 		cancel_token: CancellationToken,
 	) -> (SessionHandle, SessionInstanceMutex) {
-		let session_mtx = Arc::new(Mutex::new(SessionInstance::new(cancel_token)));
-		(self.sessions.add(session_mtx.clone()), session_mtx)
+		let session_mtx = Arc::new(Mutex::new(SessionInstance::new(
+			cancel_token,
+			Default::default(),
+		)));
+		(
+			self.sessions.add(session::SessionContainer {
+				session: session_mtx.clone(),
+			}),
+			session_mtx,
+		)
 	}
 
 	pub async fn get_or_load_room(&mut self, room_name: &str) -> anyhow::Result<RoomInstanceMutex> {
@@ -88,13 +98,14 @@ impl Server {
 		room_name: &str,
 		queue_send: EventQueue<packet_server::Packet>,
 		session_handle: &SessionHandle,
+		nick_name: Arc<SyncMutex<String>>,
 	) -> anyhow::Result<RoomInstanceMutex> {
 		let room_instance_mtx = self.get_or_load_room(room_name).await?;
 
 		room_instance_mtx
 			.lock()
 			.await
-			.add_session(self, queue_send, session_handle);
+			.add_session(self, queue_send, session_handle, nick_name);
 
 		Ok(room_instance_mtx)
 	}

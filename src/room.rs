@@ -10,17 +10,19 @@ use crate::{
 	tool::brush::BrushShapes,
 };
 use std::sync::Arc;
+use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
-pub struct SessionCell {
+pub struct RoomSessionData {
 	pub instance_mtx: SessionInstanceWeak,
 	pub queue_send: EventQueue<packet_server::Packet>,
 	pub handle: SessionHandle,
+	pub nick_name: Arc<SyncMutex<String>>,
 }
 
 pub struct RoomInstance {
-	sessions: Vec<SessionCell>,
+	sessions: Vec<RoomSessionData>,
 	pub database: Arc<Mutex<Database>>,
 	pub chunk_system: ChunkSystemMutex,
 	pub brush_shapes: Arc<Mutex<BrushShapes>>,
@@ -63,14 +65,16 @@ impl RoomInstance {
 		server: &Server,
 		queue_send: EventQueue<packet_server::Packet>,
 		session_handle: &SessionHandle,
+		nick_name: Arc<SyncMutex<String>>,
 	) {
 		log::info!("Adding session ID {}", session_handle.id());
 		let session = server.sessions.get(session_handle).unwrap();
 
-		self.sessions.push(SessionCell {
+		self.sessions.push(RoomSessionData {
 			handle: *session_handle,
 			queue_send,
-			instance_mtx: Arc::downgrade(session),
+			instance_mtx: Arc::downgrade(&session.session),
+			nick_name,
 		});
 	}
 
@@ -94,8 +98,8 @@ impl RoomInstance {
 		}
 	}
 
-	pub fn get_all_sessions(&self, except: Option<&SessionHandle>) -> Vec<SessionCell> {
-		let mut ret: Vec<SessionCell> = Vec::new();
+	pub fn get_all_sessions(&self, except: Option<&SessionHandle>) -> Vec<RoomSessionData> {
+		let mut ret: Vec<RoomSessionData> = Vec::new();
 
 		for cell in &self.sessions {
 			if let Some(except) = except {
@@ -122,19 +126,19 @@ impl RoomInstance {
 
 		loop {
 			let mut occupied = false;
-			for session in &self.sessions {
-				if session.handle == *except {
+			for session_data in &self.sessions {
+				if session_data.handle == *except {
 					continue;
 				}
 
-				if let Some(session) = session.instance_mtx.upgrade() {
-					if session.lock().await.nick_name == Self::gen_suitable_name(current, &occupied_num) {
-						occupied = true;
-						if let Some(num) = &mut occupied_num {
-							*num += 1;
-						} else {
-							occupied_num = Some(2);
-						}
+				if *session_data.nick_name.lock().unwrap()
+					== Self::gen_suitable_name(current, &occupied_num)
+				{
+					occupied = true;
+					if let Some(num) = &mut occupied_num {
+						*num += 1;
+					} else {
+						occupied_num = Some(2);
 					}
 				}
 			}
@@ -148,6 +152,7 @@ impl RoomInstance {
 	}
 
 	pub async fn cleanup(&mut self) {
+		log::trace!("Cleaning-up room");
 		ChunkSystem::cleanup(self.chunk_system.clone()).await;
 		PreviewSystem::process_all(self.preview_system.clone()).await;
 		self.database.lock().await.cleanup().await;

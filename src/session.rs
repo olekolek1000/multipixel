@@ -16,6 +16,7 @@ use futures_util::SinkExt;
 use glam::IVec2;
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
+use std::sync::Mutex as SyncMutex;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use std::{fmt, io};
@@ -213,7 +214,7 @@ impl History {
 }
 
 pub struct SessionInstance {
-	pub nick_name: String, // Max 255 characters
+	pub nick_name: Arc<SyncMutex<String>>, // Max 255 characters
 
 	admin_mode: bool,
 
@@ -253,12 +254,12 @@ pub struct SessionInstance {
 }
 
 impl SessionInstance {
-	pub fn new(cancel_token: CancellationToken) -> Self {
+	pub fn new(cancel_token: CancellationToken, nick_name: Arc<SyncMutex<String>>) -> Self {
 		let notifier = Arc::new(Notify::new());
 
 		Self {
 			cancel_token,
-			nick_name: String::new(),
+			nick_name,
 			cursor_pos: Default::default(),
 			cursor_pos_prev: Default::default(),
 			cursor_pos_sent: None,
@@ -560,7 +561,7 @@ impl SessionInstance {
 
 					let pixel = GlobalPixel {
 						pos: cell,
-						color: self.tool.color.clone(),
+						color: self.tool.color,
 					};
 
 					task.canvas_cache.set_pixel(&pixel.pos, &pixel.color);
@@ -922,7 +923,7 @@ impl SessionInstance {
 			if let Some(cell) = fetch_cell(&mut affected_chunks, &chunk_pos) {
 				cell.queued_pixels.push((
 					ChunkPixel {
-						color: pixel.color.clone(),
+						color: pixel.color,
 						pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
 					},
 					pixel.pos,
@@ -1040,7 +1041,12 @@ impl SessionInstance {
 
 		// Fetch room and chunk system references
 		let room_mtx = server
-			.add_session_to_room(room_name, self.queue_send.clone(), session_handle)
+			.add_session_to_room(
+				room_name,
+				self.queue_send.clone(),
+				session_handle,
+				self.nick_name.clone(),
+			)
 			.await?;
 
 		let room = room_mtx.lock().await;
@@ -1136,11 +1142,13 @@ impl SessionInstance {
 			.join_room(&packet.room_name, session_handle, server_mtx)
 			.await?;
 
-		self.nick_name = room_mtx
+		let suitable_nick = room_mtx
 			.lock()
 			.await
 			.get_suitable_nick_name(packet.nick_name.as_str(), session_handle)
 			.await;
+
+		*self.nick_name.lock().unwrap() = suitable_nick;
 
 		// Broadcast to all users that this user is available
 		self.broadcast_self(room_mtx, session_handle).await;
@@ -1156,7 +1164,10 @@ impl SessionInstance {
 
 		// Announce itself to other existing sessions
 		room.broadcast(
-			&packet_server::prepare_packet_user_create(session_handle.id(), &self.nick_name),
+			&packet_server::prepare_packet_user_create(
+				session_handle.id(),
+				&self.nick_name.lock().unwrap(),
+			),
 			Some(session_handle),
 		);
 
@@ -1175,7 +1186,7 @@ impl SessionInstance {
 					.queue_send
 					.send(packet_server::prepare_packet_user_create(
 						other_session_id,
-						&session.nick_name,
+						&session.nick_name.lock().unwrap(),
 					));
 
 				//Send current cursor positions of the session
@@ -1244,7 +1255,7 @@ impl SessionInstance {
 
 	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
 		msg = msg.trim();
-		let msg = format!("<{}> {}", self.nick_name.as_str(), msg);
+		let msg = format!("<{}> {}", self.nick_name.lock().unwrap().as_str(), msg);
 		log::info!("Chat message: {}", msg);
 
 		// Broadcast chat message to all sessions
@@ -1723,4 +1734,9 @@ impl Drop for SessionInstance {
 
 pub type SessionInstanceMutex = Arc<Mutex<SessionInstance>>;
 pub type SessionInstanceWeak = Weak<Mutex<SessionInstance>>;
-gen_id!(SessionVec, SessionInstanceMutex, SessionCell, SessionHandle);
+
+pub struct SessionContainer {
+	pub session: SessionInstanceMutex,
+}
+
+gen_id!(SessionVec, SessionContainer, SessionVecCell, SessionHandle);

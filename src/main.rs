@@ -81,11 +81,12 @@ async fn connection_read_packet(
 
 async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow::Result<()> {
 	let connection = ServerBuilder::new().accept(tcp_conn).await?;
-	let (writer, mut reader) = connection.split();
+	let (writer, mut reader) = connection.1.split();
 
 	let mut server = server_mtx.lock().await;
 	let cancel_token = CancellationToken::new();
 
+	log::trace!("Creating new session");
 	let (session_handle, session_mtx) = server.create_session(cancel_token.clone());
 	drop(server);
 	log::info!("Created session with ID {}", session_handle.id());
@@ -135,7 +136,7 @@ async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow
 	drop(server);
 	drop(session_mtx);
 
-	// for debugging purposes
+	//for debugging purposes
 	debug_assert!(
 		weak_session.strong_count() == 0,
 		"session count ref is not 0"
@@ -211,7 +212,7 @@ fn main() {
 		let runtime = tokio::runtime::Builder::new_multi_thread()
 			.enable_time()
 			.thread_name("mp")
-			.worker_threads(std::thread::available_parallelism().unwrap().get().min(4)) // Max 4 threads
+			.worker_threads(std::thread::available_parallelism().unwrap().get().min(2)) // Max 4 threads
 			.thread_stack_size(2 * 1024 * 1024)
 			.enable_io()
 			.build()
