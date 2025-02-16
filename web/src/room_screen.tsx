@@ -53,7 +53,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 			<Tooltip title={
 				<BoxRight nowrap>{generateList()}</BoxRight>
 			}>
-				<Icon path="public/img/tool/user.svg" />
+				<Icon path="img/tool/user.svg" />
 			</Tooltip>
 			<span className={style_room.users_online}>{list.length} {list.length == 1 ? "user" : "users"}</span>
 		</>);
@@ -77,7 +77,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.Brush);
 						setToolType(ToolType.brush);
 					}}>
-						<Icon path="public/img/tool/brush.svg" />
+						<Icon path="img/tool/brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Square brush">
@@ -85,7 +85,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.SquareBrush);
 						setToolType(ToolType.square_brush);
 					}}>
-						<Icon path="public/img/tool/square_brush.svg" />
+						<Icon path="img/tool/square_brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Smooth brush">
@@ -93,7 +93,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.SmoothBrush);
 						setToolType(ToolType.smooth_brush);
 					}}>
-						<Icon path="public/img/tool/smooth_brush.svg" />
+						<Icon path="img/tool/smooth_brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Floodfill">
@@ -101,7 +101,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.Floodfill);
 						setToolType(ToolType.floodfill);
 					}}>
-						<Icon path="public/img/tool/floodfill.svg" />
+						<Icon path="img/tool/floodfill.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Spray">
@@ -109,7 +109,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.Spray);
 						setToolType(ToolType.spray);
 					}}>
-						<Icon path="public/img/tool/spray.svg" />
+						<Icon path="img/tool/spray.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Blur">
@@ -117,7 +117,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.Blur);
 						setToolType(ToolType.blur);
 					}}>
-						<Icon path="public/img/tool/blur.svg" />
+						<Icon path="img/tool/blur.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Smudge">
@@ -125,7 +125,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 						multipixel.selectTool(tool.ToolID.Smudge);
 						setToolType(ToolType.smudge);
 					}}>
-						<Icon path="public/img/tool/smudge.svg" />
+						<Icon path="img/tool/smudge.svg" />
 					</ButtonTool>
 				</Tooltip>
 			</div>
@@ -134,14 +134,14 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 					<ButtonTool on_click={() => {
 						multipixel.handleButtonUndo();
 					}}>
-						<Icon path="public/img/tool/undo.svg" />
+						<Icon path="img/tool/undo.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Reset zoom to 100%">
 					<ButtonTool on_click={() => {
 						multipixel.handleButtomZoom1_1();
 					}}>
-						<Icon path="public/img/tool/100.svg" />
+						<Icon path="img/tool/100.svg" />
 					</ButtonTool>
 				</Tooltip>
 				{processing_status_text}

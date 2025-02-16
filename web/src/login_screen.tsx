@@ -86,7 +86,7 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 
 	const ref_video = React.useRef(null);
 	const [logo_container, setLogoContainer] = useState(<video ref={ref_video} width="512" height="128" autoPlay muted playsInline={true}>
-		<source src="public/logo.webm" type="video/webm" />
+		<source src="logo.webm" type="video/webm" />
 		Logo
 	</video>);
 
@@ -100,7 +100,7 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 		video.play().catch((e) => {
 			console.log("Cannot play video:", e);
 			console.log("Falling back to plain logo image");
-			setLogoContainer(<img src="public/logo.webp" width={512} height={128} />);
+			setLogoContainer(<img src="logo.webp" width={512} height={128} />);
 		});
 	}, []);
 

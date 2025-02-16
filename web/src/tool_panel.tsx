@@ -252,24 +252,24 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 				<div className={style_toolbox.cs_button} onClick={() => {
 					cp.setColumnCount(cp.column_count + 1);
 				}}>
-					<Icon path="public/img/tool/plus.svg" />
+					<Icon path="img/tool/plus.svg" />
 				</div>
 				<div className={style_toolbox.cs_button} onClick={() => {
 					cp.setColumnCount(cp.column_count - 1);
 				}}>
-					<Icon path="public/img/tool/minus.svg" />
+					<Icon path="img/tool/minus.svg" />
 				</div>
 			</div>
 			<div className={style_toolbox.cs_buttons}>
 				<div className={style_toolbox.cs_button} onClick={() => {
 					cp.setRowCount(cp.row_count + 1);
 				}}>
-					<Icon path="public/img/tool/plus.svg" />
+					<Icon path="img/tool/plus.svg" />
 				</div>
 				<div className={style_toolbox.cs_button} onClick={() => {
 					cp.setRowCount(cp.row_count - 1);
 				}}>
-					<Icon path="public/img/tool/minus.svg" />
+					<Icon path="img/tool/minus.svg" />
 				</div>
 			</div>
 		</div>
