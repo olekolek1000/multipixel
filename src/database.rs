@@ -1,10 +1,9 @@
 use glam::IVec2;
 use num_enum::TryFromPrimitive;
+use rusqlite::params;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_rusqlite::params;
-use tokio_rusqlite::rusqlite;
 
 const SECONDS_BETWEEN_SNAPSHOTS: u32 = 14400;
 
@@ -22,7 +21,7 @@ pub enum CompressionType {
 }
 
 pub struct Database {
-	pub conn: tokio_rusqlite::Connection,
+	pub conn: rusqlite::Connection,
 	cleaned_up: bool,
 }
 
@@ -39,45 +38,38 @@ pub struct PreviewDatabaseRecord {
 }
 
 impl Database {
-	pub async fn new(path: &str) -> tokio_rusqlite::Result<Self> {
-		let conn = tokio_rusqlite::Connection::open(path).await?;
+	pub async fn new(path: &str) -> rusqlite::Result<Self> {
+		log::trace!("Opening database at path {}", path);
+		let conn = rusqlite::Connection::open(path)?;
 
 		let db = Self {
 			conn,
 			cleaned_up: false,
 		};
 
-		db.conn
-			.call(move |conn| {
-				Self::run_empty_query(conn, "PRAGMA SYNCHRONOUS=OFF")?;
-				Self::init_table_chunk_data(conn)?;
-				Self::init_table_previews(conn)?;
-				Ok(())
-			})
-			.await?;
+		Self::run_empty_query(&db.conn, "PRAGMA SYNCHRONOUS=OFF")?;
+		Self::init_table_chunk_data(&db.conn)?;
+		Self::init_table_previews(&db.conn)?;
 
-		log::info!("Database {} loaded", path);
+		log::info!("Database at path {} loaded", path);
 
 		Ok(db)
 	}
 
-	fn run_empty_query(
-		conn: &rusqlite::Connection,
-		query: &'static str,
-	) -> tokio_rusqlite::Result<()> {
+	fn run_empty_query(conn: &rusqlite::Connection, query: &'static str) -> rusqlite::Result<()> {
 		let mut stmt = conn.prepare(query)?;
 		stmt.execute([])?;
 		Ok(())
 	}
 
-	fn init_table_chunk_data(conn: &rusqlite::Connection) -> tokio_rusqlite::Result<()> {
+	fn init_table_chunk_data(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 		Self::run_empty_query(conn, "CREATE TABLE IF NOT EXISTS chunk_data(x INT NOT NULL, y INT NOT NULL, data BLOB, modified INT64 NOT NULL, created INT64 NOT NULL, compression INT);")?;
 		Self::run_empty_query(conn, "CREATE INDEX IF NOT EXISTS index_x on chunk_data(x)")?;
 		Self::run_empty_query(conn, "CREATE INDEX IF NOT EXISTS index_y on chunk_data(y)")?;
 		Ok(())
 	}
 
-	fn init_table_previews(conn: &rusqlite::Connection) -> tokio_rusqlite::Result<()> {
+	fn init_table_previews(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 		Self::run_empty_query(conn, "CREATE TABLE IF NOT EXISTS previews(x INT NOT NULL, y INT NOT NULL, zoom INT NOT NULL, data BLOB)")?;
 		Self::run_empty_query(
 			conn,
@@ -95,7 +87,7 @@ impl Database {
 		pos: IVec2,
 		data: &[u8],
 		compression_type: CompressionType,
-	) -> tokio_rusqlite::Result<()> {
+	) -> rusqlite::Result<()> {
 		conn.execute(
 			"INSERT INTO chunk_data (x,y,data,modified,created,compression) VALUES(?,?,?,?,?,?)",
 			params![
@@ -115,7 +107,7 @@ impl Database {
 		pos: IVec2,
 		data: &[u8],
 		compression_type: CompressionType,
-	) -> tokio_rusqlite::Result<()> {
+	) -> rusqlite::Result<()> {
 		struct Row {
 			timestamp: i64,
 			chunk_id: i64,
@@ -157,7 +149,7 @@ impl Database {
 		Ok(())
 	}
 
-	fn chunk_list_all(conn: &rusqlite::Connection) -> tokio_rusqlite::Result<HashSet<IVec2>> {
+	fn chunk_list_all(conn: &rusqlite::Connection) -> rusqlite::Result<HashSet<IVec2>> {
 		struct Row {
 			x: i32,
 			y: i32,
@@ -183,7 +175,7 @@ impl Database {
 	fn chunk_load_data(
 		conn: &rusqlite::Connection,
 		pos: IVec2,
-	) -> tokio_rusqlite::Result<Option<ChunkDatabaseRecord>> {
+	) -> rusqlite::Result<Option<ChunkDatabaseRecord>> {
 		struct Row {
 			data: Vec<u8>,
 			compression: u8,
@@ -219,7 +211,7 @@ impl Database {
 		conn: &rusqlite::Connection,
 		pos: &IVec2,
 		zoom: u8,
-	) -> tokio_rusqlite::Result<Option<PreviewDatabaseRecord>> {
+	) -> rusqlite::Result<Option<PreviewDatabaseRecord>> {
 		struct Row {
 			data: Vec<u8>,
 		}
@@ -240,7 +232,7 @@ impl Database {
 		pos: IVec2,
 		zoom: u8,
 		data: &[u8],
-	) -> tokio_rusqlite::Result<()> {
+	) -> rusqlite::Result<()> {
 		if let Ok(rowid) = conn.query_row(
 			"SELECT rowid FROM previews WHERE x=? AND y=? AND zoom=?",
 			params![pos.x, pos.y, zoom],
@@ -266,6 +258,7 @@ impl Database {
 	}
 
 	pub async fn cleanup(&mut self) {
+		log::trace!("Cleaning-up database");
 		self.cleaned_up = true;
 	}
 
@@ -274,12 +267,11 @@ impl Database {
 		callback: F,
 	) -> anyhow::Result<ResultType>
 	where
-		for<'a> F:
-			FnOnce(&'a rusqlite::Connection) -> tokio_rusqlite::Result<ResultType> + Send + 'static,
+		for<'a> F: FnOnce(&'a rusqlite::Connection) -> rusqlite::Result<ResultType> + Send + 'static,
 		ResultType: std::marker::Send + 'static,
 	{
 		let db = database.lock().await;
-		let res = db.conn.call(move |conn| callback(conn)).await?;
+		let res = callback(&db.conn)?;
 		Ok(res)
 	}
 }

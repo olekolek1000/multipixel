@@ -334,6 +334,7 @@ impl PreviewSystem {
 	}
 
 	pub async fn process_all(preview_system_mtx: PreviewSystemMutex) {
+		log::trace!("Processing all pending previews");
 		let mut preview_system = preview_system_mtx.lock().await;
 		preview_system.process_queue().await;
 		drop(preview_system);

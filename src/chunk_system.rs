@@ -358,6 +358,7 @@ impl ChunkSystem {
 	}
 
 	pub async fn cleanup(chunk_system_mtx: ChunkSystemMutex) {
+		log::trace!("Cleaning-up chunk system");
 		let chunk_system = chunk_system_mtx.lock().await;
 		if let Some(task) = &chunk_system.task_tick {
 			task.abort();
