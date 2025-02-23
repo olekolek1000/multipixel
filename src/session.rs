@@ -1,15 +1,18 @@
 use crate::canvas_cache::CanvasCache;
-use crate::chunk::{ChunkInstanceMutex, ChunkInstanceWeak, ChunkPixel};
-use crate::chunk_cache::ChunkCache;
-use crate::chunk_system::{ChunkSystem, ChunkSystemMutex};
+use crate::chunk::cache::ChunkCache;
+use crate::chunk::chunk::{ChunkInstanceWeak, ChunkPixelRGB};
+use crate::chunk::compositor::LayerID;
+use crate::chunk::system::ChunkSystem;
+use crate::chunk::writer::ChunkWriterRGB;
 use crate::event_queue::EventQueue;
 use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
-use crate::pixel::{Color, GlobalPixel};
-use crate::preview_system::PreviewSystemMutex;
-use crate::room::RoomInstanceMutex;
+use crate::pixel::{ColorRGB, GlobalPixelRGB};
+use crate::room::{RoomInstanceMutex, RoomRefs};
+use crate::serial_generator::SerialGenerator;
 use crate::server::ServerMutex;
-use crate::tool::brush::BrushShapes;
+use crate::tool::iter::LineMoveIter;
+use crate::tool::state::{ToolState, ToolStateLine};
 use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
@@ -50,18 +53,18 @@ impl fmt::Display for UserError {
 
 #[derive(Default)]
 struct FloodfillTask {
-	to_replace: Color,
+	to_replace: ColorRGB,
 	start_pos: IVec2,
 	stack: Vec<IVec2>,
 	affected_chunks: HashSet<IVec2>,
-	pixels_changed: Vec<GlobalPixel>,
+	pixels_changed: Vec<GlobalPixelRGB>,
 	canvas_cache: CanvasCache,
 }
 
 struct ToolData {
 	pub size: u8,
 	pub flow: f32,
-	pub color: Color,
+	pub color: ColorRGB,
 	pub tool_type: Option<packet_client::ToolType>,
 }
 
@@ -93,7 +96,7 @@ impl LinkedChunk {
 }
 
 struct HistoryCell {
-	pixels: Vec<GlobalPixel>,
+	pixels: Vec<GlobalPixelRGB>,
 }
 
 #[derive(Default)]
@@ -103,78 +106,6 @@ struct Boundary {
 	end_x: i32,
 	end_y: i32,
 	zoom: f32,
-}
-
-pub struct RoomRefs {
-	room_mtx: RoomInstanceMutex,
-	chunk_system_mtx: ChunkSystemMutex,
-	preview_system_mtx: PreviewSystemMutex,
-	brush_shapes_mtx: Arc<Mutex<BrushShapes>>,
-}
-
-struct LineMoveIter {
-	index: u32,
-	step: u8,
-	iter_count: u32,
-	start_x: i32,
-	start_y: i32,
-	end_x: i32,
-	end_y: i32,
-}
-
-impl LineMoveIter {
-	fn iterate(instance: &SessionInstance, step: u8) -> Self {
-		let iter_count = std::cmp::max(
-			1,
-			util::distance64(
-				instance.cursor_pos.x as f64,
-				instance.cursor_pos.y as f64,
-				instance.cursor_pos_prev.x as f64,
-				instance.cursor_pos_prev.y as f64,
-			) as u32,
-		);
-
-		Self {
-			iter_count,
-			start_x: instance.cursor_pos_prev.x,
-			start_y: instance.cursor_pos_prev.y,
-			end_x: instance.cursor_pos.x,
-			end_y: instance.cursor_pos.y,
-			index: 0,
-			step,
-		}
-	}
-}
-
-struct LineMoveCell {
-	x: i32,
-	y: i32,
-	index: u32,
-}
-
-impl Iterator for LineMoveIter {
-	type Item = LineMoveCell;
-
-	fn next(&mut self) -> Option<Self::Item> {
-		if self.index > self.iter_count {
-			return None;
-		}
-
-		let alpha = (self.index as f64) / self.iter_count as f64;
-
-		//Lerp
-		let x = util::lerp(alpha, self.start_x as f64, self.end_x as f64) as i32;
-		let y = util::lerp(alpha, self.start_y as f64, self.end_y as f64).round() as i32;
-
-		let item = LineMoveCell {
-			index: self.index,
-			x,
-			y,
-		};
-
-		self.index += self.step as u32;
-		Some(item)
-	}
 }
 
 #[derive(Default)]
@@ -196,7 +127,7 @@ impl History {
 		});
 	}
 
-	fn add_pixel(&mut self, pixel: GlobalPixel) {
+	fn add_pixel(&mut self, pixel: GlobalPixelRGB) {
 		if self.cells.is_empty() {
 			self.create_snapshot();
 		}
@@ -248,9 +179,13 @@ pub struct SessionInstance {
 	announced: bool,
 	cleaned_up: bool,
 
+	tool_state: ToolState,
+
 	writer: Option<Arc<Mutex<ConnectionWriter>>>,
 	task_sender: Option<JoinHandle<()>>,
 	task_tick: Option<JoinHandle<()>>,
+
+	serial_generator: SerialGenerator,
 }
 
 impl SessionInstance {
@@ -283,6 +218,8 @@ impl SessionInstance {
 			task_tick: None,
 			writer: None,
 			admin_mode: false,
+			tool_state: ToolState::None,
+			serial_generator: SerialGenerator::new(),
 		}
 	}
 
@@ -299,7 +236,9 @@ impl SessionInstance {
 
 			if let Some(room_refs) = &session.room_refs {
 				let room_refs = room_refs.clone();
-				session.tick_cursor(&room_refs, session_handle).await;
+
+				session.tick_tool_state(&room_refs).await;
+
 				if let Err(e) = session
 					.tick_boundary_check(&room_refs, session_handle, &session_mtx)
 					.await
@@ -407,8 +346,16 @@ impl SessionInstance {
 						.process_command_cursor_pos(&refs, reader, session_handle)
 						.await?
 				}
-				ClientCmd::CursorDown => self.process_command_cursor_down(&refs, reader).await?,
-				ClientCmd::CursorUp => self.process_command_cursor_up(&refs, reader).await?,
+				ClientCmd::CursorDown => {
+					self
+						.process_command_cursor_down(&refs, reader, session_handle)
+						.await?
+				}
+				ClientCmd::CursorUp => {
+					self
+						.process_command_cursor_up(&refs, reader, session_handle)
+						.await?
+				}
 				ClientCmd::Boundary => self.process_command_boundary(reader).await?,
 				ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
 				ClientCmd::PreviewRequest => self.process_command_preview_request(&refs, reader).await?,
@@ -482,15 +429,22 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn update_cursor(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
+	async fn set_tool_state(&mut self, refs: &RoomRefs, new_state: ToolState) {
+		match &mut self.tool_state {
+			ToolState::None => {}
+			ToolState::Line(state) => {
+				state.cleanup(refs).await;
+			}
 		}
+		self.tool_state = new_state;
+	}
 
+	async fn update_cursor(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
 		if let Some(tool_type) = &self.tool.tool_type {
 			match tool_type {
 				packet_client::ToolType::Brush => self.update_cursor_brush(refs, false).await,
 				packet_client::ToolType::SquareBrush => self.update_cursor_brush(refs, true).await,
+				packet_client::ToolType::Line => self.update_cursor_line(refs, session_handle).await,
 				packet_client::ToolType::SmoothBrush => self.update_cursor_smooth_brush(refs).await,
 				packet_client::ToolType::Spray => self.update_cursor_spray(refs).await,
 				packet_client::ToolType::Fill => self.update_cursor_fill(refs).await,
@@ -525,6 +479,10 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_fill(&mut self, refs: &RoomRefs) {
+		if !self.cursor_down {
+			return;
+		}
+
 		// Allow single click only
 		if !self.cursor_just_clicked {
 			return;
@@ -536,7 +494,7 @@ impl SessionInstance {
 			return;
 		}
 
-		if let Some(color) = self.get_pixel_global(refs, global_pos).await {
+		if let Some(color) = self.get_pixel_main(refs, global_pos).await {
 			if self.tool.color == color {
 				return; // Nothing to do.
 			}
@@ -559,7 +517,7 @@ impl SessionInstance {
 						continue;
 					}
 
-					let pixel = GlobalPixel {
+					let pixel = GlobalPixelRGB {
 						pos: cell,
 						color: self.tool.color,
 					};
@@ -603,16 +561,22 @@ impl SessionInstance {
 				break;
 			}
 
-			self
-				.set_pixels_global(refs, &task.pixels_changed, true)
-				.await;
+			self.set_pixels_main(refs, &task.pixels_changed, true).await;
 		}
 	}
 
 	async fn update_cursor_brush(&mut self, refs: &RoomRefs, square: bool) {
+		if !self.cursor_down {
+			return;
+		}
+
 		let tool_size = self.get_tool_size();
 		let step = 1 + tool_size / 6;
-		let iter = LineMoveIter::iterate(self, step);
+		let iter = LineMoveIter::iterate(
+			self.cursor_pos_prev.to_vec(),
+			self.cursor_pos.to_vec(),
+			step,
+		);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
@@ -620,7 +584,7 @@ impl SessionInstance {
 		}
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
 		let shape_filled = if square {
 			brush_shapes.get_square_filled(tool_size)
 		} else {
@@ -636,13 +600,13 @@ impl SessionInstance {
 
 		for line in iter {
 			match tool_size {
-				1 => GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y, &self.tool.color),
+				1 => GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &self.tool.color),
 				2 => {
-					GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, line.x - 1, line.y, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, line.x + 1, line.y, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y - 1, &self.tool.color);
-					GlobalPixel::insert_to_vec(&mut pixels, line.x, line.y + 1, &self.tool.color);
+					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &self.tool.color);
+					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x - 1, line.pos.y, &self.tool.color);
+					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x + 1, line.pos.y, &self.tool.color);
+					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y - 1, &self.tool.color);
+					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y + 1, &self.tool.color);
 				}
 				_ => {
 					let shape = if line.index == 0 {
@@ -652,28 +616,75 @@ impl SessionInstance {
 					};
 
 					for s in shape.iterate() {
-						let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
-						let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
-						GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
+						let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
+						let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+						GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
 					}
 				}
 			}
 		}
 
-		self.set_pixels_global(refs, &pixels, true).await;
+		self.set_pixels_main(refs, &pixels, true).await;
+	}
+
+	async fn update_cursor_line(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
+		if self.cursor_down && !matches!(self.tool_state, ToolState::Line(_)) {
+			// Start drawing line
+			let layer_generation = self.serial_generator.increment_get();
+
+			self
+				.set_tool_state(
+					refs,
+					ToolState::Line(ToolStateLine::new(
+						self.cursor_pos.to_vec(),
+						LayerID::Session(layer_generation, *session_handle),
+					)),
+				)
+				.await;
+		}
+
+		let mut ending_drawing = false;
+
+		if !self.cursor_down && matches!(self.tool_state, ToolState::Line(_)) {
+			// Stop drawing line
+			ending_drawing = true;
+		}
+
+		if ending_drawing {
+			// render for the last time
+			if let ToolState::Line(state) = &mut self.tool_state {
+				state
+					.process(
+						&mut self.chunk_cache,
+						refs,
+						self.cursor_pos.to_vec(),
+						self.tool.color,
+					)
+					.await;
+			}
+			self.set_tool_state(refs, ToolState::None).await;
+		}
 	}
 
 	async fn update_cursor_smooth_brush(&mut self, refs: &RoomRefs) {
+		if !self.cursor_down {
+			return;
+		}
+
 		let tool_size = self.get_tool_size().max(4);
 		let step = 1 + tool_size / 6;
-		let iter = LineMoveIter::iterate(self, step);
+		let iter = LineMoveIter::iterate(
+			self.cursor_pos_prev.to_vec(),
+			self.cursor_pos.to_vec(),
+			step,
+		);
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
 		}
 
-		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
 		let mut cache = CanvasCache::default();
 
 		let intensity = (self.tool.flow.powf(2.0) * 255.0) as u8;
@@ -682,8 +693,8 @@ impl SessionInstance {
 		for line in iter {
 			for brush_y in 0..tool_size {
 				for brush_x in 0..tool_size {
-					let pos_x = line.x + brush_x as i32 - tool_size as i32 / 2;
-					let pos_y = line.y + brush_y as i32 - tool_size as i32 / 2;
+					let pos_x = line.pos.x + brush_x as i32 - tool_size as i32 / 2;
+					let pos_y = line.pos.y + brush_y as i32 - tool_size as i32 / 2;
 
 					let current = cache
 						.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
@@ -697,23 +708,28 @@ impl SessionInstance {
 						continue;
 					}
 
-					let blended = Color::blend_gamma_corrected(
+					let blended = ColorRGB::blend_gamma_corrected(
 						(intensity as f32 * (1.0 - mult)) as u8,
 						&current,
 						&self.tool.color,
 					);
 
 					cache.set_pixel(&IVec2::new(pos_x, pos_y), &blended);
-					GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+					GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
 				}
 			}
 		}
 
-		self.set_pixels_global(refs, &pixels, true).await;
+		self.set_pixels_main(refs, &pixels, true).await;
 	}
 
 	async fn update_cursor_spray(&mut self, refs: &RoomRefs) {
-		let iter = LineMoveIter::iterate(self, 1);
+		if !self.cursor_down {
+			return;
+		}
+
+		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec(), 1);
+
 		if iter.iter_count > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
@@ -723,7 +739,7 @@ impl SessionInstance {
 		let tool_size = self.get_tool_size();
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
 		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
@@ -736,20 +752,24 @@ impl SessionInstance {
 					continue;
 				}
 
-				let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
-				let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
-				GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
+				let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
+				let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+				GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
 			}
 		}
 
-		self.set_pixels_global(refs, &pixels, true).await;
+		self.set_pixels_main(refs, &pixels, true).await;
 	}
 
 	async fn update_cursor_blur(&mut self, refs: &RoomRefs) {
+		if !self.cursor_down {
+			return;
+		}
+
 		let tool_size = self.get_tool_size();
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels: Vec<GlobalPixel> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
 		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
@@ -777,22 +797,26 @@ impl SessionInstance {
 				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y + 1))
 				.await;
 
-			let blended_horiz = Color::blend_gamma_corrected(127, &left, &right);
-			let blended_vert = Color::blend_gamma_corrected(127, &top, &bottom);
-			let blended = Color::blend_gamma_corrected(127, &blended_horiz, &blended_vert);
-			let current = Color::blend_gamma_corrected(blend_intensity, &center, &blended);
-			GlobalPixel::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
+			let blended_horiz = ColorRGB::blend_gamma_corrected(127, &left, &right);
+			let blended_vert = ColorRGB::blend_gamma_corrected(127, &top, &bottom);
+			let blended = ColorRGB::blend_gamma_corrected(127, &blended_horiz, &blended_vert);
+			let current = ColorRGB::blend_gamma_corrected(blend_intensity, &center, &blended);
+			GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
 		}
 
-		self.set_pixels_global(refs, &pixels, true).await;
+		self.set_pixels_main(refs, &pixels, true).await;
 	}
 
 	async fn update_cursor_smudge(&mut self, refs: &RoomRefs) {
+		if !self.cursor_down {
+			return;
+		}
+
 		let tool_size = self.get_tool_size();
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels_final: Vec<GlobalPixel> = Vec::new();
-		let mut pixels_temp: Vec<GlobalPixel> = Vec::new();
+		let mut pixels_final: Vec<GlobalPixelRGB> = Vec::new();
+		let mut pixels_temp: Vec<GlobalPixelRGB> = Vec::new();
 
 		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
@@ -801,22 +825,22 @@ impl SessionInstance {
 
 		let mut cache = CanvasCache::default();
 
-		let iter = LineMoveIter::iterate(self, 1);
+		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec(), 1);
 
 		let mut line_x_prev = self.cursor_pos_prev.x;
 		let mut line_y_prev = self.cursor_pos_prev.y;
 
 		for line in iter {
-			let diff_x = line_x_prev - line.x;
-			let diff_y = line_y_prev - line.y;
+			let diff_x = line_x_prev - line.pos.x;
+			let diff_y = line_y_prev - line.pos.y;
 			if diff_x == 0 && diff_y == 0 {
 				continue; // Nothing to smudge
 			}
 
 			pixels_temp.clear();
 			for s in shape_filled.iterate() {
-				let pos_x = line.x + s.local_x as i32 - (tool_size / 2) as i32;
-				let pos_y = line.y + s.local_y as i32 - (tool_size / 2) as i32;
+				let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
+				let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
 
 				let prev = cache
 					.get_pixel(
@@ -829,8 +853,8 @@ impl SessionInstance {
 					.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
 					.await;
 
-				let blended = Color::blend_gamma_corrected(blend_intensity, &center, &prev);
-				GlobalPixel::insert_to_vec(&mut pixels_temp, pos_x, pos_y, &blended);
+				let blended = ColorRGB::blend_gamma_corrected(blend_intensity, &center, &prev);
+				GlobalPixelRGB::insert_to_vec(&mut pixels_temp, pos_x, pos_y, &blended);
 			}
 
 			for pixel in &pixels_temp {
@@ -838,14 +862,14 @@ impl SessionInstance {
 			}
 			pixels_final.append(&mut pixels_temp);
 
-			line_x_prev = line.x;
-			line_y_prev = line.y;
+			line_x_prev = line.pos.x;
+			line_y_prev = line.pos.y;
 		}
 
-		self.set_pixels_global(refs, &pixels_final, true).await;
+		self.set_pixels_main(refs, &pixels_final, true).await;
 	}
 
-	async fn get_pixel_global(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<Color> {
+	async fn get_pixel_main(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<ColorRGB> {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(global_pos);
 
 		if let Some(chunk) = self
@@ -856,86 +880,26 @@ impl SessionInstance {
 			let mut chunk = chunk.lock().await;
 			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(global_pos);
 			chunk.allocate_image();
-			return Some(chunk.get_pixel(local_pos));
+			return Some(chunk.get_pixel_main(local_pos));
 		}
 
 		None
 	}
 
-	async fn set_pixels_global(
+	async fn set_pixels_main(
 		&mut self,
 		refs: &RoomRefs,
-		pixels: &[GlobalPixel],
+		pixels: &[GlobalPixelRGB],
 		with_history: bool,
 	) {
-		struct ChunkCacheCell {
-			chunk_pos: IVec2,
-			chunk: ChunkInstanceMutex,
-			queued_pixels: Vec<(
-				ChunkPixel, /* local pixel position */
-				IVec2,      /* global pixel position */
-			)>,
-		}
+		let mut writer = ChunkWriterRGB::new();
 
-		let mut affected_chunks: Vec<ChunkCacheCell> = Vec::new();
-
-		fn fetch_cell<'a>(
-			affected_chunks: &'a mut [ChunkCacheCell],
-			chunk_pos: &IVec2,
-		) -> Option<&'a mut ChunkCacheCell> {
-			affected_chunks
-				.iter_mut()
-				.find(|cell| cell.chunk_pos == *chunk_pos)
-		}
-
-		async fn cache_new_chunk(
-			chunk_cache: &mut ChunkCache,
-			refs: &RoomRefs,
-			affected_chunks: &mut Vec<ChunkCacheCell>,
-			chunk_pos: &IVec2,
-		) {
-			if let Some(chunk) = chunk_cache.get(&refs.chunk_system_mtx, *chunk_pos).await {
-				affected_chunks.push(ChunkCacheCell {
-					chunk_pos: *chunk_pos,
-					chunk,
-					queued_pixels: Vec::new(),
-				});
-			}
-		}
-
-		// Generate affected chunks list
-		for pixel in pixels {
-			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-			if fetch_cell(&mut affected_chunks, &chunk_pos).is_none() {
-				cache_new_chunk(
-					&mut self.chunk_cache,
-					refs,
-					&mut affected_chunks,
-					&chunk_pos,
-				)
-				.await;
-			}
-		}
-
-		// Send pixels to chunks
-		for pixel in pixels {
-			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-			if let Some(cell) = fetch_cell(&mut affected_chunks, &chunk_pos) {
-				cell.queued_pixels.push((
-					ChunkPixel {
-						color: pixel.color,
-						pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
-					},
-					pixel.pos,
-				));
-			} else {
-				// Skip pixel, already set
-				continue;
-			}
-		}
+		writer
+			.generate_affected(pixels, &mut self.chunk_cache, &refs.chunk_system_mtx)
+			.await;
 
 		// For every affected chunk
-		for cell in &affected_chunks {
+		for cell in &writer.affected_chunks {
 			if cell.queued_pixels.is_empty() {
 				continue;
 			}
@@ -945,10 +909,10 @@ impl SessionInstance {
 
 			if with_history {
 				for (local_pos, global_pos) in &cell.queued_pixels {
-					let color = chunk.get_pixel(local_pos.pos);
+					let color = chunk.get_pixel_main(local_pos.pos);
 
 					if local_pos.color != color {
-						self.history.add_pixel(GlobalPixel {
+						self.history.add_pixel(GlobalPixelRGB {
 							pos: *global_pos,
 							color,
 						});
@@ -956,11 +920,12 @@ impl SessionInstance {
 				}
 			}
 
-			let queued_pixels: Vec<ChunkPixel> = cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
+			let queued_pixels: Vec<ChunkPixelRGB> =
+				cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
 
 			let threshold = CHUNK_SIZE_PX * (CHUNK_SIZE_PX / 5); // over 1/5th of chunk modified
 			let send_whole_chunk = cell.queued_pixels.len() > threshold as usize;
-			chunk.set_pixels(&queued_pixels, false, send_whole_chunk);
+			chunk.set_pixels(&queued_pixels, send_whole_chunk);
 		}
 	}
 
@@ -1053,6 +1018,7 @@ impl SessionInstance {
 		let brush_shapes_mtx = room.brush_shapes.clone();
 		let chunk_system_mtx = room.chunk_system.clone();
 		let preview_system_mtx = room.preview_system.clone();
+		let chunk_system_sender = room.chunk_system_sender.clone();
 		drop(room);
 
 		self.room_refs = Some(Arc::new(RoomRefs {
@@ -1060,6 +1026,7 @@ impl SessionInstance {
 			brush_shapes_mtx,
 			chunk_system_mtx,
 			preview_system_mtx,
+			chunk_system_sender,
 		}));
 
 		Ok(room_mtx)
@@ -1349,11 +1316,19 @@ impl SessionInstance {
 		&mut self,
 		refs: &RoomRefs,
 		reader: &mut BinaryReader,
-		_session_handle: &SessionHandle,
+		session_handle: &SessionHandle,
 	) -> anyhow::Result<()> {
 		self.cursor_pos_prev = self.cursor_pos.clone();
 		self.cursor_pos = packet_client::PacketCursorPos::read(reader)?;
-		self.update_cursor(refs).await;
+		self.update_cursor(refs, session_handle).await;
+
+		if let Some(cursor_pos_sent) = &self.cursor_pos_sent {
+			if self.cursor_pos != *cursor_pos_sent {
+				self.send_cursor_pos_to_all(refs, session_handle).await;
+			}
+		} else {
+			self.send_cursor_pos_to_all(refs, session_handle).await;
+		}
 
 		Ok(())
 	}
@@ -1362,6 +1337,7 @@ impl SessionInstance {
 		&mut self,
 		refs: &RoomRefs,
 		_reader: &mut BinaryReader,
+		session_handle: &SessionHandle,
 	) -> Result<(), UserError> {
 		//log::trace!("Cursor down");
 		if self.cursor_down {
@@ -1373,7 +1349,7 @@ impl SessionInstance {
 		self.cursor_down = true;
 		self.cursor_just_clicked = true;
 		self.history.create_snapshot();
-		self.update_cursor(refs).await;
+		self.update_cursor(refs, session_handle).await;
 
 		Ok(())
 	}
@@ -1382,6 +1358,7 @@ impl SessionInstance {
 		&mut self,
 		refs: &RoomRefs,
 		_reader: &mut BinaryReader,
+		session_handle: &SessionHandle,
 	) -> Result<(), UserError> {
 		//log::trace!("Cursor up");
 		if !self.cursor_down {
@@ -1389,7 +1366,7 @@ impl SessionInstance {
 		}
 
 		self.cursor_down = false;
-		self.update_cursor(refs).await;
+		self.update_cursor(refs, session_handle).await;
 		Ok(())
 	}
 
@@ -1483,6 +1460,7 @@ impl SessionInstance {
 
 		match tool_type {
 			packet_client::ToolType::Fill => 0,
+			packet_client::ToolType::Line => self.tool.size.min(limits::TOOL_SIZE_LINE_MAX),
 			packet_client::ToolType::Brush => self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX),
 			packet_client::ToolType::SmoothBrush => {
 				self.tool.size.min(limits::TOOL_SIZE_SMOOTH_BRUSH_MAX)
@@ -1512,7 +1490,7 @@ impl SessionInstance {
 		let blue = reader.read_u8()?;
 		//log::trace!("Tool color {} {} {}", red, green, blue);
 
-		self.tool.color = Color {
+		self.tool.color = ColorRGB {
 			r: red,
 			g: green,
 			b: blue,
@@ -1542,7 +1520,7 @@ impl SessionInstance {
 	async fn process_command_undo(&mut self, refs: &RoomRefs, _reader: &mut BinaryReader) {
 		if let Some(cell) = self.history.undo() {
 			self.queue_send_status_text(format!("Undoing {} pixels...", cell.pixels.len()).as_str());
-			self.set_pixels_global(refs, &cell.pixels, false).await;
+			self.set_pixels_main(refs, &cell.pixels, false).await;
 			self.queue_send_status_text("");
 		}
 	}
@@ -1558,16 +1536,6 @@ impl SessionInstance {
 			Some(session_handle),
 		);
 		self.cursor_pos_sent = Some(self.cursor_pos.clone());
-	}
-
-	pub async fn tick_cursor(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
-		if let Some(cursor_pos_sent) = &self.cursor_pos_sent {
-			if self.cursor_pos != *cursor_pos_sent {
-				self.send_cursor_pos_to_all(refs, session_handle).await;
-			}
-		} else {
-			self.send_cursor_pos_to_all(refs, session_handle).await;
-		}
 	}
 
 	fn is_chunk_linked(&self, chunk_pos: IVec2) -> bool {
@@ -1612,6 +1580,22 @@ impl SessionInstance {
 			self
 				.queue_send
 				.send(packet_server::prepare_packet_chunk_remove(chunk_pos));
+		}
+	}
+
+	pub async fn tick_tool_state(&mut self, refs: &RoomRefs) {
+		match &mut self.tool_state {
+			ToolState::None => {}
+			ToolState::Line(state) => {
+				state
+					.process(
+						&mut self.chunk_cache,
+						refs,
+						self.cursor_pos.to_vec(),
+						self.tool.color,
+					)
+					.await;
+			}
 		}
 	}
 
@@ -1680,7 +1664,7 @@ impl SessionInstance {
 						);
 						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
 						self.link_chunk(linked_chunk);
-						chunk.send_chunk_data_to_session(self.queue_send.clone());
+						chunk.send_chunk_data_to_session(session_handle, self.queue_send.clone());
 					}
 
 					if chunks_to_load.is_empty() {

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use binary_reader::BinaryReader;
+use glam::IVec2;
 use num_enum::TryFromPrimitive;
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -13,6 +14,7 @@ pub enum ToolType {
 	Smudge = 4,
 	SmoothBrush = 5,
 	SquareBrush = 6,
+	Line = 7,
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -75,5 +77,9 @@ impl PacketCursorPos {
 			x: reader.read_i32()?,
 			y: reader.read_i32()?,
 		})
+	}
+
+	pub fn to_vec(&self) -> IVec2 {
+		IVec2::new(self.x, self.y)
 	}
 }

@@ -7,6 +7,7 @@ export namespace tool {
 		Smudge = 4,
 		SmoothBrush = 5,
 		SquareBrush = 6,
+		Line = 7,
 	}
 
 	export function supportsSmoothing(id: ToolID) {

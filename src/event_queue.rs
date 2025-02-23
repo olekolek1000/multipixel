@@ -5,7 +5,7 @@ use std::{
 	sync::{Arc, Mutex as SyncMutex},
 };
 
-use tokio::sync::Notify;
+use tokio::sync::{broadcast, Notify};
 
 struct Data<DataType> {
 	queue: VecDeque<DataType>,
@@ -41,5 +41,32 @@ impl<DataType> EventQueue<DataType> {
 	pub fn read_all(&self) -> Vec<DataType> {
 		let mut data = self.data.lock().unwrap();
 		data.queue.drain(..).collect()
+	}
+}
+
+#[derive(Clone)]
+pub struct NotifySender<T> {
+	sender: broadcast::Sender<T>,
+	notify: Arc<Notify>,
+}
+
+impl<T> NotifySender<T>
+where
+	T: Clone,
+{
+	pub fn new(notify: Arc<Notify>, capacity: usize) -> Self {
+		let (sender, _) = broadcast::channel::<T>(capacity);
+		Self { sender, notify }
+	}
+
+	pub fn send(&self, data: T) {
+		if let Err(e) = self.sender.send(data) {
+			log::error!("sender error: {}", e);
+		}
+		self.notify.notify_one();
+	}
+
+	pub fn subscribe(&self) -> broadcast::Receiver<T> {
+		self.sender.subscribe()
 	}
 }
