@@ -11,7 +11,6 @@
 	"devDependencies": {
 		"@types/gl-matrix": "^3.2.0",
 		"@types/react-dom": "^19.0.3",
-		"autoprefixer": "^10.4.20",
 		"sass": "^1.85.0",
 		"typescript": "^5.7.3"
 	},

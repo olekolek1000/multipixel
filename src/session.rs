@@ -1369,6 +1369,7 @@ impl SessionInstance {
 			return Ok(());
 		}
 
+		self.cursor_pos_prev = self.cursor_pos.clone();
 		self.cursor_down = true;
 		self.cursor_just_clicked = true;
 		self.history.create_snapshot();
