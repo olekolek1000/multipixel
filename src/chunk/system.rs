@@ -7,18 +7,21 @@ use std::sync::Mutex as SyncMutex;
 
 use glam::{IVec2, UVec2};
 use tokio::{
-	sync::{Mutex, Notify},
+	sync::{broadcast, Mutex, Notify},
 	task::JoinHandle,
 };
 
 use crate::{
-	chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceRefs, ChunkInstanceWeak},
+	chunk::chunk::{ChunkInstance, ChunkInstanceMutex, ChunkInstanceRefs, ChunkInstanceWeak},
 	database::{Database, DatabaseFunc},
+	event_queue::NotifySender,
 	limits::CHUNK_SIZE_PX,
 	preview_system::{PreviewSystem, PreviewSystemMutex},
 	signal::Signal,
 	time::get_millis,
 };
+
+use super::compositor::{Compositor, LayerID};
 
 #[derive(Clone)]
 struct ChunkCell {
@@ -29,6 +32,13 @@ struct ChunkCell {
 struct ChunkCellWeak {
 	chunk: ChunkInstanceWeak,
 	refs: ChunkInstanceRefs,
+}
+
+#[derive(Clone)]
+pub enum ChunkSystemSignal {
+	SubmitAndRemoveLayer(LayerID),
+	#[allow(dead_code)]
+	RemoveLayer(LayerID),
 }
 
 pub struct ChunkSystem {
@@ -42,6 +52,7 @@ pub struct ChunkSystem {
 	preview_system: PreviewSystemMutex,
 	notifier: Arc<Notify>,
 	signal_garbage_collect: Signal,
+	receiver: broadcast::Receiver<ChunkSystemSignal>,
 }
 
 fn modulo(x: i32, n: i32) -> i32 {
@@ -63,11 +74,11 @@ struct GarbageCollectData {
 impl ChunkSystem {
 	pub fn new(
 		database: Arc<Mutex<Database>>,
+		notifier: Arc<Notify>,
+		sender: NotifySender<ChunkSystemSignal>,
 		preview_system: PreviewSystemMutex,
 		autosave_interval_ms: u32,
 	) -> Self {
-		let notifier = Arc::new(Notify::new());
-
 		Self {
 			chunks: HashMap::new(),
 			database,
@@ -79,6 +90,7 @@ impl ChunkSystem {
 			task_processor: None,
 			notifier: notifier.clone(),
 			signal_garbage_collect: Signal::new(notifier),
+			receiver: sender.subscribe(),
 		}
 	}
 
@@ -118,7 +130,7 @@ impl ChunkSystem {
 		let queue_cache = self.preview_system.lock().await.update_queue_cache.clone();
 
 		let refs = ChunkInstanceRefs {
-			modified: Arc::new(SyncMutex::new(false)),
+			main_modified: Arc::new(SyncMutex::new(false)),
 			linked_sessions: Arc::new(SyncMutex::new(Vec::new())),
 		};
 
@@ -158,13 +170,47 @@ impl ChunkSystem {
 						if let Some(data) =
 							ChunkSystem::get_chunks_to_garbage_collect(chunk_system_mtx.clone()).await
 						{
-							ChunkSystem::garbage_collect_lazy(chunk_system_mtx, database, data).await;
+							ChunkSystem::garbage_collect_lazy(chunk_system_mtx.clone(), database, data).await;
 						}
+
+						let mut chunk_system = chunk_system_mtx.lock().await;
+						chunk_system.process_signals().await;
 					}
 					log::trace!("Chunk system processor task ended");
 				})
 				.unwrap(),
 		);
+	}
+
+	async fn cleanup_layer(&self, id: LayerID, submit: bool) {
+		for chunk in self.chunks.values() {
+			let mut chunk = chunk.chunk.lock().await;
+
+			if submit {
+				if let Some(layer) = chunk.compositor.get(&id) {
+					let main = chunk.get_layer_main();
+					if !main.data.0.is_empty() {
+						let blended = Compositor::composite(main, &[&layer.layer]);
+						chunk.replace_layer_main(blended);
+					}
+				}
+			}
+
+			chunk.compositor.remove_layer_id(id.clone());
+		}
+	}
+
+	async fn process_signals(&mut self) {
+		while let Ok(signal) = self.receiver.try_recv() {
+			match signal {
+				ChunkSystemSignal::RemoveLayer(layer_id) => {
+					self.cleanup_layer(layer_id, false).await;
+				}
+				ChunkSystemSignal::SubmitAndRemoveLayer(layer_id) => {
+					self.cleanup_layer(layer_id, true).await;
+				}
+			}
+		}
 	}
 
 	async fn get_chunks_to_garbage_collect(
@@ -195,7 +241,7 @@ impl ChunkSystem {
 		let mut chunks_to_free: Vec<IVec2> = Vec::new();
 		for (chunk_pos, cell) in &chunks {
 			if cell.refs.linked_sessions.lock().unwrap().is_empty() {
-				if *cell.refs.modified.lock().unwrap() {
+				if *cell.refs.main_modified.lock().unwrap() {
 					chunks_to_save.push(cell.chunk.clone());
 				}
 				chunks_to_free.push(*chunk_pos);
@@ -261,7 +307,7 @@ impl ChunkSystem {
 		let mut to_autosave: Vec<ChunkCellWeak> = Vec::new();
 		for cell in self.chunks.values() {
 			// If modified
-			if *cell.refs.modified.lock().unwrap() {
+			if *cell.refs.main_modified.lock().unwrap() {
 				to_autosave.push(ChunkCellWeak {
 					chunk: Arc::downgrade(&cell.chunk),
 					refs: cell.refs.clone(),
@@ -344,7 +390,7 @@ impl ChunkSystem {
 		while let Some(cell) = to_autosave.pop() {
 			if let Some(chunk) = cell.chunk.upgrade() {
 				let mut chunk = chunk.lock().await;
-				if !*cell.refs.modified.lock().unwrap() {
+				if !*cell.refs.main_modified.lock().unwrap() {
 					continue;
 				}
 

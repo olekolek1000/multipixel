@@ -21,8 +21,6 @@ extern crate pretty_env_logger;
 
 mod canvas_cache;
 mod chunk;
-mod chunk_cache;
-mod chunk_system;
 mod command;
 mod compression;
 mod config;
@@ -35,6 +33,7 @@ mod packet_server;
 mod pixel;
 mod preview_system;
 mod room;
+mod serial_generator;
 mod server;
 mod session;
 mod signal;

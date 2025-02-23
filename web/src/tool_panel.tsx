@@ -16,6 +16,7 @@ export enum ToolType {
 	floodfill,
 	blur,
 	smudge,
+	line,
 }
 
 export class ColorPaletteGlobals {

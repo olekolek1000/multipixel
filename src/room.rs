@@ -1,8 +1,8 @@
 use crate::{
-	chunk_system::{ChunkSystem, ChunkSystemMutex},
+	chunk::system::{ChunkSystem, ChunkSystemMutex, ChunkSystemSignal},
 	config::Config,
 	database::Database,
-	event_queue::EventQueue,
+	event_queue::{EventQueue, NotifySender},
 	packet_server,
 	preview_system::{PreviewSystem, PreviewSystemMutex},
 	server::Server,
@@ -11,7 +11,7 @@ use crate::{
 };
 use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 
 #[derive(Clone)]
 pub struct RoomSessionData {
@@ -21,10 +21,19 @@ pub struct RoomSessionData {
 	pub nick_name: Arc<SyncMutex<String>>,
 }
 
+pub struct RoomRefs {
+	pub room_mtx: RoomInstanceMutex,
+	pub chunk_system_mtx: ChunkSystemMutex,
+	pub preview_system_mtx: PreviewSystemMutex,
+	pub brush_shapes_mtx: Arc<Mutex<BrushShapes>>,
+	pub chunk_system_sender: NotifySender<ChunkSystemSignal>,
+}
+
 pub struct RoomInstance {
 	sessions: Vec<RoomSessionData>,
 	pub database: Arc<Mutex<Database>>,
 	pub chunk_system: ChunkSystemMutex,
+	pub chunk_system_sender: NotifySender<ChunkSystemSignal>,
 	pub brush_shapes: Arc<Mutex<BrushShapes>>,
 	pub preview_system: PreviewSystemMutex,
 	cleaned_up: bool,
@@ -37,8 +46,14 @@ impl RoomInstance {
 		let database = Arc::new(Mutex::new(Database::new(db_path.as_str()).await?));
 		let preview_system_mtx = Arc::new(Mutex::new(PreviewSystem::new(database.clone())));
 
+		let chunk_system_notifier = Arc::new(Notify::new());
+		let chunk_system_sender =
+			NotifySender::<ChunkSystemSignal>::new(chunk_system_notifier.clone(), 16);
+
 		let chunk_system_mtx = Arc::new(Mutex::new(ChunkSystem::new(
 			database.clone(),
+			chunk_system_notifier,
+			chunk_system_sender.clone(),
 			preview_system_mtx.clone(),
 			config.autosave_interval_ms,
 		)));
@@ -55,6 +70,7 @@ impl RoomInstance {
 			database: database.clone(),
 			cleaned_up: false,
 			chunk_system: chunk_system_mtx,
+			chunk_system_sender,
 			preview_system: preview_system_mtx,
 			brush_shapes: Arc::new(Mutex::new(BrushShapes::new())),
 		})
