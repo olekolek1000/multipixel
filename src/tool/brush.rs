@@ -72,9 +72,9 @@ impl BrushShape {
 					let distance = ((diff_x * diff_x + diff_y * diff_y) as f32).sqrt();
 
 					if filled {
-						(distance <= (size as f32) / 2.0) as u8
+						(distance <= (size as f32 - 0.1) / 2.0) as u8
 					} else {
-						(distance <= (size as f32) / 2.0 && distance >= (size as f32 / 2.0) - 2.0) as u8
+						(distance <= (size as f32 - 0.1) / 2.0 && distance >= (size as f32 / 2.0) - 2.0) as u8
 					}
 				})
 				.collect::<Vec<u8>>(),
