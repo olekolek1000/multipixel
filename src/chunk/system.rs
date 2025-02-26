@@ -5,7 +5,7 @@ use std::{
 
 use std::sync::Mutex as SyncMutex;
 
-use glam::{IVec2, UVec2};
+use glam::{IVec2, U8Vec2};
 use tokio::{
 	sync::{broadcast, Mutex, Notify},
 	task::JoinHandle,
@@ -36,8 +36,8 @@ struct ChunkCellWeak {
 
 #[derive(Clone)]
 pub enum ChunkSystemSignal {
-	SubmitAndRemoveLayer(LayerID),
 	#[allow(dead_code)]
+	SubmitAndRemoveLayer(LayerID),
 	RemoveLayer(LayerID),
 }
 
@@ -108,10 +108,10 @@ impl ChunkSystem {
 		IVec2::new(chunk_pos_x, chunk_pos_y)
 	}
 
-	pub fn global_pixel_pos_to_local_pixel_pos(global_pixel_pos: IVec2) -> UVec2 {
+	pub fn global_pixel_pos_to_local_pixel_pos(global_pixel_pos: IVec2) -> U8Vec2 {
 		let x = modulo(global_pixel_pos.x, CHUNK_SIZE_PX as i32);
 		let y = modulo(global_pixel_pos.y, CHUNK_SIZE_PX as i32);
-		UVec2::new(x as u32, y as u32)
+		U8Vec2::new(x as u8, y as u8)
 	}
 
 	pub async fn get_chunk(&mut self, chunk_pos: IVec2) -> anyhow::Result<ChunkInstanceMutex> {

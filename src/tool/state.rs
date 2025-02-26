@@ -4,7 +4,7 @@ use glam::IVec2;
 
 use crate::{
 	chunk::{cache::ChunkCache, compositor::LayerID, system::ChunkSystemSignal},
-	pixel::{ColorRGB, ColorRGBA, GlobalPixelRGBA},
+	pixel::{ColorRGB, ColorRGBA, GlobalPixelRGB, GlobalPixelRGBA},
 	room::RoomRefs,
 };
 
@@ -28,7 +28,7 @@ impl ToolStateLine {
 		}
 	}
 
-	fn gen_global_pixel_vec(&self, color: ColorRGBA) -> Vec<GlobalPixelRGBA> {
+	fn gen_global_pixel_vec_rgba(&self, color: ColorRGBA) -> Vec<GlobalPixelRGBA> {
 		self
 			.affected_pixels
 			.iter()
@@ -36,12 +36,18 @@ impl ToolStateLine {
 			.collect()
 	}
 
+	pub fn gen_global_pixel_vec_rgb(&self, color: ColorRGB) -> Vec<GlobalPixelRGB> {
+		self
+			.affected_pixels
+			.iter()
+			.map(|pos| GlobalPixelRGB { pos: *pos, color })
+			.collect()
+	}
+
 	pub async fn cleanup(&mut self, refs: &RoomRefs) {
 		refs
 			.chunk_system_sender
-			.send(ChunkSystemSignal::SubmitAndRemoveLayer(
-				self.layer_id.clone(),
-			));
+			.send(ChunkSystemSignal::RemoveLayer(self.layer_id.clone()));
 	}
 
 	pub async fn process(
@@ -52,7 +58,7 @@ impl ToolStateLine {
 		color: ColorRGB,
 	) {
 		if let Some(target_prev) = self.target_prev {
-			if (target_prev - target).abs().element_sum() > 1000 {
+			if (target - self.start_pos).abs().element_sum() > 2000 {
 				// Too big distance!!
 				self.target_prev = Some(target);
 				return;
@@ -65,10 +71,10 @@ impl ToolStateLine {
 
 		self.target_prev = Some(target);
 
-		let iter = LineMoveIter::iterate(self.start_pos, target, 1);
+		let iter = LineMoveIter::iterate(self.start_pos, target);
 
 		// Clear previous iteration with transparent pixels
-		let mut out_pixels = self.gen_global_pixel_vec(ColorRGBA::zero());
+		let mut out_pixels = self.gen_global_pixel_vec_rgba(ColorRGBA::zero());
 		self.affected_pixels.clear(); // generate line pixels from scratch
 
 		for line in iter {

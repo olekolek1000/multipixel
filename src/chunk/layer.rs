@@ -1,4 +1,4 @@
-use glam::UVec2;
+use glam::{U8Vec2, UVec2};
 
 use crate::{
 	limits::{self, CHUNK_SIZE_PX},
@@ -59,11 +59,12 @@ impl LayerRGB {
 	}
 
 	/// Chunk needs to be allocated first!
-	pub fn get_pixel(&self, chunk_pixel_pos: UVec2) -> ColorRGB {
+	pub fn get_pixel(&self, chunk_pixel_pos: U8Vec2) -> ColorRGB {
 		debug_assert!(!self.data.0.is_empty());
 
 		let data = self.read_unchecked();
-		let offset = (chunk_pixel_pos.y * CHUNK_SIZE_PX * 3 + chunk_pixel_pos.x * 3) as usize;
+		let offset =
+			(chunk_pixel_pos.y as u32 * CHUNK_SIZE_PX * 3 + chunk_pixel_pos.x as u32 * 3) as usize;
 
 		ColorRGB {
 			r: (data.0)[offset],
@@ -102,11 +103,12 @@ impl LayerRGBA {
 	}
 
 	/// Chunk needs to be allocated first!
-	pub fn get_pixel(&self, chunk_pixel_pos: UVec2) -> ColorRGBA {
+	pub fn get_pixel(&self, chunk_pixel_pos: U8Vec2) -> ColorRGBA {
 		debug_assert!(!self.data.0.is_empty());
 
 		let data = self.read_unchecked();
-		let offset = (chunk_pixel_pos.y * CHUNK_SIZE_PX * 4 + chunk_pixel_pos.x * 4) as usize;
+		let offset =
+			(chunk_pixel_pos.y as u32 * CHUNK_SIZE_PX * 4 + chunk_pixel_pos.x as u32 * 4) as usize;
 
 		ColorRGBA {
 			r: (data.0)[offset],
@@ -135,7 +137,7 @@ impl LayerRGBA {
 
 		for pixel in pixels {
 			// Update pixel
-			let offset = (pixel.pos.y * CHUNK_SIZE_PX * 4 + pixel.pos.x * 4) as usize;
+			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 4 + pixel.pos.x as u32 * 4) as usize;
 			(data.0)[offset] = pixel.color.r;
 			(data.0)[offset + 1] = pixel.color.g;
 			(data.0)[offset + 2] = pixel.color.b;
