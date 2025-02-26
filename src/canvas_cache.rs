@@ -52,7 +52,7 @@ impl CanvasCache {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(*global_pos);
 		if let Some(cell) = self.get_cell_mut(chunk_system_mtx, &chunk_pos).await {
 			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(*global_pos);
-			let offset = (local_pos.y * CHUNK_SIZE_PX * 3 + local_pos.x * 3) as usize;
+			let offset = (local_pos.y as u32 * CHUNK_SIZE_PX * 3 + local_pos.x as u32 * 3) as usize;
 			ColorRGB {
 				r: cell.data.0[offset],
 				g: cell.data.0[offset + 1],
@@ -69,7 +69,7 @@ impl CanvasCache {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(*global_pos);
 		if let Some(cell) = self.cells.get_mut(&chunk_pos) {
 			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(*global_pos);
-			let offset = (local_pos.y * CHUNK_SIZE_PX * 3 + local_pos.x * 3) as usize;
+			let offset = (local_pos.y as u32 * CHUNK_SIZE_PX * 3 + local_pos.x as u32 * 3) as usize;
 			cell.data.0[offset] = color.r;
 			cell.data.0[offset + 1] = color.g;
 			cell.data.0[offset + 2] = color.b;

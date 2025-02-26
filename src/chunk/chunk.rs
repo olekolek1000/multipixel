@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock, Weak};
 
 use bytes::{BufMut, BytesMut};
-use glam::{IVec2, UVec2};
+use glam::{IVec2, U8Vec2};
 use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
@@ -24,13 +24,13 @@ use super::{
 
 #[derive(Clone)]
 pub struct ChunkPixelRGB {
-	pub pos: UVec2,
+	pub pos: U8Vec2,
 	pub color: ColorRGB,
 }
 
 #[derive(Clone)]
 pub struct ChunkPixelRGBA {
-	pub pos: UVec2,
+	pub pos: U8Vec2,
 	pub color: ColorRGBA,
 }
 
@@ -72,8 +72,8 @@ fn get_empty_chunk_rgb() -> &'static std::sync::Mutex<Arc<Vec<u8>>> {
 fn gen_pixel_pack(buf: &mut BytesMut, pixels: &[ChunkPixelRGB]) {
 	// Prepare pixel data
 	for pixel in pixels {
-		buf.put_u8(pixel.pos.x as u8);
-		buf.put_u8(pixel.pos.y as u8);
+		buf.put_u8(pixel.pos.x);
+		buf.put_u8(pixel.pos.y);
 		buf.put_u8(pixel.color.r);
 		buf.put_u8(pixel.color.g);
 		buf.put_u8(pixel.color.b);
@@ -142,7 +142,7 @@ impl ChunkInstance {
 		}
 	}
 
-	pub fn get_pixel_main(&self, chunk_pixel_pos: UVec2) -> ColorRGB {
+	pub fn get_pixel_main(&self, chunk_pixel_pos: U8Vec2) -> ColorRGB {
 		self.main_layer.get_pixel(chunk_pixel_pos)
 	}
 
@@ -208,7 +208,7 @@ impl ChunkInstance {
 		let layer_data = self.main_layer.read_unchecked_mut();
 		for pixel in pixels {
 			// Update pixel
-			let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
+			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 3 + pixel.pos.x as u32 * 3) as usize;
 			(layer_data.0)[offset] = pixel.color.r;
 			(layer_data.0)[offset + 1] = pixel.color.g;
 			(layer_data.0)[offset + 2] = pixel.color.b;
@@ -233,7 +233,7 @@ impl ChunkInstance {
 			let layer_data = self.main_layer.read_unchecked_mut();
 
 			// Update pixel
-			let offset = (pixel.pos.y * CHUNK_SIZE_PX * 3 + pixel.pos.x * 3) as usize;
+			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 3 + pixel.pos.x as u32 * 3) as usize;
 			(layer_data.0)[offset] = pixel.color.r;
 			(layer_data.0)[offset + 1] = pixel.color.g;
 			(layer_data.0)[offset + 2] = pixel.color.b;
@@ -294,6 +294,28 @@ impl ChunkInstance {
 			self.set_pixels_whole_chunk(pixels);
 		} else {
 			self.set_pixels_pack(pixels);
+		}
+	}
+
+	pub fn send_pixel_updates(&mut self, coords: &[U8Vec2]) {
+		debug_assert!(self.main_layer.read().is_some());
+
+		for session in self.refs.linked_sessions.lock().unwrap().iter() {
+			let layers = self
+				.compositor
+				.construct_layers_from_session(&session.handle);
+			let mut composited_pixels = Vec::<ChunkPixelRGB>::with_capacity(coords.len());
+
+			for coord in coords {
+				let rgb = Compositor::calc_pixel(&self.main_layer, &layers, *coord);
+				composited_pixels.push(ChunkPixelRGB {
+					color: rgb,
+					pos: *coord,
+				})
+			}
+
+			let packet = gen_packet_pixel_pack(self.position, &composited_pixels);
+			session.queue_send.send(packet);
 		}
 	}
 

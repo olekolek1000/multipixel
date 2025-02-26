@@ -434,6 +434,8 @@ impl SessionInstance {
 			ToolState::None => {}
 			ToolState::Line(state) => {
 				state.cleanup(refs).await;
+				let pixels = state.gen_global_pixel_vec_rgb(self.tool.color);
+				self.set_pixels_main(refs, &pixels, true).await;
 			}
 		}
 		self.tool_state = new_state;
@@ -572,12 +574,8 @@ impl SessionInstance {
 
 		let tool_size = self.get_tool_size();
 		let step = 1 + tool_size / 6;
-		let iter = LineMoveIter::iterate(
-			self.cursor_pos_prev.to_vec(),
-			self.cursor_pos.to_vec(),
-			step,
-		);
-		if iter.iter_count > 250 {
+		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
+		if util::distance_squared_int32(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec()) > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
@@ -598,7 +596,11 @@ impl SessionInstance {
 		};
 		drop(brush_shapes);
 
-		for line in iter {
+		for (index, line) in iter.enumerate() {
+			if index as u32 % step as u32 != 0 {
+				continue;
+			}
+
 			match tool_size {
 				1 => GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &self.tool.color),
 				2 => {
@@ -609,7 +611,7 @@ impl SessionInstance {
 					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y + 1, &self.tool.color);
 				}
 				_ => {
-					let shape = if line.index == 0 {
+					let shape = if index == 0 {
 						&shape_filled
 					} else {
 						&shape_outline
@@ -673,12 +675,8 @@ impl SessionInstance {
 
 		let tool_size = self.get_tool_size().max(4);
 		let step = 1 + tool_size / 6;
-		let iter = LineMoveIter::iterate(
-			self.cursor_pos_prev.to_vec(),
-			self.cursor_pos.to_vec(),
-			step,
-		);
-		if iter.iter_count > 250 {
+		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
+		if util::distance_squared_int32(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec()) > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
@@ -690,34 +688,38 @@ impl SessionInstance {
 		let intensity = (self.tool.flow.powf(2.0) * 255.0) as u8;
 		let center_pos = (tool_size / 2) as f32 + 0.01 /* prevent NaN */;
 
+		let mut index = 0;
 		for line in iter {
-			for brush_y in 0..tool_size {
-				for brush_x in 0..tool_size {
-					let pos_x = line.pos.x + brush_x as i32 - tool_size as i32 / 2;
-					let pos_y = line.pos.y + brush_y as i32 - tool_size as i32 / 2;
+			if index % step == 0 {
+				for brush_y in 0..tool_size {
+					for brush_x in 0..tool_size {
+						let pos_x = line.pos.x + brush_x as i32 - tool_size as i32 / 2;
+						let pos_y = line.pos.y + brush_y as i32 - tool_size as i32 / 2;
 
-					let current = cache
-						.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
-						.await;
+						let current = cache
+							.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
+							.await;
 
-					let mult = (util::distance32(brush_x as f32, brush_y as f32, center_pos, center_pos)
-						/ (tool_size / 2) as f32)
-						.clamp(0.0, 1.0); // normalized from 0.0 to 1.0
+						let mult = (util::distance32(brush_x as f32, brush_y as f32, center_pos, center_pos)
+							/ (tool_size / 2) as f32)
+							.clamp(0.0, 1.0); // normalized from 0.0 to 1.0
 
-					if mult <= 0.0 {
-						continue;
+						if mult <= 0.0 {
+							continue;
+						}
+
+						let blended = ColorRGB::blend_gamma_corrected(
+							(intensity as f32 * (1.0 - mult)) as u8,
+							&current,
+							&self.tool.color,
+						);
+
+						cache.set_pixel(&IVec2::new(pos_x, pos_y), &blended);
+						GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
 					}
-
-					let blended = ColorRGB::blend_gamma_corrected(
-						(intensity as f32 * (1.0 - mult)) as u8,
-						&current,
-						&self.tool.color,
-					);
-
-					cache.set_pixel(&IVec2::new(pos_x, pos_y), &blended);
-					GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
 				}
 			}
+			index += 1;
 		}
 
 		self.set_pixels_main(refs, &pixels, true).await;
@@ -728,9 +730,9 @@ impl SessionInstance {
 			return;
 		}
 
-		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec(), 1);
+		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
 
-		if iter.iter_count > 250 {
+		if util::distance_squared_int32(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec()) > 250 {
 			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 			self.cursor_down = false;
 			return;
@@ -825,7 +827,7 @@ impl SessionInstance {
 
 		let mut cache = CanvasCache::default();
 
-		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec(), 1);
+		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
 
 		let mut line_x_prev = self.cursor_pos_prev.x;
 		let mut line_y_prev = self.cursor_pos_prev.y;

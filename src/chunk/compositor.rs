@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use glam::UVec2;
+use glam::U8Vec2;
 use smallvec::SmallVec;
 
 use super::layer::{LayerRGB, LayerRGBA};
@@ -61,7 +61,7 @@ impl Compositor {
 			.map(|pair| pair.1)
 	}
 
-	pub fn calc_pixel(base: &LayerRGB, layers: &[&LayerRGBA], chunk_pixel_pos: UVec2) -> ColorRGB {
+	pub fn calc_pixel(base: &LayerRGB, layers: &[&LayerRGBA], chunk_pixel_pos: U8Vec2) -> ColorRGB {
 		debug_assert!(base.read().is_some());
 
 		let mut col = base.get_pixel(chunk_pixel_pos);

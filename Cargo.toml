@@ -19,7 +19,7 @@ binary-reader = "0.4.5"
 bytes = "1.6.0"
 console-subscriber = "0.4.1"
 futures-util = { version = "0.3.31", features = ["sink"] }
-glam = { version = "0.27.0" }
+glam = { version = "0.30.0" }
 log = "0.4.21"
 lz4_flex = "0.11.3"
 num = "0.4.3"

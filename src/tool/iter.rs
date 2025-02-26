@@ -1,61 +1,118 @@
 use glam::IVec2;
 
-use crate::util;
+use core::iter::Iterator;
 
-pub struct LineMoveIter {
-	index: u32,
-	step: u8,
-	pub iter_count: u32,
-	start_x: i32,
-	start_y: i32,
-	end_x: i32,
-	end_y: i32,
+pub struct LineIter {
+	pub pos: IVec2,
 }
 
-impl LineMoveIter {
-	pub fn iterate(from: IVec2, to: IVec2, step: u8) -> Self {
-		let iter_count = std::cmp::max(
-			1,
-			util::distance64(to.x as f64, to.y as f64, from.x as f64, from.y as f64).ceil() as u32,
-		);
+pub struct LineMoveIter {
+	pos: IVec2,
+	dx: i32,
+	dy: i32,
+	x1: i32,
+	diff: i32,
+	octant: Octant,
+}
 
-		Self {
-			iter_count,
-			start_x: from.x,
-			start_y: from.y,
-			end_x: to.x,
-			end_y: to.y,
-			index: 0,
-			step,
+struct Octant(u8);
+
+impl Octant {
+	fn points(start: IVec2, end: IVec2) -> Octant {
+		let mut dx = end.x - start.x;
+		let mut dy = end.y - start.y;
+
+		let mut octant = 0;
+
+		if dy < 0 {
+			dx = -dx;
+			dy = -dy;
+			octant += 4;
+		}
+
+		if dx < 0 {
+			let tmp = dx;
+			dx = dy;
+			dy = -tmp;
+			octant += 2
+		}
+
+		if dx < dy {
+			octant += 1
+		}
+
+		Octant(octant)
+	}
+
+	fn octant_to(&self, p: IVec2) -> IVec2 {
+		match self.0 {
+			0 => IVec2::new(p.x, p.y),
+			1 => IVec2::new(p.y, p.x),
+			2 => IVec2::new(p.y, -p.x),
+			3 => IVec2::new(-p.x, p.y),
+			4 => IVec2::new(-p.x, -p.y),
+			5 => IVec2::new(-p.y, -p.x),
+			6 => IVec2::new(-p.y, p.x),
+			7 => IVec2::new(p.x, -p.y),
+			_ => unreachable!(),
+		}
+	}
+
+	fn octant_from(&self, p: IVec2) -> IVec2 {
+		match self.0 {
+			0 => IVec2::new(p.x, p.y),
+			1 => IVec2::new(p.y, p.x),
+			2 => IVec2::new(-p.y, p.x),
+			3 => IVec2::new(-p.x, p.y),
+			4 => IVec2::new(-p.x, -p.y),
+			5 => IVec2::new(-p.y, -p.x),
+			6 => IVec2::new(p.y, -p.x),
+			7 => IVec2::new(p.x, -p.y),
+			_ => unreachable!(),
 		}
 	}
 }
 
-pub struct LineMoveCell {
-	pub pos: IVec2,
-	pub index: u32,
+impl LineMoveIter {
+	pub fn iterate(start: IVec2, end: IVec2) -> LineMoveIter {
+		let octant = Octant::points(start, end);
+		let start = octant.octant_to(start);
+		let end = octant.octant_to(end);
+		let dx = end.x - start.x;
+		let dy = end.y - start.y;
+
+		LineMoveIter {
+			pos: start,
+			dx,
+			dy,
+			x1: end.x,
+			diff: dy - dx,
+			octant,
+		}
+	}
 }
 
 impl Iterator for LineMoveIter {
-	type Item = LineMoveCell;
+	type Item = LineIter;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.index > self.iter_count {
+		if self.pos.x > self.x1 {
 			return None;
 		}
 
-		let alpha = (self.index as f64) / self.iter_count as f64;
+		let p = self.pos;
 
-		//Lerp
-		let x = util::lerp(alpha, self.start_x as f64, self.end_x as f64) as i32;
-		let y = util::lerp(alpha, self.start_y as f64, self.end_y as f64).round() as i32;
+		if self.diff >= 0 {
+			self.pos.y += 1;
+			self.diff -= self.dx;
+		}
 
-		let item = LineMoveCell {
-			index: self.index,
-			pos: IVec2::new(x, y),
-		};
+		self.diff += self.dy;
 
-		self.index += self.step as u32;
-		Some(item)
+		self.pos.x += 1;
+
+		Some(LineIter {
+			pos: self.octant.octant_from(p),
+		})
 	}
 }

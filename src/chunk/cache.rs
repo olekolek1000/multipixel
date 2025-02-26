@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use glam::IVec2;
+use glam::{IVec2, U8Vec2};
 
 use crate::pixel::GlobalPixelRGBA;
 
@@ -75,7 +75,10 @@ impl ChunkCache {
 				.collect();
 
 			layer.layer.set_pixels(&queued_pixels);
-			chunk.send_chunk_data_to_all();
+
+			let pixel_updates: Vec<U8Vec2> = cell.queued_pixels.iter().map(|c| c.0.pos).collect();
+			chunk.allocate_image();
+			chunk.send_pixel_updates(&pixel_updates);
 		}
 	}
 }
