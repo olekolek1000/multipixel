@@ -68,7 +68,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 	return <div id="mp_screen">
 		<canvas id="canvas_render" ref={canvas_render} width="100%" height="100%"></canvas>
 		<ToolPanel globals={multipixel.toolbox_globals} />
-		<ChatRender chat={multipixel.chat} />
+		{multipixel.chat && <ChatRender chat={multipixel.chat} />}
 		<div className={style_room.toolboxes}>
 			<div className={style_room.toolbox}>
 				<Tooltip title="Brush">

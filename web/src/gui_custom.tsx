@@ -1,4 +1,4 @@
-import React, { type ReactNode, useEffect, useRef, useState } from "react";
+import React, { type FC, type ReactNode, useEffect, useRef, useState } from "react";
 import scss from "./style.module.scss"
 
 export function LabeledTextField(
@@ -21,33 +21,6 @@ export function LabeledTextField(
 		</span>
 		<input
 			className={scss.text_input_labeled}
-			required={required}
-			value={valfunc[0]}
-			type={type}
-			onChange={e => valfunc[1](e.target.value)}
-			onKeyDown={
-				(e) => {
-					if (e.key == "Enter" && onReturnPress)
-						onReturnPress();
-				}
-			} />
-	</span>
-}
-
-export function TextField(
-	{ required, valfunc, type, onReturnPress }:
-		{
-			required?: boolean,
-			valfunc: [value: string, func: (str: string) => void],
-			type?: React.HTMLInputTypeAttribute,
-			error?: boolean,
-			error_text?: string,
-			onReturnPress?: () => void
-		}) {
-
-	return <span className={scss.text_input_bg}>
-		<input
-			className={scss.text_input}
 			required={required}
 			value={valfunc[0]}
 			type={type}

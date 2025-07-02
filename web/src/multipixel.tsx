@@ -65,8 +65,11 @@ export class Multipixel {
 		connection_callback: (error_str?: string) => void;
 	}) {
 		document.title = "#" + params.room_name + " - MultiPixel";
+		
 		this.toolbox_globals = new ToolboxGlobals(this);
+
 		this.room_screen_globals = new RoomScreenGlobals();
+
 		this.client = new Client({
 			multipixel: this,
 			address: params.host,
@@ -82,6 +85,7 @@ export class Multipixel {
 				params.connection_callback(undefined);
 			}
 		})
+
 	}
 
 	initialize() {
@@ -117,6 +121,8 @@ export class Multipixel {
 
 	draw() {
 		let i = 0;
+
+		// todo: check wtf is this 
 		while (this.timestep.onTick() && i < 1000) {
 			this.tick();
 			i++;
@@ -213,8 +219,7 @@ export class Multipixel {
 
 		canvas.addEventListener("mousedown", (e: MouseEvent) => {
 			if (!this.events_enabled) return;
-			let cursor = this.getCursor();
-			cursor.just_pressed_down = true;
+			this.cursor.just_pressed_down = true;
 
 			if (e.button == 0) { // Left
 				if (this.map.getZoom() < 1.0) {
@@ -222,7 +227,7 @@ export class Multipixel {
 					this.needs_boundaries_update = true;
 				}
 				else {
-					cursor.down_left = true;
+					this.cursor.down_left = true;
 					this.client.socketSendCursorDown();
 				}
 			}
@@ -232,29 +237,27 @@ export class Multipixel {
 			}
 
 			if (e.button == 2) { // Right
-				cursor.down_right = true;
+				this.cursor.down_right = true;
 			}
 		});
 
 
 		canvas.addEventListener("mouseup", (e: MouseEvent) => {
 			if (!this.events_enabled) return;
-			let cursor = this.getCursor();
 
 			if (e.button == 0) { // Left
-				cursor.down_left = false;
+				this.cursor.down_left = false;
 				this.client.socketSendCursorUp();
 			}
 
 			if (e.button == 2) { // Right
-				cursor.down_right = false;
+				this.cursor.down_right = false;
 			}
 		});
 
 		window.addEventListener("blur", (e) => {
-			let cursor = this.getCursor();
 			e;
-			cursor.down_left = false;
+			this.cursor.down_left = false;
 			this.client.socketSendCursorUp();
 		});
 
@@ -285,14 +288,11 @@ export class Multipixel {
 	}
 
 	updatePlayerList() {
-		if (this.callback_player_update)
-			this.callback_player_update();
+		this.callback_player_update?.()
 	}
 
 	getPlayerList(): Array<string> {
-		let arr = new Array<string>();
-
-		arr.push("You");
+		let arr: string[] = ["You"];
 
 		this.client.users.forEach((user: User) => {
 			if (!user) return;
@@ -310,6 +310,7 @@ export class Multipixel {
 	updateBoundary() {
 		if (!this.needs_boundaries_update)
 			return;
+
 		this.needs_boundaries_update = false;
 		this.client.socketSendBoundary();
 
@@ -372,8 +373,7 @@ export class Multipixel {
 	}
 
 	performColorPick() {
-		let cursor = this.getCursor();
-		let rgb = this.map.getPixel(cursor.canvas_x, cursor.canvas_y);
+		let rgb = this.map.getPixel(this.cursor.canvas_x, this.cursor.canvas_y);
 		if (rgb) {
 			let cp = this.toolbox_globals.color_palette;
 			if (cp) {
