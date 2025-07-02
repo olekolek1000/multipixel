@@ -1,17 +1,18 @@
+import child_process from 'node:child_process';
+
 import { defineConfig } from 'vite'
 import sassDts from 'vite-plugin-sass-dts'
 import react from '@vitejs/plugin-react'
-import tsconfigPaths from 'vite-tsconfig-paths';
-import checker from "vite-plugin-checker";
+import tailwindcss from '@tailwindcss/vite'
 
 const connect_url = process.env.CONNECT_URL ? process.env.CONNECT_URL : "ws://127.0.0.1:59900";
 
-let commit_hash = require('child_process')
+let commit_hash = child_process
 	.execSync('git rev-parse --short HEAD')
 	.toString()
 	.trim();
 
-let commit_branch = require('child_process')
+let commit_branch = child_process
 	.execSync('git rev-parse --abbrev-ref HEAD')
 	.toString()
 	.trim();
@@ -29,13 +30,8 @@ export default defineConfig({
 		},
 	},
 	plugins: [
-		checker({
-			typescript: {
-				tsconfigPath: "./tsconfig.app.json"
-			}
-		}),
+		tailwindcss(),
 		react(),
-		tsconfigPaths(),
 		sassDts({
 			enabledMode: ['development', 'production'],
 			esmExport: true,

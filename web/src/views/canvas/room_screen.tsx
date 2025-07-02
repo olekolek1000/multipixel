@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from "react";
-import { Multipixel } from "./multipixel";
-import { ToolPanel, ToolType } from "./tool_panel"
+import React, { type ReactNode, useEffect, useState } from "react";
+import { Multipixel } from "../../multipixel";
+import { ToolPanel, ToolType } from "../../tool_panel"
 import style_room from "./room_screen.module.scss"
-import { BoxRight, ButtonTool, Icon, Tooltip } from "./gui_custom";
-import { ChatRender } from "./chat";
-import tool from "./tool";
-import { JSX } from "react/jsx-runtime";
+import { BoxRight, ButtonTool, Icon, Tooltip } from "../../gui_custom";
+import { ChatRender } from "../../chat";
+import tool from "../../tool";
 
 export class RoomRefs {
 	canvas_render!: HTMLElement;
@@ -20,10 +19,10 @@ export class RoomScreenGlobals {
 
 export function RoomScreen({ globals, multipixel, refs_callback }: { globals: RoomScreenGlobals, multipixel: Multipixel, refs_callback: (refs: RoomRefs) => void }) {
 	const canvas_render = React.useRef(null);
-	const [player_list, setPlayerList] = useState<JSX.Element>();
+	const [player_list, setPlayerList] = useState<ReactNode>();
 	const [processing_status_text, setProcessingStatusText] = useState("");
 	const [tool_type, setToolType] = useState<ToolType>(multipixel.toolbox_globals.tool_type);
-	const [mouse_pos_text, setMousePosText] = useState<JSX.Element>(<></>);
+	const [mouse_pos_text, setMousePosText] = useState<ReactNode>(<></>);
 
 	globals.processing_status_text = processing_status_text;
 	globals.setProcessingStatusText = setProcessingStatusText;
@@ -38,7 +37,7 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 		let list = multipixel.getPlayerList();
 
 		const generateList = () => {
-			let arr = new Array<JSX.Element>();
+			let arr = new Array<ReactNode>();
 
 			for (let name of list) {
 				arr.push(<span key={name}>
