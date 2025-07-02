@@ -5,7 +5,7 @@ import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
 import { Preview, PreviewSystem } from "./preview_system";
 import { globals } from ".";
-import { RoomRefs, RoomScreen, RoomScreenGlobals } from "./room_screen"
+import { RoomRefs, RoomScreen, RoomScreenGlobals } from "./views/canvas/room_screen"
 import { ToolboxGlobals } from "./tool_panel";
 import style from "./style.module.scss"
 import tool from "./tool"

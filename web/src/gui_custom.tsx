@@ -1,4 +1,4 @@
-import React, { JSX, useEffect, useRef, useState } from "react";
+import React, { type ReactNode, useEffect, useRef, useState } from "react";
 import scss from "./style.module.scss"
 
 export function LabeledTextField(
@@ -113,7 +113,7 @@ export function Title({ children }: { children: any }) {
 export function FormErrorText() {
 	const [error_msg, setErrorMsg] = useState("");
 
-	let msg: JSX.Element | undefined = undefined;
+	let msg: ReactNode = undefined;
 
 	if (error_msg && error_msg.length > 0) {
 		msg = <span style={{
@@ -298,7 +298,7 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 		}
 	}, [down]);
 
-	let lines: Array<JSX.Element> | undefined = undefined;
+	let lines: Array<ReactNode> | undefined = undefined;
 
 	const calc_width = width ? width : 160;
 

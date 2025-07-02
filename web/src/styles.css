@@ -1,0 +1,4 @@
+/* note: preflight is disabled due to legacy code still existing */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);

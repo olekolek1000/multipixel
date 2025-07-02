@@ -1,5 +1,5 @@
 import { ChatMessageType, Client } from "./client";
-import React, { JSX, useEffect, useRef, useState } from "react";
+import React, { type ReactNode, useEffect, useRef, useState } from "react";
 import style_chat from "./chat.module.scss";
 import { TextField } from "./gui_custom";
 import bbobHTML from '@bbob/html'
@@ -46,7 +46,7 @@ export class Chat {
 
 		if (this.setHistory) {
 			this.setHistory(this.chat_history.map((cell) => {
-				let msg: JSX.Element | string;
+				let msg: ReactNode;
 
 				if (cell.type == ChatMessageType.stylized) {
 					msg = <StylizedText text={cell.message} />
@@ -71,7 +71,7 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 	}
 
 	const [text, setText] = useState("");
-	const [history, setHistory] = useState<JSX.Element>(<></>);
+	const [history, setHistory] = useState<ReactNode>(<></>);
 	const ref_history = useRef<HTMLDivElement | null>(null);
 	chat.setHistory = setHistory;
 	chat.ref_history = ref_history;
