@@ -1,5 +1,5 @@
 import type { ChatLine } from "../chat";
-import { ChatMessageType } from "../client";
+import { ChatMessageType } from "../../client";
 import type { FC, ReactNode } from "react";
 import bbobHTML from '@bbob/html'
 import presetHTML5 from '@bbob/preset-html5'
@@ -25,7 +25,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({ textLine }) => {
 
 
     return (
-        <div className="max-w-[300px]">
+        <div>
             {messageContent}
         </div>
     )

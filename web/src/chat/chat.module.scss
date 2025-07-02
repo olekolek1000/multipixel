@@ -1,4 +1,4 @@
-@use "globals.scss";
+@use "../globals.scss";
 
 .chat_box {
 	@extend .panel;
@@ -12,7 +12,6 @@
 
 .chat_input {
 	appearance: none;
-	width: 300px;
 }
 
 .chat_history {
@@ -25,6 +24,3 @@
 	font-size: 0.7em;
 }
 
-.chat_message {
-	max-width: 300px;
-}

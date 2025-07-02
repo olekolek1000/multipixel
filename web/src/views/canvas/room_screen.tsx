@@ -3,7 +3,7 @@ import { Multipixel } from "../../multipixel";
 import { ToolPanel, ToolType } from "../../tool_panel"
 import style_room from "./room_screen.module.scss"
 import { BoxRight, ButtonTool, Icon, Tooltip } from "../../gui_custom";
-import { ChatRender } from "../../chat";
+import { ChatRender } from "../../chat/chat";
 import tool from "../../tool";
 
 export class RoomRefs {

@@ -1,6 +1,6 @@
 import { ChunkMap } from "./chunk_map";
 import { Client, User } from "./client";
-import { Chat } from "./chat";
+import { Chat } from "./chat/chat";
 import { RenderEngine } from "./render_engine";
 import { lerp, Timestep } from "./timestep";
 import { Preview, PreviewSystem } from "./preview_system";
@@ -65,7 +65,7 @@ export class Multipixel {
 		connection_callback: (error_str?: string) => void;
 	}) {
 		document.title = "#" + params.room_name + " - MultiPixel";
-		
+
 		this.toolbox_globals = new ToolboxGlobals(this);
 
 		this.room_screen_globals = new RoomScreenGlobals();

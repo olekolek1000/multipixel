@@ -1,4 +1,4 @@
-import { Chat } from "./chat";
+import { Chat } from "./chat/chat";
 import { Multipixel } from "./multipixel";
 import { CHUNK_SIZE } from "./chunk_map";
 

@@ -1,17 +1,17 @@
-import { ChatMessageType, Client } from "./client";
+import { ChatMessageType, Client } from "../client";
 import { useEffect, useRef, useState } from "react";
-import style_chat from "./chat.module.scss";
 
-import { ChatInput } from "./chat/ChatInput";
+import { ChatInput } from "./components/ChatInput";
 import { Store, useStore } from "@tanstack/react-store";
-import { ChatMessage } from "./chat/ChatMessage";
+import { ChatMessage } from "./components/ChatMessage";
+
+import chatStyles from "./chat.module.scss";
 
 export interface ChatLine {
 	message: string
 	type: ChatMessageType
 	localChatIndex: number
 }
-
 
 export class Chat {
 	client: Client;
@@ -40,7 +40,6 @@ export class Chat {
 	}
 }
 
-
 export function ChatRender({ chat }: { chat?: Chat }) {
 	if (!chat)
 		throw new Error("ChatRender: Tried to render chat without chat object");
@@ -58,15 +57,17 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 	}, [chatHistory]);
 
 	return (
-		<div className={style_chat.chat_box}>
+		<div className={chatStyles.chat_box + " min-w-xs"}>
 
- 			<div ref={ref_history} className={style_chat.chat_history}>	
-				{chatHistory.map((line) => 
-					<ChatMessage key={line.localChatIndex} textLine={line}/>
-				)}
-			</div>
-
-			<div className={style_chat.chat_input}>
+			{!!chatHistory.length &&
+				<div ref={ref_history} className={chatStyles.chat_history}>	
+					{chatHistory.map((line) => 
+						<ChatMessage key={line.localChatIndex} textLine={line}/>
+					)}
+				</div>
+			}
+ 			
+			<div >
 				<ChatInput
 					value={chatInput}
 					onChange={setChatInput}
