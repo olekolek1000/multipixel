@@ -40,7 +40,7 @@ export const ChatMessage: FC<ChatMessageProps> = ({ textLine }) => {
 
 
     return (
-        <div className={`text-foreground m-1 ${styles.chatMessageAnim}`}>
+        <div className={`break-words text-foreground m-1 ${styles.chatMessageAnim}`}>
             {messageContent}
         </div>
     )
