@@ -6,9 +6,11 @@ import { Store, useStore } from "@tanstack/react-store";
 import { ChatMessage } from "./components/ChatMessage";
 
 import chatStyles from "./chat.module.scss";
+import { FloatContainer } from "@/ui/components/FloatContainer";
 
 export interface ChatLine {
 	message: string
+	author?: string
 	type: ChatMessageType
 	localChatIndex: number
 }
@@ -28,14 +30,33 @@ export class Chat {
 		this.client.setChatObject(this);
 	}
 
+	prepareChatMessage(rawMessage: string, type: ChatMessageType): ChatLine {
+		let author: string | undefined = undefined, 
+		    message = rawMessage;
+
+
+		// if the message starts with < and contains >, we assume it's nickname
+		if (type === ChatMessageType.plain_text && rawMessage[0] == "<" && rawMessage.includes(">")) {
+
+			// note: this is faster than using regex
+			const endIndex = rawMessage.indexOf(">");
+			author = rawMessage.substring(1, endIndex);
+			message = rawMessage.substring(endIndex + 1).trim() || " ";
+		}
+
+		return {
+			message,
+			author,
+			type: type,
+			localChatIndex: this.messageLastIndex++,
+		}
+	}
+		
+
 	addMessage(str: string, type: ChatMessageType) {
 		this.chatHistoryState.setState((prev) => [
 			...prev,
-			{
-				message: str,
-				type: type,
-				localChatIndex: this.messageLastIndex++
-			}
+			this.prepareChatMessage(str, type),
 		]);
 	}
 }
@@ -57,17 +78,19 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 	}, [chatHistory]);
 
 	return (
-		<div className={chatStyles.chat_box + " min-w-xs"}>
+		<div className="fixed bottom-4 left-4 w-full max-w-xs p-2">
 
 			{!!chatHistory.length &&
-				<div ref={ref_history} className={chatStyles.chat_history}>	
-					{chatHistory.map((line) => 
-						<ChatMessage key={line.localChatIndex} textLine={line}/>
-					)}
-				</div>
+				<FloatContainer className="w-full">
+					<div ref={ref_history} className="max-h-64 flex flex-col overflow-y-scroll overflow-x-visible scroll-smooth">	
+						{chatHistory.map((line) => 
+							<ChatMessage key={line.localChatIndex} textLine={line}/>
+						)}
+					</div>
+				</FloatContainer>
 			}
  			
-			<div >
+			<div className="pt-2">
 				<ChatInput
 					value={chatInput}
 					onChange={setChatInput}

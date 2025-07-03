@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 import sassDts from 'vite-plugin-sass-dts'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import tsconfigPaths from 'vite-tsconfig-paths';
 
 const connect_url = process.env.CONNECT_URL ? process.env.CONNECT_URL : "ws://127.0.0.1:59900";
 
@@ -31,11 +32,13 @@ export default defineConfig({
 	},
 	plugins: [
 		tailwindcss(),
+		tsconfigPaths(),
 		react(),
 		sassDts({
 			enabledMode: ['development', 'production'],
 			esmExport: true,
-		})],
+		})
+	],
 	define: {
 		__COMMIT_HASH__: JSON.stringify(commit_hash),
 		__COMMIT_BRANCH__: JSON.stringify(commit_branch),
