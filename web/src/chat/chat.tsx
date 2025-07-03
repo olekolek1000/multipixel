@@ -71,10 +71,11 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 	const ref_history = useRef<HTMLDivElement | null>(null);
 	
 	useEffect(() => {
-		if (ref_history.current) {
-			let div = ref_history.current! as HTMLDivElement;
-			div.scrollTop = div.scrollHeight;
-		}
+		if (!ref_history.current)
+			return;
+
+		let div = ref_history.current! as HTMLDivElement;
+		div.scrollTop = div.scrollHeight;
 	}, [chatHistory]);
 
 	return (
@@ -89,7 +90,7 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 					</div>
 				</FloatContainer>
 			}
- 			
+
 			<div className="pt-2">
 				<ChatInput
 					value={chatInput}
