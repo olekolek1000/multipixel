@@ -5,7 +5,6 @@ import { ChatInput } from "./components/ChatInput";
 import { Store, useStore } from "@tanstack/react-store";
 import { ChatMessage } from "./components/ChatMessage";
 
-import chatStyles from "./chat.module.scss";
 import { FloatContainer } from "@/ui/components/FloatContainer";
 
 export interface ChatLine {
