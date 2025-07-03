@@ -2,3 +2,25 @@
 @layer theme, base, components, utilities;
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
+
+
+/* global scrollbar */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+@theme {
+  --font-family: "Comfortaa", sans-serif;
+  --color-background: #EEE;
+  --color-foreground: #000;
+  --color-border: #DDD;
+
+
+  --shadow-edge: 
+    0 2px 0 var(--color-background);
+  --shadow-edge-shadow: 
+    0 4px 0 var(--color-background),
+    0 4px 16px rgba(0, 0, 0, 0.30);
+}
