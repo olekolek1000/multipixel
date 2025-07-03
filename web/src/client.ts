@@ -1,4 +1,4 @@
-import { Chat } from "./chat";
+import { Chat } from "./chat/chat";
 import { Multipixel } from "./multipixel";
 import { CHUNK_SIZE } from "./chunk_map";
 
@@ -112,20 +112,18 @@ export class Client {
 	}
 
 	initProtocol() {
-		let c = this;
-		c.socketSendBoundary();
+		this.socketSendBoundary();
 
-		c = this;
-		this.socket!.onmessage = function (e) {
-			c.onmessage(e);
+		this.socket!.onmessage = (e) => {
+			this.onmessage(e);
 		}
 
-		this.socket!.onclose = function (e) {
+		this.socket!.onclose = (e) => {
 			if (e.wasClean) {
 				console.log("Socket disconnected");
 			}
 			else {
-				c.connection_callback("Connection failed: " + e.code);
+				this.connection_callback("Connection failed: " + e.code);
 				console.log("Socket error: " + e.code);
 			}
 		}

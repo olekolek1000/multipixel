@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Icon, Slider } from "./gui_custom";
 import style_toolbox from "./toolbox.module.scss"
-import style_room from "./room_screen.module.scss";
+import style_room from "./views/canvas/room_screen.module.scss";
 import { Multipixel, rgb2hex } from "./multipixel"
 import { lerp } from "./timestep";
 import Picker from "vanilla-picker";
-import { JSX } from "react/jsx-runtime";
 
 export enum ToolType {
 	none,
@@ -151,13 +150,13 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 
 	let cp = toolbox_globals.color_palette;
 
-	let rows = new Array<JSX.Element>();
+	let rows = new Array<ReactNode>();
 
 	for (let row of cp.rows) {
 		let gradient_count = cp.column_count - 2;
 		let gradient_begin = 1;
 
-		let columns = new Array<JSX.Element>();
+		let columns = new Array<ReactNode>();
 
 		for (let i = 0; i < cp.column_count; i++) {
 			let class_name = style_toolbox.cell;
@@ -306,7 +305,7 @@ function ToolFlow({ globals }: { globals: ToolboxGlobals }) {
 	}} />
 }
 
-function ToolList({ children }: { children: JSX.Element[] }) {
+function ToolList({ children }: { children: ReactNode[] }) {
 	return <div className={style_toolbox.tool_settings_parent}>
 		{children}
 	</div>

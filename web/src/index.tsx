@@ -1,25 +1,29 @@
-import React, { useState } from "react";
+import React, { type FC, type ReactNode, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { LoginScreen } from "./login_screen";
-import { JSX } from "react/jsx-runtime";
+import { LoginScreen } from "./views/login/login_screen";
+import { NuqsAdapter } from 'nuqs/adapters/react'
+
+import './styles.css';
 
 export namespace globals {
-	export let state: JSX.Element | null = null;
-	export let setState: React.Dispatch<React.SetStateAction<JSX.Element>>;
+	export let state: ReactNode = null;
+	export let setState: React.Dispatch<React.SetStateAction<ReactNode>>;
 	export let root: HTMLElement;
 }
 
 
-function MainApp({ }: {}) {
-	const [state, setState] = useState(<LoginScreen />);
+const MainApp: FC = () => {
+	const [state, setState] = useState<ReactNode>(<LoginScreen />);
 	globals.state = state;
 	globals.setState = setState;
 
 	return state;
 }
 
-window.onload = function () {
-	globals.root = document.getElementById('root')!;
-	const root = ReactDOM.createRoot(globals.root);
-	root.render(<MainApp />);
-}
+globals.root ??= document.getElementById('root')!;
+
+ReactDOM.createRoot(globals.root).render(
+	<NuqsAdapter>
+		<MainApp />
+	</NuqsAdapter>
+);
