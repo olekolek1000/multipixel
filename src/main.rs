@@ -67,6 +67,7 @@ async fn connection_read_packet(
 			}
 			Err(e) => {
 				log::info!("Session {} error: {}", session_handle.id(), e);
+				return Err(anyhow::anyhow!("Connection interrupted"));
 			}
 		},
 		None => {
@@ -118,7 +119,7 @@ async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow
 			res = connection_read_packet(&mut reader, &session_handle,&server_mtx,&session_mtx) => {
 				// exit loop on error
 				if let Err(e) = res {
-					log::error!("connection_read_socket error: {}, closing connection", e);
+					log::error!("connection_read_packet error: {}, closing connection", e);
 					break;
 				}
 			}
