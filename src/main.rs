@@ -120,6 +120,7 @@ async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow
 				// exit loop on error
 				if let Err(e) = res {
 					log::error!("connection_read_packet error: {}, closing connection", e);
+					cancel_token.cancel();
 					break;
 				}
 			}
