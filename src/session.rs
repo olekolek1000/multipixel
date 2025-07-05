@@ -272,7 +272,7 @@ impl SessionInstance {
 				.name(format!("Session {} tick task", session_handle.id()).as_str())
 				.spawn(async move {
 					if let Err(e) = SessionInstance::tick_task_runner(session_weak, &session_handle).await {
-						log::error!("Session tick task ended abnormally: {}", e);
+						log::error!("Session tick task ended abnormally: {e}");
 					} else {
 						log::trace!("Session tick task ended gracefully");
 					}
@@ -290,7 +290,7 @@ impl SessionInstance {
 		session.writer = Some(Arc::new(Mutex::new(writer)));
 		session.task_sender = Some(
 			tokio::task::Builder::new()
-				.name(format!("Session {} sender task", session_id).as_str())
+				.name(format!("Session {session_id} sender task").as_str())
 				.spawn(async move {
 					while let Some(session_mtx) = session_weak.upgrade() {
 						let mut session = session_mtx.lock().await;
@@ -372,13 +372,13 @@ impl SessionInstance {
 
 	async fn handle_error(&mut self, e: &anyhow::Error) -> anyhow::Result<()> {
 		if e.is::<UserError>() {
-			log::error!("User error: {}", e);
-			let _ = self.kick(format!("User error: {}", e).as_str()).await;
+			log::error!("User error: {e}");
+			let _ = self.kick(format!("User error: {e}").as_str()).await;
 		} else if e.is::<io::Error>() {
-			log::error!("IO error: {}", e);
-			let _ = self.kick(format!("IO error: {}", e).as_str()).await;
+			log::error!("IO error: {e}");
+			let _ = self.kick(format!("IO error: {e}").as_str()).await;
 		} else {
-			log::error!("Unknown error: {}", e);
+			log::error!("Unknown error: {e}");
 			let _ = self.kick("Internal server error. This is a bug.").await;
 			// Pass error further
 			return Err(anyhow::anyhow!("Internal server error: {}", e));
@@ -1069,8 +1069,7 @@ impl SessionInstance {
 			if !ch.is_ascii_alphanumeric() {
 				return Err(UserError::new(
 					format!(
-						"Room name contains invalid character: \"{}\". Only alphanumeric characters are allowed.",
-						ch
+						"Room name contains invalid character: \"{ch}\". Only alphanumeric characters are allowed."
 					)
 					.as_str(),
 				))?;
@@ -1094,8 +1093,7 @@ impl SessionInstance {
 			if !ch.is_alphanumeric() && ch != '_' && ch != '-' {
 				return Err(UserError::new(
 					format!(
-						"Nick name contains invalid character: \"{}\". Only alphanumeric characters are allowed.",
-						ch
+						"Nick name contains invalid character: \"{ch}\". Only alphanumeric characters are allowed."
 					)
 					.as_str(),
 				))?;
@@ -1225,7 +1223,7 @@ impl SessionInstance {
 	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
 		msg = msg.trim();
 		let msg = format!("<{}> {}", self.nick_name.lock().unwrap().as_str(), msg);
-		log::info!("Chat message: {}", msg);
+		log::info!("Chat message: {msg}");
 
 		// Broadcast chat message to all sessions
 		let room = refs.room_mtx.lock().await;
@@ -1242,7 +1240,7 @@ impl SessionInstance {
 		refs: &RoomRefs,
 		msg: &str,
 	) -> anyhow::Result<()> {
-		log::info!("Command requested: {}", msg);
+		log::info!("Command requested: {msg}");
 
 		let mut parts: VecDeque<&str> = msg.split(" ").collect();
 		if let Some(command) = parts.pop_front() {

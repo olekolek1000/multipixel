@@ -61,7 +61,7 @@ where
 
 	pub fn send(&self, data: T) {
 		if let Err(e) = self.sender.send(data) {
-			log::error!("sender error: {}", e);
+			log::error!("sender error: {e}");
 		}
 		self.notify.notify_one();
 	}

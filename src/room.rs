@@ -41,7 +41,7 @@ pub struct RoomInstance {
 
 impl RoomInstance {
 	pub async fn new(room_name: &str, config: &Config) -> anyhow::Result<Self> {
-		let db_path = format!("rooms/{}.db", room_name);
+		let db_path = format!("rooms/{room_name}.db");
 
 		let database = Arc::new(Mutex::new(Database::new(db_path.as_str()).await?));
 		let preview_system_mtx = Arc::new(Mutex::new(PreviewSystem::new(database.clone())));
@@ -131,7 +131,7 @@ impl RoomInstance {
 
 	fn gen_suitable_name(current: &str, occupied_num: &Option<u32>) -> String {
 		if let Some(num) = occupied_num {
-			format!("{} ({})", current, num)
+			format!("{current} ({num})")
 		} else {
 			String::from(current)
 		}
