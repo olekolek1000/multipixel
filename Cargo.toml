@@ -14,25 +14,25 @@ debug = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.95"
+anyhow = "1.0.98"
 binary-reader = "0.4.5"
-bytes = "1.6.0"
+bytes = "1.10.1"
 console-subscriber = "0.4.1"
 futures-util = { version = "0.3.31", features = ["sink"] }
-glam = { version = "0.30.0" }
-log = "0.4.21"
-lz4_flex = "0.11.3"
+glam = { version = "0.30.4" }
+log = "0.4.27"
+lz4_flex = "0.11.5"
 num = "0.4.3"
-num_enum = "0.7.2"
+num_enum = "0.7.4"
 pretty_env_logger = "0.5.0"
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = "1.0.117"
-sha1_smol = "1.0.0"
-tokio = { version = "1.43.0", features = ["full"] }
-tokio-websockets = { version = "0.11.2", features = ["server", "sha1_smol"] }
-tokio-util = "0.7.13"
-libc = "0.2.159"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+sha1_smol = "1.0.1"
+tokio = { version = "1.46.1", features = ["full"] }
+tokio-websockets = { version = "0.11.4", features = ["server", "sha1_smol"] }
+tokio-util = "0.7.15"
+libc = "0.2.174"
 tokio-fd = "0.3.0"
 fastrand = "2.3.0"
-rusqlite = "0.33.0"
-smallvec = "1.14.0"
+rusqlite = "0.36.0"
+smallvec = "1.15.1"
