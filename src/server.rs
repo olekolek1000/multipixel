@@ -8,7 +8,7 @@ use crate::{
 	event_queue::EventQueue,
 	packet_server,
 	room::{RoomInstance, RoomInstanceMutex},
-	session::{self, SessionHandle, SessionInstance, SessionInstanceMutex, SessionVec},
+	session::{self, SessionHandle, SessionInstance, SessionInstanceMutex, SessionState, SessionVec},
 };
 
 use std::sync::Mutex as SyncMutex;
@@ -67,10 +67,7 @@ impl Server {
 		&mut self,
 		cancel_token: CancellationToken,
 	) -> (SessionHandle, SessionInstanceMutex) {
-		let session_mtx = Arc::new(Mutex::new(SessionInstance::new(
-			cancel_token,
-			Default::default(),
-		)));
+		let session_mtx = Arc::new(Mutex::new(SessionInstance::new(cancel_token)));
 		(
 			self.sessions.add(session::SessionContainer {
 				session: session_mtx.clone(),
@@ -98,14 +95,14 @@ impl Server {
 		room_name: &str,
 		queue_send: EventQueue<packet_server::Packet>,
 		session_handle: &SessionHandle,
-		nick_name: Arc<SyncMutex<String>>,
+		state: Arc<SyncMutex<SessionState>>,
 	) -> anyhow::Result<RoomInstanceMutex> {
 		let room_instance_mtx = self.get_or_load_room(room_name).await?;
 
 		room_instance_mtx
 			.lock()
 			.await
-			.add_session(self, queue_send, session_handle, nick_name);
+			.add_session(self, queue_send, session_handle, state);
 
 		Ok(room_instance_mtx)
 	}
