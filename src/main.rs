@@ -116,7 +116,7 @@ async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow
 				log::info!("Got cancel token, freeing session");
 				break;
 			}
-			res = connection_read_packet(&mut reader, &session_handle,&server_mtx,&session_mtx) => {
+			res = connection_read_packet(&mut reader, &session_handle, &server_mtx, &session_mtx) => {
 				// exit loop on error
 				if let Err(e) = res {
 					log::error!("connection_read_packet error: {e}, closing connection");

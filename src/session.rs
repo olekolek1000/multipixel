@@ -28,6 +28,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tokio_websockets::Message;
 
+const SERVER_STR: &str = "[SERVER]";
+
 // Any protocol usage error that shouldn't be tolerated.
 // Causes termination of the session with the kick message provided in the UserError constructor.
 #[derive(Debug, Clone)]
@@ -1096,6 +1098,7 @@ impl SessionInstance {
 		if self.announced {
 			return Err(UserError::new("Announced more than once"))?;
 		}
+
 		self.announced = true;
 
 		let packet = packet_client::PacketAnnounce::read(reader)?;
@@ -1256,6 +1259,7 @@ impl SessionInstance {
 	fn send_reply(&self, text: String) {
 		self.queue_send.send(packet_server::prepare_packet_message(
 			packet_server::MessageType::PlainText,
+			SERVER_STR,
 			text.as_str(),
 		));
 	}
@@ -1263,6 +1267,7 @@ impl SessionInstance {
 	fn send_reply_stylized(&self, text: String) {
 		self.queue_send.send(packet_server::prepare_packet_message(
 			packet_server::MessageType::Stylized,
+			SERVER_STR,
 			text.as_str(),
 		));
 	}
@@ -1273,13 +1278,17 @@ impl SessionInstance {
 
 	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
 		msg = msg.trim();
-		let msg = format!("<{}> {}", self.state().nick_name.as_str(), msg);
+		let nick_name = self.state().nick_name.clone();
 		log::info!("Chat message: {msg}");
 
 		// Broadcast chat message to all sessions
 		let room = refs.room_mtx.lock().await;
 		room.broadcast(
-			&packet_server::prepare_packet_message(packet_server::MessageType::PlainText, msg.as_str()),
+			&packet_server::prepare_packet_message(
+				packet_server::MessageType::PlainText,
+				&nick_name,
+				msg,
+			),
 			None,
 		);
 	}
