@@ -6,7 +6,7 @@ use crate::{
 	packet_server,
 	preview_system::{PreviewSystem, PreviewSystemMutex},
 	server::Server,
-	session::{SessionHandle, SessionInstanceWeak},
+	session::{SessionHandle, SessionInstanceWeak, SessionState},
 	tool::brush::BrushShapes,
 };
 use std::sync::Arc;
@@ -15,10 +15,11 @@ use tokio::sync::{Mutex, Notify};
 
 #[derive(Clone)]
 pub struct RoomSessionData {
+	#[allow(dead_code)]
 	pub instance_mtx: SessionInstanceWeak,
 	pub queue_send: EventQueue<packet_server::Packet>,
 	pub handle: SessionHandle,
-	pub nick_name: Arc<SyncMutex<String>>,
+	pub state: Arc<SyncMutex<SessionState>>,
 }
 
 pub struct RoomRefs {
@@ -81,7 +82,7 @@ impl RoomInstance {
 		server: &Server,
 		queue_send: EventQueue<packet_server::Packet>,
 		session_handle: &SessionHandle,
-		nick_name: Arc<SyncMutex<String>>,
+		state: Arc<SyncMutex<SessionState>>,
 	) {
 		log::info!("Adding session ID {}", session_handle.id());
 		let session = server.sessions.get(session_handle).unwrap();
@@ -90,7 +91,7 @@ impl RoomInstance {
 			handle: *session_handle,
 			queue_send,
 			instance_mtx: Arc::downgrade(&session.session),
-			nick_name,
+			state,
 		});
 	}
 
@@ -147,7 +148,7 @@ impl RoomInstance {
 					continue;
 				}
 
-				if *session_data.nick_name.lock().unwrap()
+				if *session_data.state.lock().unwrap().nick_name
 					== Self::gen_suitable_name(current, &occupied_num)
 				{
 					occupied = true;

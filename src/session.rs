@@ -144,8 +144,23 @@ impl History {
 	}
 }
 
+#[derive(Default)]
+pub struct Cursor {
+	pos: packet_client::PacketCursorPos,
+	pos_prev: packet_client::PacketCursorPos,
+	pos_sent: Option<packet_client::PacketCursorPos>,
+	down: bool,
+	just_clicked: bool,
+}
+
+#[derive(Default)]
+pub struct SessionState {
+	pub nick_name: String, // Max 255 characters
+	pub cursor: Cursor,
+}
+
 pub struct SessionInstance {
-	pub nick_name: Arc<SyncMutex<String>>, // Max 255 characters
+	pub state: Arc<SyncMutex<SessionState>>,
 
 	admin_mode: bool,
 
@@ -153,12 +168,6 @@ pub struct SessionInstance {
 	pub queue_send: EventQueue<packet_server::Packet>,
 
 	cancel_token: CancellationToken,
-
-	cursor_pos: packet_client::PacketCursorPos,
-	cursor_pos_prev: packet_client::PacketCursorPos,
-	cursor_pos_sent: Option<packet_client::PacketCursorPos>,
-	cursor_down: bool,
-	cursor_just_clicked: bool,
 
 	needs_boundary_test: bool,
 	boundary: Boundary,
@@ -189,17 +198,12 @@ pub struct SessionInstance {
 }
 
 impl SessionInstance {
-	pub fn new(cancel_token: CancellationToken, nick_name: Arc<SyncMutex<String>>) -> Self {
+	pub fn new(cancel_token: CancellationToken) -> Self {
 		let notifier = Arc::new(Notify::new());
 
 		Self {
 			cancel_token,
-			nick_name,
-			cursor_pos: Default::default(),
-			cursor_pos_prev: Default::default(),
-			cursor_pos_sent: None,
-			cursor_down: false,
-			cursor_just_clicked: false,
+			state: Arc::new(SyncMutex::new(SessionState::default())),
 			kicked: false,
 			announced: false,
 			needs_boundary_test: false,
@@ -429,6 +433,10 @@ impl SessionInstance {
 		Ok(())
 	}
 
+	fn state(&self) -> std::sync::MutexGuard<SessionState> {
+		self.state.lock().unwrap()
+	}
+
 	async fn set_tool_state(&mut self, refs: &RoomRefs, new_state: ToolState) {
 		match &mut self.tool_state {
 			ToolState::None => {}
@@ -455,7 +463,7 @@ impl SessionInstance {
 			}
 		}
 
-		self.cursor_just_clicked = false;
+		self.state().cursor.just_clicked = false;
 	}
 
 	async fn floodfill_check_color(
@@ -481,16 +489,20 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_fill(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
-		}
+		let global_pos = {
+			let state = self.state();
 
-		// Allow single click only
-		if !self.cursor_just_clicked {
-			return;
-		}
+			if !state.cursor.down {
+				return;
+			}
 
-		let global_pos = IVec2::new(self.cursor_pos.x, self.cursor_pos.y);
+			// Allow single click only
+			if !state.cursor.just_clicked {
+				return;
+			}
+
+			IVec2::new(state.cursor.pos.x, state.cursor.pos.y)
+		};
 
 		if !self.is_chunk_linked(ChunkSystem::global_pixel_pos_to_chunk_pos(global_pos)) {
 			return;
@@ -568,18 +580,26 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_brush(&mut self, refs: &RoomRefs, square: bool) {
-		if !self.cursor_down {
-			return;
-		}
+		let (tool_size, iter, step) = {
+			let mut state = self.state();
 
-		let tool_size = self.get_tool_size();
-		let step = 1 + tool_size / 6;
-		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
-		if util::distance_squared_int32(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec()) > 250 {
-			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
-			self.cursor_down = false;
-			return;
-		}
+			if !state.cursor.down {
+				return;
+			}
+
+			let tool_size = self.get_tool_size();
+			let step = 1 + tool_size / 6;
+			let iter = LineMoveIter::iterate(state.cursor.pos_prev.to_vec(), state.cursor.pos.to_vec());
+			if util::distance_squared_int32(state.cursor.pos_prev.to_vec(), state.cursor.pos.to_vec())
+				> 250
+			{
+				// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+				state.cursor.down = false;
+				return;
+			}
+
+			(tool_size, iter, step)
+		};
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
@@ -630,7 +650,12 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_line(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
-		if self.cursor_down && !matches!(self.tool_state, ToolState::Line(_)) {
+		let (cursor_down, cursor_pos) = {
+			let state = self.state();
+			(state.cursor.down, state.cursor.pos.clone())
+		};
+
+		if cursor_down && !matches!(self.tool_state, ToolState::Line(_)) {
 			// Start drawing line
 			let layer_generation = self.serial_generator.increment_get();
 
@@ -638,7 +663,7 @@ impl SessionInstance {
 				.set_tool_state(
 					refs,
 					ToolState::Line(ToolStateLine::new(
-						self.cursor_pos.to_vec(),
+						cursor_pos.to_vec(),
 						LayerID::Session(layer_generation, *session_handle),
 					)),
 				)
@@ -647,7 +672,7 @@ impl SessionInstance {
 
 		let mut ending_drawing = false;
 
-		if !self.cursor_down && matches!(self.tool_state, ToolState::Line(_)) {
+		if !cursor_down && matches!(self.tool_state, ToolState::Line(_)) {
 			// Stop drawing line
 			ending_drawing = true;
 		}
@@ -659,7 +684,7 @@ impl SessionInstance {
 					.process(
 						&mut self.chunk_cache,
 						refs,
-						self.cursor_pos.to_vec(),
+						cursor_pos.to_vec(),
 						self.tool.color,
 					)
 					.await;
@@ -669,18 +694,25 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_smooth_brush(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
-		}
+		let (tool_size, iter, step) = {
+			let mut state = self.state();
 
-		let tool_size = self.get_tool_size().max(4);
-		let step = 1 + tool_size / 6;
-		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
-		if util::distance_squared_int32(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec()) > 250 {
-			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
-			self.cursor_down = false;
-			return;
-		}
+			if !state.cursor.down {
+				return;
+			}
+
+			let tool_size = self.get_tool_size().max(4);
+			let step = 1 + tool_size / 6;
+			let iter = LineMoveIter::iterate(state.cursor.pos_prev.to_vec(), state.cursor.pos.to_vec());
+			if util::distance_squared_int32(state.cursor.pos_prev.to_vec(), state.cursor.pos.to_vec())
+				> 250
+			{
+				// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+				state.cursor.down = false;
+				return;
+			}
+			(tool_size, iter, step)
+		};
 
 		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
 		let mut cache = CanvasCache::default();
@@ -726,17 +758,24 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_spray(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
-		}
+		let iter = {
+			let mut state = self.state();
 
-		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
+			if !state.cursor.down {
+				return;
+			}
 
-		if util::distance_squared_int32(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec()) > 250 {
-			// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
-			self.cursor_down = false;
-			return;
-		}
+			let iter = LineMoveIter::iterate(state.cursor.pos_prev.to_vec(), state.cursor.pos.to_vec());
+
+			if util::distance_squared_int32(state.cursor.pos_prev.to_vec(), state.cursor.pos.to_vec())
+				> 250
+			{
+				// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
+				state.cursor.down = false;
+				return;
+			}
+			iter
+		};
 
 		let tool_size = self.get_tool_size();
 
@@ -764,24 +803,31 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_blur(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
+		let (cursor_down, cursor_pos) = {
+			let state = self.state();
+			(state.cursor.down, state.cursor.pos.clone())
+		};
+
+		if !cursor_down {
 			return;
 		}
 
 		let tool_size = self.get_tool_size();
 
-		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+		let shape_filled = {
+			let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+			brush_shapes.get_circle_filled(tool_size)
+		};
+
 		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
-		let shape_filled = brush_shapes.get_circle_filled(tool_size);
-		drop(brush_shapes);
 
 		let blend_intensity = (self.tool.flow * 255.0) as u8;
 
 		let mut cache = CanvasCache::default();
 
 		for s in shape_filled.iterate() {
-			let pos_x = self.cursor_pos.x + s.local_x as i32 - (tool_size / 2) as i32;
-			let pos_y = self.cursor_pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+			let pos_x = cursor_pos.x + s.local_x as i32 - (tool_size / 2) as i32;
+			let pos_y = cursor_pos.y + s.local_y as i32 - (tool_size / 2) as i32;
 
 			let center = cache
 				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
@@ -810,27 +856,34 @@ impl SessionInstance {
 	}
 
 	async fn update_cursor_smudge(&mut self, refs: &RoomRefs) {
-		if !self.cursor_down {
-			return;
-		}
+		let (cursor_pos, cursor_pos_prev) = {
+			let state = self.state();
+
+			if !state.cursor.down {
+				return;
+			}
+
+			(state.cursor.pos.clone(), state.cursor.pos_prev.clone())
+		};
 
 		let tool_size = self.get_tool_size();
 
-		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+		let shape_filled = {
+			let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
+			brush_shapes.get_circle_filled(tool_size)
+		};
+
 		let mut pixels_final: Vec<GlobalPixelRGB> = Vec::new();
 		let mut pixels_temp: Vec<GlobalPixelRGB> = Vec::new();
-
-		let shape_filled = brush_shapes.get_circle_filled(tool_size);
-		drop(brush_shapes);
 
 		let blend_intensity = (self.tool.flow * 255.0) as u8;
 
 		let mut cache = CanvasCache::default();
 
-		let iter = LineMoveIter::iterate(self.cursor_pos_prev.to_vec(), self.cursor_pos.to_vec());
+		let iter = LineMoveIter::iterate(cursor_pos_prev.to_vec(), cursor_pos.to_vec());
 
-		let mut line_x_prev = self.cursor_pos_prev.x;
-		let mut line_y_prev = self.cursor_pos_prev.y;
+		let mut line_x_prev = cursor_pos_prev.x;
+		let mut line_y_prev = cursor_pos_prev.y;
 
 		for line in iter {
 			let diff_x = line_x_prev - line.pos.x;
@@ -1012,7 +1065,7 @@ impl SessionInstance {
 				room_name,
 				self.queue_send.clone(),
 				session_handle,
-				self.nick_name.clone(),
+				self.state.clone(),
 			)
 			.await?;
 
@@ -1115,7 +1168,7 @@ impl SessionInstance {
 			.get_suitable_nick_name(packet.nick_name.as_str(), session_handle)
 			.await;
 
-		*self.nick_name.lock().unwrap() = suitable_nick;
+		self.state().nick_name = suitable_nick;
 
 		// Broadcast to all users that this user is available
 		self.broadcast_self(room_mtx, session_handle).await;
@@ -1129,12 +1182,11 @@ impl SessionInstance {
 	async fn broadcast_self(&mut self, room_mtx: RoomInstanceMutex, session_handle: &SessionHandle) {
 		let room = room_mtx.lock().await;
 
+		let nick_name = self.state().nick_name.clone();
+
 		// Announce itself to other existing sessions
 		room.broadcast(
-			&packet_server::prepare_packet_user_create(
-				session_handle.id(),
-				&self.nick_name.lock().unwrap(),
-			),
+			&packet_server::prepare_packet_user_create(session_handle.id(), &nick_name),
 			Some(session_handle),
 		);
 
@@ -1144,27 +1196,26 @@ impl SessionInstance {
 		drop(room); //No more needed in this context
 
 		for other_session in other_sessions {
-			if let Some(session_mtx) = other_session.instance_mtx.upgrade() {
-				let session = session_mtx.lock().await;
-				let other_session_id = other_session.handle.id();
+			let other_session_id = other_session.handle.id();
 
-				//Send user creation packet
-				self
-					.queue_send
-					.send(packet_server::prepare_packet_user_create(
-						other_session_id,
-						&session.nick_name.lock().unwrap(),
-					));
+			let other_state = other_session.state.lock().unwrap();
 
-				//Send current cursor positions of the session
-				self
-					.queue_send
-					.send(packet_server::prepare_packet_user_cursor_pos(
-						other_session_id,
-						session.cursor_pos.x,
-						session.cursor_pos.y,
-					));
-			}
+			//Send user creation packet
+			self
+				.queue_send
+				.send(packet_server::prepare_packet_user_create(
+					other_session_id,
+					&other_state.nick_name,
+				));
+
+			//Send current cursor positions of the session
+			self
+				.queue_send
+				.send(packet_server::prepare_packet_user_cursor_pos(
+					other_session_id,
+					other_state.cursor.pos.x,
+					other_state.cursor.pos.y,
+				));
 		}
 	}
 
@@ -1222,7 +1273,7 @@ impl SessionInstance {
 
 	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
 		msg = msg.trim();
-		let msg = format!("<{}> {}", self.nick_name.lock().unwrap().as_str(), msg);
+		let msg = format!("<{}> {}", self.state().nick_name.as_str(), msg);
 		log::info!("Chat message: {msg}");
 
 		// Broadcast chat message to all sessions
@@ -1318,12 +1369,21 @@ impl SessionInstance {
 		reader: &mut BinaryReader,
 		session_handle: &SessionHandle,
 	) -> anyhow::Result<()> {
-		self.cursor_pos_prev = self.cursor_pos.clone();
-		self.cursor_pos = packet_client::PacketCursorPos::read(reader)?;
+		{
+			let mut state = self.state();
+			state.cursor.pos_prev = state.cursor.pos.clone();
+			state.cursor.pos = packet_client::PacketCursorPos::read(reader)?;
+		}
+
 		self.update_cursor(refs, session_handle).await;
 
-		if let Some(cursor_pos_sent) = &self.cursor_pos_sent {
-			if self.cursor_pos != *cursor_pos_sent {
+		let (pos_sent, cursor_pos) = {
+			let state = self.state();
+			(state.cursor.pos_sent.clone(), state.cursor.pos.clone())
+		};
+
+		if let Some(cursor_pos_sent) = pos_sent {
+			if cursor_pos != cursor_pos_sent {
 				self.send_cursor_pos_to_all(refs, session_handle).await;
 			}
 		} else {
@@ -1339,15 +1399,20 @@ impl SessionInstance {
 		_reader: &mut BinaryReader,
 		session_handle: &SessionHandle,
 	) -> Result<(), UserError> {
-		//log::trace!("Cursor down");
-		if self.cursor_down {
-			// Already pressed down
-			return Ok(());
+		{
+			let mut state = self.state();
+
+			//log::trace!("Cursor down");
+			if state.cursor.down {
+				// Already pressed down
+				return Ok(());
+			}
+
+			state.cursor.pos_prev = state.cursor.pos.clone();
+			state.cursor.down = true;
+			state.cursor.just_clicked = true;
 		}
 
-		self.cursor_pos_prev = self.cursor_pos.clone();
-		self.cursor_down = true;
-		self.cursor_just_clicked = true;
 		self.history.create_snapshot();
 		self.update_cursor(refs, session_handle).await;
 
@@ -1360,12 +1425,17 @@ impl SessionInstance {
 		_reader: &mut BinaryReader,
 		session_handle: &SessionHandle,
 	) -> Result<(), UserError> {
-		//log::trace!("Cursor up");
-		if !self.cursor_down {
-			return Ok(());
+		{
+			let mut state = self.state();
+
+			//log::trace!("Cursor up");
+			if !state.cursor.down {
+				return Ok(());
+			}
+
+			state.cursor.down = false;
 		}
 
-		self.cursor_down = false;
 		self.update_cursor(refs, session_handle).await;
 		Ok(())
 	}
@@ -1526,16 +1596,21 @@ impl SessionInstance {
 	}
 
 	async fn send_cursor_pos_to_all(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
+		let cursor_pos = {
+			let mut state = self.state();
+			state.cursor.pos_sent = Some(state.cursor.pos.clone());
+			state.cursor.pos.clone()
+		};
+
 		let room = refs.room_mtx.lock().await;
 		room.broadcast(
 			&packet_server::prepare_packet_user_cursor_pos(
 				session_handle.id(),
-				self.cursor_pos.x,
-				self.cursor_pos.y,
+				cursor_pos.x,
+				cursor_pos.y,
 			),
 			Some(session_handle),
 		);
-		self.cursor_pos_sent = Some(self.cursor_pos.clone());
 	}
 
 	fn is_chunk_linked(&self, chunk_pos: IVec2) -> bool {
@@ -1584,6 +1659,8 @@ impl SessionInstance {
 	}
 
 	pub async fn tick_tool_state(&mut self, refs: &RoomRefs) {
+		let cursor_pos = self.state().cursor.pos.clone();
+
 		match &mut self.tool_state {
 			ToolState::None => {}
 			ToolState::Line(state) => {
@@ -1591,7 +1668,7 @@ impl SessionInstance {
 					.process(
 						&mut self.chunk_cache,
 						refs,
-						self.cursor_pos.to_vec(),
+						cursor_pos.to_vec(),
 						self.tool.color,
 					)
 					.await;
@@ -1608,69 +1685,74 @@ impl SessionInstance {
 		if !self.needs_boundary_test {
 			return Ok(());
 		}
+		if self.boundary.zoom <= limits::BOUNDARY_ZOOM_MIN {
+			return Ok(());
+		}
 
-		if self.boundary.zoom > limits::BOUNDARY_ZOOM_MIN {
-			let mut chunks_to_load: Vec<IVec2> = Vec::new();
+		let mut chunks_to_load: Vec<IVec2> = Vec::new();
 
-			// Check which chunks aren't announced for this session
-			for y in self.boundary.start_y..self.boundary.end_y {
-				for x in self.boundary.start_x..self.boundary.end_x {
-					if !self.is_chunk_linked(IVec2 { x, y }) {
-						chunks_to_load.push(IVec2 { x, y });
-					}
+		// Check which chunks aren't announced for this session
+		for y in self.boundary.start_y..self.boundary.end_y {
+			for x in self.boundary.start_x..self.boundary.end_x {
+				if !self.is_chunk_linked(IVec2 { x, y }) {
+					chunks_to_load.push(IVec2 { x, y });
+				}
+			}
+		}
+
+		if chunks_to_load.is_empty() {
+			return Ok(());
+		}
+
+		let cursor_pos = self.state().cursor.pos.clone();
+
+		let in_queue: u32 = (self.chunks_sent as i32 - self.chunks_received as i32) as u32;
+		let to_send: u32 = 20 - in_queue; // Max 20 queued chunks
+
+		for _iterations in 0..to_send {
+			// Get closest chunk (circular loading)
+			let center_x = cursor_pos.x as f64 / limits::CHUNK_SIZE_PX as f64;
+			let center_y = cursor_pos.y as f64 / limits::CHUNK_SIZE_PX as f64;
+
+			let mut closest_position = IVec2 { x: 0, y: 0 };
+			let mut closest_distance: f64 = f64::MAX;
+
+			for ch in &chunks_to_load {
+				let distance = util::distance64(center_x, center_y, ch.x as f64, ch.y as f64);
+				if distance < closest_distance {
+					closest_distance = distance;
+					closest_position = *ch;
 				}
 			}
 
-			if !chunks_to_load.is_empty() {
-				let in_queue: u32 = (self.chunks_sent as i32 - self.chunks_received as i32) as u32;
-				let to_send: u32 = 20 - in_queue; // Max 20 queued chunks
-
-				for _iterations in 0..to_send {
-					// Get closest chunk (circular loading)
-					let center_x = self.cursor_pos.x as f64 / limits::CHUNK_SIZE_PX as f64;
-					let center_y = self.cursor_pos.y as f64 / limits::CHUNK_SIZE_PX as f64;
-
-					let mut closest_position = IVec2 { x: 0, y: 0 };
-					let mut closest_distance: f64 = f64::MAX;
-
-					for ch in &chunks_to_load {
-						let distance = util::distance64(center_x, center_y, ch.x as f64, ch.y as f64);
-						if distance < closest_distance {
-							closest_distance = distance;
-							closest_position = *ch;
-						}
-					}
-
-					for (idx, p) in chunks_to_load.iter().enumerate() {
-						if *p == closest_position {
-							chunks_to_load.remove(idx);
-							break;
-						}
-					}
-
-					// Announce chunk
-					self.chunks_sent += 1;
-
-					if let Some(chunk_mtx) = self
-						.chunk_cache
-						.get(&refs.chunk_system_mtx, closest_position)
-						.await
-					{
-						let mut chunk = chunk_mtx.lock().await;
-						chunk.link_session(
-							session_handle,
-							Arc::downgrade(session),
-							self.queue_send.clone(),
-						);
-						let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
-						self.link_chunk(linked_chunk);
-						chunk.send_chunk_data_to_session(session_handle, self.queue_send.clone());
-					}
-
-					if chunks_to_load.is_empty() {
-						break;
-					}
+			for (idx, p) in chunks_to_load.iter().enumerate() {
+				if *p == closest_position {
+					chunks_to_load.remove(idx);
+					break;
 				}
+			}
+
+			// Announce chunk
+			self.chunks_sent += 1;
+
+			if let Some(chunk_mtx) = self
+				.chunk_cache
+				.get(&refs.chunk_system_mtx, closest_position)
+				.await
+			{
+				let mut chunk = chunk_mtx.lock().await;
+				chunk.link_session(
+					session_handle,
+					Arc::downgrade(session),
+					self.queue_send.clone(),
+				);
+				let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
+				self.link_chunk(linked_chunk);
+				chunk.send_chunk_data_to_session(session_handle, self.queue_send.clone());
+			}
+
+			if chunks_to_load.is_empty() {
+				break;
 			}
 		}
 
