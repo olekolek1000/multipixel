@@ -343,7 +343,7 @@ impl PreviewSystem {
 
 		if let Err(e) = PreviewSystem::process_layers(weak).await {
 			// This shouldn't happen on non-corrupted database anyways
-			log::error!("Failed to process previews: {}", e);
+			log::error!("Failed to process previews: {e}");
 		}
 	}
 }

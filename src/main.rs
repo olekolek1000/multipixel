@@ -119,7 +119,7 @@ async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow
 			res = connection_read_packet(&mut reader, &session_handle,&server_mtx,&session_mtx) => {
 				// exit loop on error
 				if let Err(e) = res {
-					log::error!("connection_read_packet error: {}, closing connection", e);
+					log::error!("connection_read_packet error: {e}, closing connection");
 					cancel_token.cancel();
 					break;
 				}
@@ -155,7 +155,7 @@ async fn server_listener_loop(listener: TcpListener, server: ServerMutex) -> any
 			.name("Listener task")
 			.spawn(async move {
 				if let Err(e) = task_connection(tcp_conn, s).await {
-					log::error!("task_processor: {}", e);
+					log::error!("task_processor: {e}");
 				}
 			})
 			.unwrap();
@@ -183,7 +183,7 @@ async fn task_listener(listener: TcpListener, config: config::Config) -> anyhow:
 		res = server_listener_loop(listener, server.clone()) => {
 			// exit loop on error
 			if let Err(e) = res {
-				log::error!("Listener error: {}", e);
+				log::error!("Listener error: {e}");
 			}
 		}
 	}
@@ -197,12 +197,12 @@ async fn run() -> anyhow::Result<()> {
 	let config = config::load().await?;
 
 	let listen_addr = format!("{}:{}", config.listen_ip, config.listen_port);
-	log::info!("Listening to {}", listen_addr);
+	log::info!("Listening to {listen_addr}");
 
 	let listener = TcpListener::bind(listen_addr).await?;
 
 	if let Err(e) = task_listener(listener, config).await {
-		log::error!("Listener error: {}", e);
+		log::error!("Listener error: {e}");
 	}
 
 	Ok(())
@@ -228,7 +228,7 @@ fn main() {
 					console_subscriber::init();
 				}
 				_ => {
-					log::info!("Unknown argument: {}", arg);
+					log::info!("Unknown argument: {arg}");
 				}
 			}
 		}
@@ -237,7 +237,7 @@ fn main() {
 		pretty_env_logger::init_timed();
 
 		if let Err(e) = runtime.block_on(run()) {
-			log::error!("{}", e);
+			log::error!("{e}");
 		}
 	}
 

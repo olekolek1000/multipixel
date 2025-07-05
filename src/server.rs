@@ -46,7 +46,7 @@ impl Server {
 		for (idx, cell) in self.sessions.vec.iter().enumerate() {
 			if let Some(cell) = cell {
 				let handle = SessionVec::get_handle(cell, idx);
-				log::info!("Cleaning-up session ID {}", idx);
+				log::info!("Cleaning-up session ID {idx}");
 				let mut session = cell.obj.session.lock().await;
 				session.kick("Server closed").await?;
 				// Send remaining data to the client
@@ -85,7 +85,7 @@ impl Server {
 			return Ok(room_mtx.clone());
 		}
 
-		log::info!("Creating room with name {}", room_name);
+		log::info!("Creating room with name {room_name}");
 		let room = Arc::new(Mutex::new(
 			RoomInstance::new(room_name, &self.config).await?,
 		));
@@ -122,7 +122,7 @@ impl Server {
 		}
 
 		for room_name in rooms_to_remove {
-			log::info!("Freeing room with name {}", room_name);
+			log::info!("Freeing room with name {room_name}");
 			self.rooms.remove(room_name.as_str());
 		}
 	}

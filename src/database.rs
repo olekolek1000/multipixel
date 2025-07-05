@@ -39,7 +39,7 @@ pub struct PreviewDatabaseRecord {
 
 impl Database {
 	pub async fn new(path: &str) -> rusqlite::Result<Self> {
-		log::trace!("Opening database at path {}", path);
+		log::trace!("Opening database at path {path}");
 		let conn = rusqlite::Connection::open(path)?;
 
 		let db = Self {
@@ -51,7 +51,7 @@ impl Database {
 		Self::init_table_chunk_data(&db.conn)?;
 		Self::init_table_previews(&db.conn)?;
 
-		log::info!("Database at path {} loaded", path);
+		log::info!("Database at path {path} loaded");
 
 		Ok(db)
 	}

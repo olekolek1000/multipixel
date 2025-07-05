@@ -42,12 +42,12 @@ async fn process_command(line: String, server: &ServerMutex) -> anyhow::Result<(
 			}
 			"exit" => {
 				if let Err(e) = server.lock().await.save_and_exit().await {
-					log::error!("Cannot exit gracefully: {}.", e);
+					log::error!("Cannot exit gracefully: {e}.");
 				}
 			}
 			_ => {
 				if !keyword.is_empty() {
-					log::error!("Unknown command \"{}\".", keyword);
+					log::error!("Unknown command \"{keyword}\".");
 				}
 			}
 		}
@@ -96,7 +96,7 @@ pub fn start(server: ServerMutex, cancel_token: CancellationToken) {
 				res = runner(server.clone()) => {
 					// exit loop on error
 					if let Err(e) = res {
-						log::error!("Command runner error: {}", e);
+						log::error!("Command runner error: {e}");
 					}
 				}
 			}
