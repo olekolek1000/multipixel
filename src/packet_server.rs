@@ -17,17 +17,17 @@ const COMMAND_INDEX_SIZE: usize = size_of::<CommandIndex>();
 const SESSION_ID_SIZE: usize = size_of::<u16>();
 
 pub enum ServerCmd {
-	Message = 1,                 // u8 type, utf-8 text
-	YourId = 2,                  // u16 id
-	Kick = 3,                    // u16 text size, utf-8 reason
-	ChunkImage = 100,            // complex data
-	ChunkPixelPack = 101,        // complex data
-	ChunkCreate = 110,           // s32 chunkX, s32 chunkY
-	ChunkRemove = 111,           // s32 chunkX, s32 chunkY
-	PreviewImage = 200,          // s32 previewX, s32 previewY, u8 zoom, u32 data size, binary data
-	UserCreate = 1000,           // u16 id, u8 text_size, utf-8 nickname
-	UserRemove = 1001,           // u16 id
-	UserCursorPos = 1002,        // u16 id, s32 x, s32 y
+	Message = 1, // u8 type, u8 sender_name size, utf-8 sender_name, u16 text size, utf-8 text
+	YourId = 2,  // u16 id
+	Kick = 3,    // u16 text size, utf-8 reason
+	ChunkImage = 100, // complex data
+	ChunkPixelPack = 101, // complex data
+	ChunkCreate = 110, // s32 chunkX, s32 chunkY
+	ChunkRemove = 111, // s32 chunkX, s32 chunkY
+	PreviewImage = 200, // s32 previewX, s32 previewY, u8 zoom, u32 data size, binary data
+	UserCreate = 1000, // u16 id, u8 nickname size, utf-8 nickname
+	UserRemove = 1001, // u16 id
+	UserCursorPos = 1002, // u16 id, s32 x, s32 y
 	ProcessingStatusText = 1100, // u16 text size, utf-8 text
 }
 
@@ -177,11 +177,12 @@ pub fn prepare_packet_chunk_image(chunk_pos: IVec2, compressed_chunk_data: &[u8]
 	Packet { data: buf.into() }
 }
 
-pub fn prepare_packet_message(message_type: MessageType, message: &str) -> Packet {
+pub fn prepare_packet_message(message_type: MessageType, sender: &str, message: &str) -> Packet {
 	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
 
 	buf.put_u16(ServerCmd::Message as CommandIndex);
 	buf.put_u8(message_type as u8);
+	put_string_u8(&mut buf, sender);
 	put_string_u16(&mut buf, message);
 
 	Packet { data: buf.into() }

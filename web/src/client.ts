@@ -40,7 +40,7 @@ enum ClientCmd {
 }
 
 enum ServerCmd {
-	message = 1,						// u8 type, utf-8 text
+	message = 1,					  // u8 type, u8 sender_name size, utf-8 sender_name, u16 text size, utf-8 text
 	your_id = 2,						// u16 id
 	kick = 3,								// u16 text size, utf-8 reason
 	chunk_image = 100,			// complex data
@@ -48,7 +48,7 @@ enum ServerCmd {
 	chunk_create = 110,			// s32 chunkX, s32 chunkY
 	chunk_remove = 111,			// s32 chunkX, s32 chunkY
 	preview_image = 200,		// s32 previewX, s32 previewY, u8 zoom, u32 data size, data
-	user_create = 1000,			// u16 id, u8 text_size, utf-8 nickname
+	user_create = 1000,			// u16 id, u8 nickname size, utf-8 nickname
 	user_remove = 1001,			// u16 id
 	user_cursor_pos = 1002, // u16 id, s32 x, s32 y
 	processing_status_text = 1100, // utf-8 text
@@ -290,10 +290,17 @@ export class Client {
 			case ServerCmd.message: {
 				let offset = 0;
 				let type = dataview.getUint8(offset); offset += 1;
+
+				let sender_name_size = dataview.getUint8(offset); offset += 1;
+				let view_sender = createViewSize(offset, sender_name_size); offset += sender_name_size;
+
 				let message_size = dataview.getUint16(offset); offset += 2;
-				let view_str = createViewSize(offset, message_size); offset += message_size;
-				let str = new TextDecoder().decode(view_str);
-				this.chat!.addMessage(str, type);
+				let view_message = createViewSize(offset, message_size); offset += message_size;
+
+				let str_sender = new TextDecoder().decode(view_sender);
+				let str_message = new TextDecoder().decode(view_message);
+
+				this.chat!.addMessage(str_sender, str_message, type);
 				break;
 			}
 			case ServerCmd.your_id: {
