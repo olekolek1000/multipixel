@@ -7,7 +7,11 @@ export const useLocalState = <T,>(
 ): [T, (value: T) => void] => {
     const [value, setValue] = useState<T>(() => {
         const storedValue = localStorage.getItem(key);
-        return storedValue ? JSON.parse(storedValue) : initialValue;
+				try {
+        	return storedValue ? JSON.parse(storedValue) : initialValue;
+				} catch {
+					return initialValue;
+				}
     });
 
     const setLocalValue = (newValue: T) => {
