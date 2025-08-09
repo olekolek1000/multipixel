@@ -1,6 +1,6 @@
 import { User } from "./client";
-import { LAYER_COUNT, Multipixel } from "./multipixel";
 import { Texture } from "./render_engine";
+import { ConnectedInstanceState, PREVIEW_SYSTEM_LAYER_COUNT, type RoomInstance } from "./room_instance";
 
 export const CHUNK_SIZE = 256;
 
@@ -138,9 +138,9 @@ export class Boundary {
 	height: number = 0.0;
 };
 
-
 export class ChunkMap {
-	multipixel: Multipixel;
+	instance: RoomInstance;
+	state: ConnectedInstanceState;
 	needs_redraw: boolean = true;
 	texture_cursor!: Texture;
 	texture_brush!: Texture;
@@ -154,9 +154,10 @@ export class ChunkMap {
 		zoom: 1.0,
 	}
 
-	constructor(multipixel: Multipixel) {
-		this.multipixel = multipixel;
-		let renderer = this.multipixel.getRenderer();
+	constructor(instance: RoomInstance, state: ConnectedInstanceState) {
+		this.instance = instance;
+		this.state = state;
+		let renderer = state.renderer;
 
 		renderer.loadTextureImage("img/cursor.png", (tex: Texture) => {
 			this.texture_cursor = tex;
@@ -220,8 +221,8 @@ export class ChunkMap {
 	}
 
 	resize() {
-		let renderer = this.multipixel.getRenderer();
-		let canvas = renderer.getCanvas();
+		let renderer = this.state.renderer;
+		let canvas = renderer.canvas;
 
 		renderer.display_scale = window.devicePixelRatio || 1;
 
@@ -265,7 +266,7 @@ export class ChunkMap {
 			return existing_chunk;
 		}
 
-		let new_chunk = new Chunk(this.multipixel.getRenderer().getContext(), x, y);
+		let new_chunk = new Chunk(this.state.renderer.gl, x, y);
 		mx.set(y, new_chunk);
 
 		//console.log("Created chunk at ", x, y);
@@ -282,7 +283,7 @@ export class ChunkMap {
 			return;//Not found
 
 		//Remove chunk
-		chunk.destructor(this.multipixel.getRenderer().getContext());
+		chunk.destructor(this.state.renderer.gl);
 		mx.delete(y);
 
 		//console.log("Removed chunk at ", x, y);
@@ -309,7 +310,7 @@ export class ChunkMap {
 
 	drawChunks() {
 		let boundary = this.getChunkBoundaries();
-		let renderer = this.multipixel.getRenderer();
+		let renderer = this.state.renderer;
 
 		for (let y = boundary.start_y; y < boundary.end_y; y++) {
 			for (let x = boundary.start_x; x < boundary.end_x; x++) {
@@ -317,7 +318,7 @@ export class ChunkMap {
 				if (!chunk || !chunk.tex)
 					continue;
 
-				chunk.processPixels(renderer.getContext());
+				chunk.processPixels(renderer.gl);
 				renderer.drawRect(
 					chunk.tex,
 					chunk.x * CHUNK_SIZE,
@@ -328,11 +329,11 @@ export class ChunkMap {
 	}
 
 	drawPreviews() {
-		let renderer = this.multipixel.getRenderer();
+		let renderer = this.state.renderer;
 
 		//Reverse iterator
-		for (let zoom = LAYER_COUNT; zoom >= 1; zoom--) {
-			let layer = this.multipixel.preview_system.getLayer(zoom);
+		for (let zoom = PREVIEW_SYSTEM_LAYER_COUNT; zoom >= 1; zoom--) {
+			let layer = this.instance.preview_system.getLayer(zoom);
 			if (!layer) continue;
 			let boundary = this.getPreviewBoundaries(layer.zoom);
 			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
@@ -356,9 +357,9 @@ export class ChunkMap {
 	}
 
 	drawCursors() {
-		let renderer = this.multipixel.getRenderer();
+		let renderer = this.state.renderer;
 
-		this.multipixel.client.users.forEach((user: User) => {
+		this.state.client.users.forEach((user: User) => {
 			if (user == null)
 				return;
 
@@ -375,15 +376,15 @@ export class ChunkMap {
 	}
 
 	drawCursorNicknames() {
-		let renderer = this.multipixel.getRenderer();
+		let renderer = this.state.renderer;
 
-		this.multipixel.client.users.forEach((user: User) => {
+		this.state.client.users.forEach((user: User) => {
 			if (user == null)
 				return;
 
 			let zoom = this.scrolling.zoom;
 
-			let text = this.textCacheGet(renderer.getContext(), user.nickname);
+			let text = this.textCacheGet(renderer.gl, user.nickname);
 
 			let width = text.width / zoom;
 			let height = text.height / zoom;
@@ -393,8 +394,8 @@ export class ChunkMap {
 
 	drawBrush() {
 		if (!this.texture_brush) return;
-		let cursor = this.multipixel.getCursor();
-		let renderer = this.multipixel.getRenderer();
+		let cursor = this.instance.cursor;
+		let renderer = this.state.renderer;
 		let brush_size = cursor.tool_size;
 		renderer.drawRect(
 			this.texture_brush,
@@ -406,8 +407,8 @@ export class ChunkMap {
 
 	updateBoundary() {
 		let boundary = this.boundary;
-		let renderer = this.multipixel.getRenderer();
-		let canvas = renderer.getCanvas();
+		let renderer = this.state.renderer;
+		let canvas = renderer.canvas;
 		boundary.center_x = -this.scrolling.x;
 		boundary.center_y = -this.scrolling.y;
 		boundary.width = canvas.width / this.scrolling.zoom;
@@ -423,7 +424,7 @@ export class ChunkMap {
 
 		this.needs_redraw = false;
 
-		let renderer = this.multipixel.getRenderer();
+		let renderer = this.state.renderer;
 
 		renderer.viewportFullscreen();
 		renderer.clear(1.0, 1.0, 1.0, 1);
@@ -454,13 +455,13 @@ export class ChunkMap {
 	addZoom(num: number) {
 		let scrolling = this.getScrolling();
 
-		let cursor = this.multipixel.getCursor();
+		let cursor = this.instance.cursor;
 
 		let new_zoom = scrolling.zoom * (1.0 + num);
 		if (new_zoom < 0.015625) new_zoom = 0.015625; //0.5^6
 		if (new_zoom > 80.0) new_zoom = 80.0;
 
-		let canvas = this.multipixel.getRenderer().getCanvas();
+		let canvas = this.state.renderer.canvas;
 
 		let old_width = canvas.width / scrolling.zoom;
 		let new_width = canvas.width / new_zoom;
@@ -502,7 +503,7 @@ export class ChunkMap {
 		if (localY < 0)
 			localY += CHUNK_SIZE;
 
-		let chunk = this.multipixel.map.getChunk(chunkX, chunkY);
+		let chunk = this.state.map.getChunk(chunkX, chunkY);
 		if (chunk) {
 			chunk.putPixel(localX, localY, red, green, blue);
 			this.triggerRerender();
@@ -510,7 +511,7 @@ export class ChunkMap {
 	}
 
 	//returns array of 3 numbers (R,G,B)
-	getPixel(x: number, y: number) {
+	getPixel(x: number, y: number): number[] | undefined {
 		x = Math.floor(x);
 		y = Math.floor(y);
 
@@ -520,16 +521,19 @@ export class ChunkMap {
 		let chunkX = Math.floor(x / CHUNK_SIZE);
 		let chunkY = Math.floor(y / CHUNK_SIZE);
 
-		if (localX < 0)
+		if (localX < 0) {
 			localX += CHUNK_SIZE;
+		}
 
-		if (localY < 0)
+		if (localY < 0) {
 			localY += CHUNK_SIZE;
+		}
 
-		let chunk = this.multipixel.map.getChunk(chunkX, chunkY);
-		if (chunk)
+		let chunk = this.state.map.getChunk(chunkX, chunkY);
+		if (chunk) {
 			return chunk.getPixel(localX, localY);
+		}
 
-		return null;
+		return undefined;
 	}
 }

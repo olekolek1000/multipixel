@@ -1,14 +1,11 @@
 import React, { type ReactNode, useEffect, useState } from "react";
-import { Multipixel } from "../../multipixel";
 import { ToolPanel, ToolType } from "../../tool_panel"
 import style_room from "./room_screen.module.scss"
 import { BoxRight, ButtonTool, Icon, Tooltip } from "../../gui_custom";
 import { ChatRender } from "../../chat/chat";
 import tool from "../../tool";
+import type { RoomInstance } from "@/room_instance";
 
-export class RoomRefs {
-	canvas_render!: HTMLElement;
-};
 
 export class RoomScreenGlobals {
 	processing_status_text?: string;
@@ -17,12 +14,21 @@ export class RoomScreenGlobals {
 	setMousePosText?: any;
 }
 
-export function RoomScreen({ globals, multipixel, refs_callback }: { globals: RoomScreenGlobals, multipixel: Multipixel, refs_callback: (refs: RoomRefs) => void }) {
+export interface RoomScreenRefs {
+	canvas_render: HTMLCanvasElement;
+}
+
+export function RoomScreen({ globals, instance, refs_callback }: { globals: RoomScreenGlobals, instance: RoomInstance, refs_callback: (refs: RoomScreenRefs) => void }) {
 	const canvas_render = React.useRef(null);
 	const [player_list, setPlayerList] = useState<ReactNode>();
 	const [processing_status_text, setProcessingStatusText] = useState("");
-	const [tool_type, setToolType] = useState<ToolType>(multipixel.toolbox_globals.tool_type);
+	const [tool_type, setToolType] = useState<ToolType>(instance.toolbox_globals.tool_type);
 	const [mouse_pos_text, setMousePosText] = useState<ReactNode>(<></>);
+
+	const updateTool = (tool_id: tool.ToolID, tool_type: ToolType) => {
+		instance.selectTool(tool_id);
+		setToolType(tool_type);
+	}
 
 	globals.processing_status_text = processing_status_text;
 	globals.setProcessingStatusText = setProcessingStatusText;
@@ -30,11 +36,11 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 	globals.setMousePosText = setMousePosText;
 
 	useEffect(() => {
-		multipixel.toolbox_globals.setToolType(tool_type);
+		instance.toolbox_globals.setToolType(tool_type);
 	}, [tool_type]);
 
-	multipixel.callback_player_update = () => {
-		let list = multipixel.getPlayerList();
+	instance.callback_user_update = () => {
+		let list = instance.getUserList();
 
 		const generateList = () => {
 			let arr = new Array<ReactNode>();
@@ -67,70 +73,62 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 
 	return <div id="mp_screen">
 		<canvas id="canvas_render" ref={canvas_render} width="100%" height="100%"></canvas>
-		<ToolPanel globals={multipixel.toolbox_globals} />
-		{multipixel.chat && <ChatRender chat={multipixel.chat} />}
+		<ToolPanel globals={instance.toolbox_globals} />
+		{instance.state && <ChatRender chat={instance.state.chat} />}
 		<div className={style_room.toolboxes}>
 			<div className={style_room.toolbox}>
 				<Tooltip title="Brush">
 					<ButtonTool highlighted={tool_type == ToolType.brush} on_click={() => {
-						multipixel.selectTool(tool.ToolID.Brush);
-						setToolType(ToolType.brush);
+						updateTool(tool.ToolID.Brush, ToolType.brush);
 					}}>
 						<Icon path="img/tool/brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Square brush">
 					<ButtonTool highlighted={tool_type == ToolType.square_brush} on_click={() => {
-						multipixel.selectTool(tool.ToolID.SquareBrush);
-						setToolType(ToolType.square_brush);
+						updateTool(tool.ToolID.SquareBrush, ToolType.square_brush);
 					}}>
 						<Icon path="img/tool/square_brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Smooth brush">
 					<ButtonTool highlighted={tool_type == ToolType.smooth_brush} on_click={() => {
-						multipixel.selectTool(tool.ToolID.SmoothBrush);
-						setToolType(ToolType.smooth_brush);
+						updateTool(tool.ToolID.SmoothBrush, ToolType.smooth_brush);
 					}}>
 						<Icon path="img/tool/smooth_brush.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Line">
 					<ButtonTool highlighted={tool_type == ToolType.line} on_click={() => {
-						multipixel.selectTool(tool.ToolID.Line);
-						setToolType(ToolType.line);
+						updateTool(tool.ToolID.Line, ToolType.line);
 					}}>
 						<Icon path="img/tool/line.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Floodfill">
 					<ButtonTool highlighted={tool_type == ToolType.floodfill} on_click={() => {
-						multipixel.selectTool(tool.ToolID.Floodfill);
-						setToolType(ToolType.floodfill);
+						updateTool(tool.ToolID.Floodfill, ToolType.floodfill);
 					}}>
 						<Icon path="img/tool/floodfill.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Spray">
 					<ButtonTool highlighted={tool_type == ToolType.spray} on_click={() => {
-						multipixel.selectTool(tool.ToolID.Spray);
-						setToolType(ToolType.spray);
+						updateTool(tool.ToolID.Spray, ToolType.spray);
 					}}>
 						<Icon path="img/tool/spray.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Blur">
 					<ButtonTool highlighted={tool_type == ToolType.blur} on_click={() => {
-						multipixel.selectTool(tool.ToolID.Blur);
-						setToolType(ToolType.blur);
+						updateTool(tool.ToolID.Blur, ToolType.blur);
 					}}>
 						<Icon path="img/tool/blur.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Smudge">
 					<ButtonTool highlighted={tool_type == ToolType.smudge} on_click={() => {
-						multipixel.selectTool(tool.ToolID.Smudge);
-						setToolType(ToolType.smudge);
+						updateTool(tool.ToolID.Smudge, ToolType.smudge);
 					}}>
 						<Icon path="img/tool/smudge.svg" />
 					</ButtonTool>
@@ -139,14 +137,14 @@ export function RoomScreen({ globals, multipixel, refs_callback }: { globals: Ro
 			<div className={style_room.toolbox}>
 				<Tooltip title="Undo">
 					<ButtonTool on_click={() => {
-						multipixel.handleButtonUndo();
+						instance.actionUndo();
 					}}>
 						<Icon path="img/tool/undo.svg" />
 					</ButtonTool>
 				</Tooltip>
 				<Tooltip title="Reset zoom to 100%">
 					<ButtonTool on_click={() => {
-						multipixel.handleButtomZoom1_1();
+						instance.actionZoom1_1();
 					}}>
 						<Icon path="img/tool/100.svg" />
 					</ButtonTool>

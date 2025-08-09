@@ -47,7 +47,10 @@ export class ColorPaletteGlobals {
 	setSelected(row: number, column: number, color: RGBColor) {
 		this.selected_row = row;
 		this.selected_column = column;
-		this.multipixel.client.socketSendBrushColor(color.r, color.g, color.b);
+		const instance = this.multipixel.room_instance;
+		if (instance.state) {
+			instance.state.client.socketSendBrushColor(color.r, color.g, color.b);
+		}
 		this.refreshList();
 	}
 
@@ -287,8 +290,13 @@ function ToolSlider({ name, min, max, steps, initial, onChange }: { name: string
 function ToolSize({ globals, max }: { globals: ToolboxGlobals, max: number }) {
 	return <ToolSlider name={"Size"} min={1} max={max} steps={max} initial={globals.param_tool_size} onChange={(val) => {
 		globals.setToolSize(val);
-		globals.multipixel.getCursor().tool_size = val;
-		globals.multipixel.client.socketSendToolSize(val);
+		const instance = globals.multipixel.room_instance;
+		if (instance) {
+			instance.cursor.tool_size = val;
+			if (instance.state) {
+				instance.state.client.socketSendToolSize(val);
+			}
+		}
 	}} />
 }
 
@@ -301,7 +309,10 @@ function ToolSmoothing({ globals }: { globals: ToolboxGlobals }) {
 function ToolFlow({ globals }: { globals: ToolboxGlobals }) {
 	return <ToolSlider name={"Flow"} min={0} max={100} initial={globals.param_tool_flow * 100.0} onChange={(val) => {
 		globals.setToolFlow(val / 100.0);
-		globals.multipixel.client.socketSendToolFlow(val / 100.0);
+		const instance = globals.multipixel.room_instance;
+		if (instance && instance.state) {
+			instance.state.client.socketSendToolFlow(val / 100.0);
+		}
 	}} />
 }
 

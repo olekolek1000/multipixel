@@ -1,5 +1,4 @@
 import { Chat } from "./chat/chat";
-import { Multipixel } from "./multipixel";
 import { CHUNK_SIZE } from "./chunk_map";
 
 //Size in bytes
@@ -79,9 +78,10 @@ export class User {
 
 import { Buffer } from "buffer";
 import * as lz4 from "lz4js";
+import type { RoomInstance } from "./room_instance";
 
 export class Client {
-	multipixel: Multipixel;
+	instance: RoomInstance;
 	users: Array<User> = [];
 	socket: WebSocket | null = null;
 	chunks_received = 0;
@@ -90,14 +90,14 @@ export class Client {
 	connection_callback: (error_str?: string) => void;
 
 	constructor(params: {
-		multipixel: Multipixel;
+		instance: RoomInstance;
 		address: string;
 		nickname: string;
 		room_name: string;
 		connection_callback: (error_str?: string) => void;
 	}) {
 		this.connection_callback = params.connection_callback;
-		this.multipixel = params.multipixel;
+		this.instance = params.instance;
 		this.socket = new WebSocket(params.address);
 		this.socket.binaryType = "arraybuffer";
 
@@ -238,10 +238,13 @@ export class Client {
 	}
 
 	socketSendBoundary() {
+		const state = this.instance.state;
+		if (!state) return;
+
 		let buf = createMessage(ClientCmd.boundary, size_s32 * 4 + size_float);
 		let dataview = new DataView(buf, header_offset);
-		let boundary = this.multipixel.map.getChunkBoundaries();
-		let zoom = this.multipixel.map.getZoom();
+		let boundary = state.map.getChunkBoundaries();
+		let zoom = state.map.getZoom();
 
 		let offset = 0;
 		dataview.setInt32(offset, boundary.start_x); offset += 4;
@@ -284,7 +287,8 @@ export class Client {
 
 		let command = headerview.getInt16(0);
 
-		let map = this.multipixel.map;
+		const map = this.instance.state ? this.instance.state.map : undefined;
+		const renderer = this.instance.state ? this.instance.state.renderer : undefined;
 
 		switch (command) {
 			case ServerCmd.message: {
@@ -307,7 +311,7 @@ export class Client {
 				let id = dataview.getInt16(0);
 				this.id = id;
 				console.log("This user ID: ", id);
-				this.multipixel.updatePlayerList();
+				this.instance.updateUserList();
 				break;
 			}
 			case ServerCmd.kick: {
@@ -320,6 +324,10 @@ export class Client {
 				break;
 			}
 			case ServerCmd.chunk_image: {
+				if (!map || !renderer) {
+					break;
+				}
+
 				let offset = 0;
 				let chunk_x = dataview.getInt32(offset); offset += 4;
 				let chunk_y = dataview.getInt32(offset); offset += 4;
@@ -332,12 +340,16 @@ export class Client {
 				let rgb_view = new DataView(uncompressed_buffer.buffer);
 				let chunk = map.getChunk(chunk_x, chunk_y);
 				if (chunk) {
-					chunk.putImage(this.multipixel.getRenderer().getContext(), rgb_view);
+					chunk.putImage(renderer.gl, rgb_view);
 				}
 				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.chunk_pixel_pack: {
+				if (!map) {
+					break;
+				}
+
 				let offset = 0;
 
 				let chunk_x = dataview.getInt32(offset); offset += 4;
@@ -371,6 +383,10 @@ export class Client {
 				break;
 			}
 			case ServerCmd.chunk_create: {
+				if (!map) {
+					break;
+				}
+
 				let chunkX = dataview.getInt32(0);
 				let chunkY = dataview.getInt32(4);
 				this.chunks_received++;
@@ -380,6 +396,10 @@ export class Client {
 				break;
 			}
 			case ServerCmd.chunk_remove: {
+				if (!map) {
+					break;
+				}
+
 				let chunkX = dataview.getInt32(0);
 				let chunkY = dataview.getInt32(4);
 				map.removeChunk(chunkX, chunkY);
@@ -387,6 +407,10 @@ export class Client {
 				break;
 			}
 			case ServerCmd.preview_image: {
+				if (!map) {
+					break;
+				}
+
 				let offset = 0;
 				let previewX = dataview.getInt32(offset); offset += 4;
 				let previewY = dataview.getInt32(offset); offset += 4;
@@ -398,30 +422,42 @@ export class Client {
 				let compressed = raw_data.slice(data_from, data_from + data_size);
 				lz4.decompressBlock(Buffer.from(compressed), rgb, 0, data_size, 0);
 
-				let preview = this.multipixel.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);
+				let preview = this.instance.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);
 				preview.setData(new Uint8Array(rgb));
 				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_create: {
+				if (!map) {
+					break;
+				}
+
 				let offset = 0;
 				let id = dataview.getUint16(offset); offset += 2;
 				let text_size = dataview.getUint8(offset); offset += 1;
 				let view_str = createViewSize(offset, text_size); offset += text_size;
 				let nickname = new TextDecoder().decode(view_str);
 				this.users[id] = new User(id, nickname);
-				this.multipixel.updatePlayerList();
+				this.instance.updateUserList();
 				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_remove: {
+				if (!map) {
+					break;
+				}
+
 				let id = dataview.getUint16(0);
 				delete this.users[id];
-				this.multipixel.updatePlayerList();
+				this.instance.updateUserList();
 				map.triggerRerender();
 				break;
 			}
 			case ServerCmd.user_cursor_pos: {
+				if (!map) {
+					break;
+				}
+
 				let id = dataview.getUint16(0);
 				let x = dataview.getInt32(2);
 				let y = dataview.getInt32(6);
@@ -438,7 +474,7 @@ export class Client {
 				let text_size = dataview.getInt16(0);
 				let view_str = createViewSize(2, text_size);
 				let status_text = (new TextDecoder().decode(view_str));
-				this.multipixel.setProcessingStatusText(status_text);
+				this.instance.setProcessingStatusText(status_text);
 				break;
 			}
 			default: {
