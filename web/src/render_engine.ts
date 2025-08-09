@@ -190,14 +190,6 @@ export class RenderEngine {
 		glMatrix.mat4.ortho(this.projection, left, right, bottom, top, -1.0, 1.0);
 	}
 
-	getCanvas() {
-		return this.canvas;
-	}
-
-	getContext() {
-		return this.gl;
-	}
-
 	drawRect(texture: Texture, pos_x: number, pos_y: number, width: number, height: number) {
 		const model = glMatrix.mat4.create();
 		glMatrix.mat4.translate(model, model, [pos_x, pos_y, 0.0]);

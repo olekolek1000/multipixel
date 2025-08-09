@@ -1,4 +1,4 @@
-import React, { type FC, type ReactNode, useEffect, useRef, useState } from "react";
+import React, { type ReactNode, useEffect, useRef, useState } from "react";
 import scss from "./style.module.scss"
 
 export function LabeledTextField(

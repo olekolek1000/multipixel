@@ -1,6 +1,6 @@
 import { CHUNK_SIZE } from "./chunk_map";
-import { Multipixel } from "./multipixel";
 import { Texture } from "./render_engine";
+import type { RoomInstance } from "./room_instance";
 
 export class Preview {
 	x: number;
@@ -67,7 +67,7 @@ export class PreviewLayer {
 			return preview;
 		}
 
-		preview = new Preview(this.system.multipixel.getRenderer().getContext(), x, y);
+		preview = new Preview(this.system.instance.state!.renderer.gl, x, y);
 		mx.set(y, preview);
 
 		//console.log("created preview at " + x + ", " + y);
@@ -85,17 +85,17 @@ export class PreviewLayer {
 			return;//Not found
 
 		//Remove preview
-		chunk.destructor(this.system.multipixel.getRenderer().getContext());
+		chunk.destructor(this.system.instance.state!.renderer.gl);
 		mx.delete(y);
 	}
 }
 
 export class PreviewSystem {
-	multipixel: Multipixel;
+	instance: RoomInstance;
 	layers = new Map<number /*zoom*/, PreviewLayer>();
 
-	constructor(multipixel: Multipixel) {
-		this.multipixel = multipixel;
+	constructor(instance: RoomInstance) {
+		this.instance = instance;
 	}
 
 	getOrCreateLayer(zoom: number) {

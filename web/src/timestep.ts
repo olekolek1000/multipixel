@@ -12,6 +12,10 @@ export class Timestep {
 	speed: number = 1.0;
 	loopnum: number = 0;
 
+	constructor(rate: number) {
+		this.setRate(rate);
+	}
+
 	calculateAlpha() {
 		let num = this.accumulator / this.delta;
 		if (num < 0.0) num = 0.0;

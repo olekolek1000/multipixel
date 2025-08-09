@@ -29,9 +29,11 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 				const perform = () => {
 					return new Promise((resolve, reject) => {
 						new Multipixel({
-							host: defines.connect_url,
-							nickname: username.trim(),
-							room_name: roomName.trim(),
+							connect_params: {
+								host: defines.connect_url,
+								nickname: username.trim(),
+								room_name: roomName.trim(),
+							},
 							connection_callback: (error_str) => {
 								if (error_str) {
 									globals.setState(<LoginScreen initial_error_text={error_str} />)
