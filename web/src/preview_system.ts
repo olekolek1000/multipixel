@@ -1,4 +1,4 @@
-import { CHUNK_SIZE } from "./chunk_map";
+import { CHUNK_SIZE, type PreviewBoundary } from "./chunk_map";
 import { Texture } from "./render_engine";
 import type { RoomInstance } from "./room_instance";
 
@@ -53,6 +53,22 @@ export class PreviewLayer {
 		if (!mx) return null;
 		let preview = mx.get(y);
 		return preview ? preview : null;
+	}
+
+	iterPreviewsInBoundary(boundary: PreviewBoundary, func: (preview: Preview) => void) {
+		for (const [x, mx] of this.previews) {
+			if (x < boundary.start_x || x > boundary.end_x) {
+				continue;
+			}
+
+			for (const [y, preview] of mx) {
+				if (y < boundary.start_y || y > boundary.end_y) {
+					continue;
+				}
+
+				func(preview);
+			}
+		}
 	}
 
 	getOrCreatePreview(x: number, y: number) {

@@ -1,11 +1,13 @@
-import React, { type ReactNode, useEffect, useState } from "react";
+import React, { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { ToolPanel, ToolType } from "../../tool_panel"
 import style_room from "./room_screen.module.scss"
 import { BoxRight, ButtonTool, Icon, Tooltip } from "../../gui_custom";
 import { ChatRender } from "../../chat/chat";
 import tool from "../../tool";
 import type { RoomInstance } from "@/room_instance";
-
+import { Map, type MapRef } from '@vis.gl/react-maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import proj4 from 'proj4';
 
 export class RoomScreenGlobals {
 	processing_status_text?: string;
@@ -18,12 +20,14 @@ export interface RoomScreenRefs {
 	canvas_render: HTMLCanvasElement;
 }
 
+
 export function RoomScreen({ globals, instance, refs_callback }: { globals: RoomScreenGlobals, instance: RoomInstance, refs_callback: (refs: RoomScreenRefs) => void }) {
-	const canvas_render = React.useRef(null);
+	const canvas_render = useRef<HTMLCanvasElement>(null);
 	const [player_list, setPlayerList] = useState<ReactNode>();
 	const [processing_status_text, setProcessingStatusText] = useState("");
 	const [tool_type, setToolType] = useState<ToolType>(instance.toolbox_globals.tool_type);
 	const [mouse_pos_text, setMousePosText] = useState<ReactNode>(<></>);
+	const map_ref = useRef<MapRef>(null);
 
 	const updateTool = (tool_id: tool.ToolID, tool_type: ToolType) => {
 		instance.selectTool(tool_id);
@@ -38,6 +42,48 @@ export function RoomScreen({ globals, instance, refs_callback }: { globals: Room
 	useEffect(() => {
 		instance.toolbox_globals.setToolType(tool_type);
 	}, [tool_type]);
+
+	useEffect(() => {
+		const _interval = setInterval(() => {
+			const undermap = map_ref.current;
+			const canvas = canvas_render.current;
+			if (!instance.state || !undermap || !canvas) {
+				return;
+			}
+
+			const source = proj4.Proj("EPSG:3785"); // EPSG:3785: meters
+			const dest = proj4.Proj("EPSG:4326"); // EPSG:4326: longitude/latitude
+
+			const mult_x = 12.75; // todo
+			const mult_y = 12.75;
+
+			const map = instance.state.map;
+			const point = proj4.toPoint([
+				-map.scrolling.x * mult_x,
+				map.scrolling.y * mult_y
+			]);
+
+			const mapped = proj4.transform(source, dest, point, false)!;
+
+			const base_zoom = 12.0;
+			const custom_zoom = map.getZoom();
+			const maplibre_zoom = base_zoom + Math.log2(custom_zoom);
+
+			const lon = mapped.x;
+			const lat = mapped.y;
+
+			undermap.setZoom(maplibre_zoom);
+
+			undermap.setCenter({
+				lon,
+				lat,
+			});
+		}, 16); // TODO!
+
+		return () => {
+			clearInterval(_interval);
+		}
+	}, []);
 
 	instance.callback_user_update = () => {
 		let list = instance.getUserList();
@@ -70,8 +116,17 @@ export function RoomScreen({ globals, instance, refs_callback }: { globals: Room
 		})
 	}, []);
 
-
 	return <div id="mp_screen">
+		<Map
+			ref={map_ref as any}
+			initialViewState={{
+				longitude: -100,
+				latitude: 40,
+				zoom: 3.5
+			}}
+			style={{ width: "100vw", height: "100vh", position: "absolute" }}
+			mapStyle="https://tiles.openfreemap.org/styles/liberty"
+		/>;
 		<canvas id="canvas_render" ref={canvas_render} width="100%" height="100%"></canvas>
 		<ToolPanel globals={instance.toolbox_globals} />
 		{instance.state && <ChatRender chat={instance.state.chat} />}
