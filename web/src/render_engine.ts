@@ -23,6 +23,23 @@ const text_fs_solid = `
 	}
 `;
 
+// FFFFFF keying
+const text_fs_color_keyed = `
+	precision highp float;
+	varying vec2 UV;
+
+	uniform sampler2D tex;
+
+	void main() {
+		vec4 color = texture2D(tex, UV).rgba;
+		if(color.r == 1.0 && color.b == 1.0 && color.a == 1.0) {
+			color.a = 0.0;
+		}
+
+		gl_FragColor = color;
+	}
+`;
+
 function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 	const shader = gl.createShader(type);
 	if (!shader) {
@@ -147,30 +164,39 @@ export class Texture {
 	height: number = 0;
 }
 
+export interface RenderEngineParams {
+	color_keyed: boolean,
+	canvas: HTMLCanvasElement,
+}
+
 export class RenderEngine {
-	canvas: HTMLCanvasElement;
+	params: RenderEngineParams;
 	gl: WebGL2RenderingContext;
 	projection = glMatrix.mat4.create();
 	display_scale: number = 1.0;
-	buffer_quad!: RObject;
-	shader;
+	buffer_quad: RObject;
+	shader_solid: Shader;
+	shader_color_keyed: Shader;
 
-	constructor(canvas: HTMLCanvasElement) {
-		this.canvas = canvas;
-		this.gl = canvas.getContext("webgl2",
+	constructor(params: RenderEngineParams) {
+		this.params = params;
+		const gl = params.canvas.getContext("webgl2",
 			{
 				antialias: false,
-				alpha: false,
+				alpha: params.color_keyed,
 				premultipliedAlpha: false
-			})!;
+			});
 
-		if (!this.gl) {
+		if (!gl) {
 			alert("WebGL2 not supported.\nPlease enable WebGL in browser settings or update your graphics card/browser.");
-			return;
+			throw new Error("WebGL2 not supported");
 		}
 
+		this.gl = gl;
+
 		this.buffer_quad = initBufferQuad(this.gl);
-		this.shader = new Shader(this.gl, text_vs_standard, text_fs_solid);
+		this.shader_solid = new Shader(this.gl, text_vs_standard, text_fs_solid);
+		this.shader_color_keyed = new Shader(this.gl, text_vs_standard, text_fs_color_keyed);
 
 		this.gl.disable(this.gl.DEPTH_TEST);
 		this.gl.enable(this.gl.BLEND);
@@ -183,21 +209,21 @@ export class RenderEngine {
 	}
 
 	viewportFullscreen() {
-		this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+		this.gl.viewport(0, 0, this.params.canvas.width, this.params.canvas.height);
 	}
 
 	setOrtho(left: number, right: number, bottom: number, top: number) {
 		glMatrix.mat4.ortho(this.projection, left, right, bottom, top, -1.0, 1.0);
 	}
 
-	drawRect(texture: Texture, pos_x: number, pos_y: number, width: number, height: number) {
+	drawRect(shader: Shader, texture: Texture, pos_x: number, pos_y: number, width: number, height: number) {
 		const model = glMatrix.mat4.create();
 		glMatrix.mat4.translate(model, model, [pos_x, pos_y, 0.0]);
 		glMatrix.mat4.scale(model, model, [width, height, 1.0]);
 
-		this.shader!.bind(this.gl);
-		this.shader!.setP(this.gl, this.projection);
-		this.shader!.setM(this.gl, model)
+		shader.bind(this.gl);
+		shader.setP(this.gl, this.projection);
+		shader.setM(this.gl, model)
 
 		this.gl.bindVertexArray(this.buffer_quad.vao);
 		this.gl.bindTexture(this.gl.TEXTURE_2D, texture.texture);

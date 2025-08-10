@@ -12,7 +12,7 @@ import style from "./style.module.scss"
 import type { ConnectParams } from "./multipixel";
 import { globals } from ".";
 
-export const PREVIEW_SYSTEM_LAYER_COUNT = 5;
+export const PREVIEW_SYSTEM_LAYER_COUNT = 10;
 
 export class Cursor {
 	just_pressed_down: boolean = false;
@@ -104,7 +104,10 @@ export class RoomInstance {
 				instance: this,
 				client,
 				canvas_render: refs.canvas_render,
-				renderer: new RenderEngine(refs.canvas_render),
+				renderer: new RenderEngine({
+					canvas: refs.canvas_render,
+					color_keyed: true,
+				}),
 			});
 			this.state = state;
 			this.initEvents(refs);
@@ -176,7 +179,7 @@ export class RoomInstance {
 		cursor.x_norm = e.clientX / window.innerWidth;
 		cursor.y_norm = e.clientY / window.innerHeight;
 
-		let canvas = state.renderer.canvas;
+		let canvas = state.renderer.params.canvas;
 
 		let boundary = state.map.boundary;
 		let scrolling = state.map.scrolling;
@@ -305,7 +308,7 @@ export class RoomInstance {
 		//Calculate preview visibility
 		let camera_zoom = state.map.getZoom();
 		let target_zoom: number = 0;
-		const zoom_levels = [5, 4, 3, 2, 1];
+		const zoom_levels = [8, 7, 6, 5, 4, 3, 2, 1];
 		const thresholds = zoom_levels.map(level => Math.pow(0.5, level));
 		let request_sent_count = 0;
 
@@ -321,37 +324,38 @@ export class RoomInstance {
 			let layer = this.preview_system.getOrCreateLayer(zoom);
 			let boundary = state.map.getPreviewBoundaries(layer.zoom);
 
-			for (let y = boundary.start_y; y < boundary.end_y; y++) {
-				for (let x = boundary.start_x; x < boundary.end_x; x++) {
-					let load_mode = layer.zoom == target_zoom;
-					let preview: Preview | null;
-					if (load_mode && request_sent_count < 30) {
-						preview = layer.getPreview(x, y);
-						if (!preview) {
+			// if zoom matches target zoom
+			if (layer.zoom == target_zoom) {
+				if (request_sent_count < 30) {
+					for (let y = boundary.start_y; y < boundary.end_y; y++) {
+						for (let x = boundary.start_x; x < boundary.end_x; x++) {
+							let preview = layer.getPreview(x, y);
+							if (preview != null) {
+								// already loaded, do nothing
+								continue;
+							}
+
 							preview = layer.getOrCreatePreview(x, y);
 							state.client.socketSendPreviewRequest(x, y, layer.zoom);
 							request_sent_count++;
-							//console.log("sent request");
 						}
-					}
-					else {
-						let p = layer.getPreview(x, y);
-						if (p) {
-							preview = p;
-							preview.remove_timeout++;
-
-							if (preview.remove_timeout > 10) {
-								layer.removePreview(x, y);
-								continue;
-							}
-						}
-						else continue; // Not loaded
 					}
 				}
+
+				continue; // !
 			}
+
+			//normal operation
+			layer.iterPreviewsInBoundary(boundary, (preview) => {
+				preview.remove_timeout++;
+				if (preview.remove_timeout > 10) {
+					layer.removePreview(preview.x, preview.y);
+				}
+			});
 		}
 
 		if (request_sent_count > 0) {
+			//console.log("sent", request_sent_count, "chunk preview requests");
 			this.needs_boundaries_update = true;
 		}
 	}

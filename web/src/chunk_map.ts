@@ -138,6 +138,13 @@ export class Boundary {
 	height: number = 0.0;
 };
 
+export interface PreviewBoundary {
+	start_x: number;
+	start_y: number;
+	end_x: number;
+	end_y: number;
+}
+
 export class ChunkMap {
 	instance: RoomInstance;
 	state: ConnectedInstanceState;
@@ -222,7 +229,7 @@ export class ChunkMap {
 
 	resize() {
 		let renderer = this.state.renderer;
-		let canvas = renderer.canvas;
+		let canvas = renderer.params.canvas;
 
 		renderer.display_scale = window.devicePixelRatio || 1;
 
@@ -252,6 +259,23 @@ export class ChunkMap {
 			return null;
 		return mx.get(y);
 	}
+
+	iterChunksInBoundary(boundary: PreviewBoundary, func: (preview: Chunk) => void) {
+		for (const [x, mx] of this.map) {
+			if (x < boundary.start_x || x > boundary.end_x) {
+				continue;
+			}
+
+			for (const [y, chunk] of mx) {
+				if (y < boundary.start_y || y > boundary.end_y) {
+					continue;
+				}
+
+				func(chunk);
+			}
+		}
+	}
+
 
 	createChunk(x: number, y: number) {
 		let mx = this.map.get(x);
@@ -289,71 +313,75 @@ export class ChunkMap {
 		//console.log("Removed chunk at ", x, y);
 	}
 
-	getChunkBoundaries() {
+	getChunkBoundaries(): PreviewBoundary {
 		return {
 			start_x: Math.floor((this.boundary.center_x - this.boundary.width / 2.0) / CHUNK_SIZE),
 			start_y: Math.floor((this.boundary.center_y - this.boundary.height / 2.0) / CHUNK_SIZE),
 			end_x: Math.floor((this.boundary.center_x + this.boundary.width / 2.0) / CHUNK_SIZE) + 1,
 			end_y: Math.floor((this.boundary.center_y + this.boundary.height / 2.0) / CHUNK_SIZE) + 1
-		};
+		} as PreviewBoundary;
 	}
 
-	getPreviewBoundaries(zoom: number) {
+	getPreviewBoundaries(zoom: number): PreviewBoundary {
 		let div = CHUNK_SIZE * Math.pow(2, zoom);
 		return {
 			start_x: Math.floor((this.boundary.center_x - this.boundary.width / 2.0) / div),
 			start_y: Math.floor((this.boundary.center_y - this.boundary.height / 2.0) / div),
 			end_x: Math.floor((this.boundary.center_x + this.boundary.width / 2.0) / div) + 1,
 			end_y: Math.floor((this.boundary.center_y + this.boundary.height / 2.0) / div) + 1
-		};
+		} as PreviewBoundary;
 	}
 
 	drawChunks() {
 		let boundary = this.getChunkBoundaries();
 		let renderer = this.state.renderer;
 
-		for (let y = boundary.start_y; y < boundary.end_y; y++) {
-			for (let x = boundary.start_x; x < boundary.end_x; x++) {
-				let chunk = this.getChunk(x, y);
-				if (!chunk || !chunk.tex)
-					continue;
-
-				chunk.processPixels(renderer.gl);
-				renderer.drawRect(
-					chunk.tex,
-					chunk.x * CHUNK_SIZE,
-					chunk.y * CHUNK_SIZE,
-					CHUNK_SIZE, CHUNK_SIZE);
+		this.iterChunksInBoundary(boundary, (chunk) => {
+			if (!chunk.tex) {
+				return;
 			}
-		}
+
+			chunk.processPixels(renderer.gl);
+			renderer.drawRect(
+				renderer.params.color_keyed ? renderer.shader_color_keyed : renderer.shader_solid,
+				chunk.tex,
+				chunk.x * CHUNK_SIZE,
+				chunk.y * CHUNK_SIZE,
+				CHUNK_SIZE, CHUNK_SIZE);
+		});
 	}
 
 	drawPreviews() {
 		let renderer = this.state.renderer;
 
 		//Reverse iterator
+		let iter_count = 0;
+		let render_count = 0;
+
 		for (let zoom = PREVIEW_SYSTEM_LAYER_COUNT; zoom >= 1; zoom--) {
 			let layer = this.instance.preview_system.getLayer(zoom);
 			if (!layer) continue;
 			let boundary = this.getPreviewBoundaries(layer.zoom);
 			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
 
-			for (let y = boundary.start_y; y < boundary.end_y; y++) {
-				for (let x = boundary.start_x; x < boundary.end_x; x++) {
-					let preview = layer.getPreview(x, y);
-					if (!preview)
-						continue;
-					if (!preview.tex)
-						continue;
-
-					renderer.drawRect(
-						preview.tex,
-						preview.x * SIZE,
-						preview.y * SIZE,
-						SIZE, SIZE);
+			layer.iterPreviewsInBoundary(boundary, (preview) => {
+				iter_count += 1;
+				if (!preview.tex) {
+					return;
 				}
-			}
+
+				render_count += 1;
+				//console.log("preview zoom", zoom, "x", preview.x, "y", preview.y);
+				renderer.drawRect(
+					renderer.params.color_keyed ? renderer.shader_color_keyed : renderer.shader_solid,
+					preview.tex,
+					preview.x * SIZE,
+					preview.y * SIZE,
+					SIZE, SIZE);
+			});
 		}
+
+		//console.log("iter count", iter_count, "render count", render_count);
 	}
 
 	drawCursors() {
@@ -369,6 +397,7 @@ export class ChunkMap {
 				let width = this.texture_cursor.width / zoom;
 				let height = this.texture_cursor.height / zoom;
 				renderer.drawRect(
+					renderer.shader_solid,
 					this.texture_cursor, user.cursor_x + 0.5 - width / 2.0, user.cursor_y + 0.5 - height / 2.0,
 					width, height);
 			}
@@ -388,7 +417,7 @@ export class ChunkMap {
 
 			let width = text.width / zoom;
 			let height = text.height / zoom;
-			renderer.drawRect(text.tex, user.cursor_x - width / 2.0, user.cursor_y - height * 1.5, width, height);
+			renderer.drawRect(renderer.shader_solid, text.tex, user.cursor_x - width / 2.0, user.cursor_y - height * 1.5, width, height);
 		})
 	}
 
@@ -398,6 +427,7 @@ export class ChunkMap {
 		let renderer = this.state.renderer;
 		let brush_size = cursor.tool_size;
 		renderer.drawRect(
+			renderer.shader_solid,
 			this.texture_brush,
 			cursor.canvas_x - brush_size / 2.0 + 0.5,
 			cursor.canvas_y - brush_size / 2.0 + 0.5,
@@ -408,7 +438,7 @@ export class ChunkMap {
 	updateBoundary() {
 		let boundary = this.boundary;
 		let renderer = this.state.renderer;
-		let canvas = renderer.canvas;
+		let canvas = renderer.params.canvas;
 		boundary.center_x = -this.scrolling.x;
 		boundary.center_y = -this.scrolling.y;
 		boundary.width = canvas.width / this.scrolling.zoom;
@@ -427,7 +457,7 @@ export class ChunkMap {
 		let renderer = this.state.renderer;
 
 		renderer.viewportFullscreen();
-		renderer.clear(1.0, 1.0, 1.0, 1);
+		renderer.clear(1.0, 1.0, 1.0, renderer.params.color_keyed ? 0.0 : 1.0);
 
 		this.updateBoundary();
 
@@ -458,10 +488,10 @@ export class ChunkMap {
 		let cursor = this.instance.cursor;
 
 		let new_zoom = scrolling.zoom * (1.0 + num);
-		if (new_zoom < 0.015625) new_zoom = 0.015625; //0.5^6
+		new_zoom = Math.max(new_zoom, 0.0009765625); //0.5^10
 		if (new_zoom > 80.0) new_zoom = 80.0;
 
-		let canvas = this.state.renderer.canvas;
+		let canvas = this.state.renderer.params.canvas;
 
 		let old_width = canvas.width / scrolling.zoom;
 		let new_width = canvas.width / new_zoom;

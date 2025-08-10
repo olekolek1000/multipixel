@@ -38,7 +38,6 @@ export class Chat {
 		}
 	}
 
-
 	addMessage(sender: string, str: string, type: ChatMessageType) {
 		this.chatHistoryState.setState((prev) => [
 			...prev,
