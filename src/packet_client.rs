@@ -65,7 +65,7 @@ impl PacketAnnounce {
 	}
 }
 
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 pub struct PacketCursorPos {
 	pub x: i32,
 	pub y: i32,
@@ -79,7 +79,7 @@ impl PacketCursorPos {
 		})
 	}
 
-	pub fn to_vec(&self) -> IVec2 {
+	pub const fn to_vec(&self) -> IVec2 {
 		IVec2::new(self.x, self.y)
 	}
 }

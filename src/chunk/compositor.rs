@@ -20,7 +20,7 @@ pub struct Compositor {
 }
 
 impl CompositionLayer {
-	pub fn new() -> Self {
+	pub const fn new() -> Self {
 		Self {
 			layer: LayerRGBA::new(),
 		}
@@ -70,14 +70,14 @@ impl Compositor {
 			debug_assert!(layer.read().is_some());
 			let rgba = layer.get_pixel(chunk_pixel_pos);
 
-			col = ColorRGBA::blend_gamma_corrected(rgba.a, &col, &rgba);
+			col = ColorRGBA::blend_gamma_corrected(rgba.a, col, rgba);
 		}
 
 		col
 	}
 
-	pub fn remove_layer_id(&mut self, layer_id: LayerID) {
-		self.layers.retain(|id, _| *id != layer_id);
+	pub fn remove_layer_id(&mut self, layer_id: &LayerID) {
+		self.layers.retain(|id, _| *id != *layer_id);
 	}
 
 	pub fn deref_session(&mut self, handle: &SessionHandle) {
@@ -114,7 +114,7 @@ impl Compositor {
 	pub fn composite(base: &LayerRGBA, layers: &[&LayerRGBA]) -> LayerRGBA {
 		debug_assert!(base.read().is_some());
 		for layer in layers {
-			debug_assert!(layer.read().is_some())
+			debug_assert!(layer.read().is_some());
 		}
 
 		let mut out = LayerRGBA::new();
@@ -146,13 +146,13 @@ impl Compositor {
 
 						let blended = ColorRGBA::blend_gamma_corrected(
 							layer_alpha,
-							&ColorRGBA {
+							ColorRGBA {
 								r: *out_red,
 								g: *out_green,
 								b: *out_blue,
 								a: *out_alpha,
 							},
-							&ColorRGBA {
+							ColorRGBA {
 								r: layer_red,
 								g: layer_green,
 								b: layer_blue,

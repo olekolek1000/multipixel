@@ -55,7 +55,7 @@ pub struct ChunkSystem {
 	receiver: broadcast::Receiver<ChunkSystemSignal>,
 }
 
-fn modulo(x: i32, n: i32) -> i32 {
+const fn modulo(x: i32, n: i32) -> i32 {
 	(x % n + n) % n
 }
 
@@ -75,7 +75,7 @@ impl ChunkSystem {
 	pub fn new(
 		database: Arc<Mutex<Database>>,
 		notifier: Arc<Notify>,
-		sender: NotifySender<ChunkSystemSignal>,
+		sender: &NotifySender<ChunkSystemSignal>,
 		preview_system: PreviewSystemMutex,
 		autosave_interval_ms: u32,
 	) -> Self {
@@ -94,7 +94,7 @@ impl ChunkSystem {
 		}
 	}
 
-	pub fn global_pixel_pos_to_chunk_pos(pixel_pos: IVec2) -> IVec2 {
+	pub const fn global_pixel_pos_to_chunk_pos(pixel_pos: IVec2) -> IVec2 {
 		let mut chunk_pos_x = (pixel_pos.x + (pixel_pos.x < 0) as i32) / CHUNK_SIZE_PX as i32;
 		let mut chunk_pos_y = (pixel_pos.y + (pixel_pos.y < 0) as i32) / CHUNK_SIZE_PX as i32;
 
@@ -108,7 +108,7 @@ impl ChunkSystem {
 		IVec2::new(chunk_pos_x, chunk_pos_y)
 	}
 
-	pub fn global_pixel_pos_to_local_pixel_pos(global_pixel_pos: IVec2) -> U8Vec2 {
+	pub const fn global_pixel_pos_to_local_pixel_pos(global_pixel_pos: IVec2) -> U8Vec2 {
 		let x = modulo(global_pixel_pos.x, CHUNK_SIZE_PX as i32);
 		let y = modulo(global_pixel_pos.y, CHUNK_SIZE_PX as i32);
 		U8Vec2::new(x as u8, y as u8)
@@ -154,7 +154,7 @@ impl ChunkSystem {
 		Ok(chunk_mtx)
 	}
 
-	pub fn launch_task_processor(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
+	pub fn launch_task_processor(chunk_system: &mut Self, chunk_system_weak: ChunkSystemWeak) {
 		chunk_system.task_processor = Some(
 			tokio::task::Builder::new()
 				.name("Chunk system processor task")
@@ -167,10 +167,9 @@ impl ChunkSystem {
 
 						notifier.notified().await;
 
-						if let Some(data) =
-							ChunkSystem::get_chunks_to_garbage_collect(chunk_system_mtx.clone()).await
+						if let Some(data) = Self::get_chunks_to_garbage_collect(chunk_system_mtx.clone()).await
 						{
-							ChunkSystem::garbage_collect_lazy(chunk_system_mtx.clone(), database, data).await;
+							Self::garbage_collect_lazy(chunk_system_mtx.clone(), database, data).await;
 						}
 
 						let mut chunk_system = chunk_system_mtx.lock().await;
@@ -196,7 +195,7 @@ impl ChunkSystem {
 				}
 			}
 
-			chunk.compositor.remove_layer_id(id.clone());
+			chunk.compositor.remove_layer_id(&id);
 		}
 	}
 
@@ -249,8 +248,8 @@ impl ChunkSystem {
 		}
 
 		Some(GarbageCollectData {
-			chunks_to_free,
 			chunks_to_save,
+			chunks_to_free,
 		})
 	}
 
@@ -264,7 +263,7 @@ impl ChunkSystem {
 			if let Some(chunk) = chunk.upgrade() {
 				let chunk = chunk.clone();
 				let mut chunk = chunk.lock().await;
-				ChunkSystem::save_chunk_wrapper(database.clone(), &mut chunk).await;
+				Self::save_chunk_wrapper(database.clone(), &mut chunk).await;
 			}
 		}
 
@@ -289,13 +288,13 @@ impl ChunkSystem {
 		}
 	}
 
-	pub fn launch_task_tick(chunk_system: &mut ChunkSystem, chunk_system_weak: ChunkSystemWeak) {
+	pub fn launch_task_tick(chunk_system: &mut Self, chunk_system_weak: ChunkSystemWeak) {
 		chunk_system.task_tick = Some(
 			tokio::task::Builder::new()
 				.name("Chunk system tick task")
 				.spawn(async move {
 					while let Some(chunk_system_mtx) = chunk_system_weak.upgrade() {
-						ChunkSystem::tick(chunk_system_mtx).await;
+						Self::tick(chunk_system_mtx).await;
 						tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 					}
 				})
@@ -303,7 +302,7 @@ impl ChunkSystem {
 		);
 	}
 
-	async fn get_chunks_to_save(&self) -> Vec<ChunkCellWeak> {
+	fn get_chunks_to_save(&self) -> Vec<ChunkCellWeak> {
 		let mut to_autosave: Vec<ChunkCellWeak> = Vec::new();
 		for cell in self.chunks.values() {
 			// If modified
@@ -323,14 +322,15 @@ impl ChunkSystem {
 		let preview_system = chunk_system.preview_system.clone();
 
 		let time_ms = get_millis();
-		if chunk_system.last_autosave_timestamp + (chunk_system.autosave_interval_ms as u64) < time_ms {
+		if chunk_system.last_autosave_timestamp + u64::from(chunk_system.autosave_interval_ms) < time_ms
+		{
 			chunk_system.last_autosave_timestamp = time_ms;
 
-			let to_autosave = chunk_system.get_chunks_to_save().await;
+			let to_autosave = chunk_system.get_chunks_to_save();
 			if !to_autosave.is_empty() {
 				log::info!("Performing auto-save");
 				drop(chunk_system);
-				ChunkSystem::save_chunks(chunk_system_mtx, to_autosave).await;
+				Self::save_chunks(chunk_system_mtx, to_autosave).await;
 				log::info!("Auto-save finished");
 
 				PreviewSystem::process_all(preview_system).await;
@@ -359,7 +359,7 @@ impl ChunkSystem {
 
 	async fn save_chunk_wrapper(database: Arc<Mutex<Database>>, chunk: &mut ChunkInstance) {
 		log::trace!("Saving chunk at {}x{}", chunk.position.x, chunk.position.y);
-		if let Err(e) = ChunkSystem::save_chunk(database, chunk).await {
+		if let Err(e) = Self::save_chunk(database, chunk).await {
 			log::error!(
 				"Failed to save chunk at {}x{}: {}",
 				chunk.position.x,
@@ -398,7 +398,7 @@ impl ChunkSystem {
 				let database = chunk_system.database.clone();
 				drop(chunk_system);
 
-				ChunkSystem::save_chunk_wrapper(database.clone(), &mut chunk).await;
+				Self::save_chunk_wrapper(database.clone(), &mut chunk).await;
 			}
 		}
 	}
@@ -411,11 +411,11 @@ impl ChunkSystem {
 		}
 
 		// Save all modified chunks
-		let to_autosave = chunk_system.get_chunks_to_save().await;
+		let to_autosave = chunk_system.get_chunks_to_save();
 		drop(chunk_system);
 		if !to_autosave.is_empty() {
 			log::info!("Saving chunks before exit");
-			ChunkSystem::save_chunks(chunk_system_mtx.clone(), to_autosave).await;
+			Self::save_chunks(chunk_system_mtx.clone(), to_autosave).await;
 			log::info!("Chunks saved!");
 		}
 

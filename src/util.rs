@@ -1,6 +1,6 @@
 use glam::IVec2;
 
-pub fn distance_squared_int32(from: IVec2, to: IVec2) -> i32 {
+pub const fn distance_squared_int32(from: IVec2, to: IVec2) -> i32 {
 	i32::abs(from.x - to.x) + i32::abs(from.y - to.y)
 }
 

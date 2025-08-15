@@ -36,7 +36,7 @@ impl ToolStateLine {
 			.collect()
 	}
 
-	pub async fn cleanup(&mut self, refs: &RoomRefs) {
+	pub fn cleanup(&self, refs: &RoomRefs) {
 		refs
 			.chunk_system_sender
 			.send(ChunkSystemSignal::RemoveLayer(self.layer_id.clone()));

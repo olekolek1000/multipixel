@@ -39,13 +39,8 @@ fn decompress_vec_lz4(compressed: &[u8]) -> anyhow::Result<Vec<u8>> {
 	if compressed.is_empty() {
 		return Ok(Vec::new());
 	}
-	if let Some(decompressed) =
-		compression::decompress_lz4(compressed, (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize)
-	{
-		Ok(decompressed)
-	} else {
-		Err(anyhow!("Failed to decompress LZ4 data"))
-	}
+	compression::decompress_lz4(compressed, (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize)
+		.map_or_else(|| Err(anyhow!("Failed to decompress LZ4 data")), Ok)
 }
 
 fn fill_image(out_data: &mut [u8], in_data: &[u8], x: u32, y: u32) {
@@ -82,42 +77,43 @@ struct PreviewProcessResult {
 }
 
 impl PreviewSystemLayer {
-	pub fn new(zoom: u8) -> Self {
+	pub const fn new(zoom: u8) -> Self {
 		Self {
 			zoom,
 			update_queue: Vec::new(),
 		}
 	}
 
-	pub fn add_to_queue(&mut self, coords: &IVec2) {
+	pub fn add_to_queue(&mut self, coords: IVec2) {
 		// Check if already added to queue (reverse iterator)
 		for it in self.update_queue.iter().rev() {
-			if *it == *coords {
+			if *it == coords {
 				return; // Already added to the queue
 			}
 		}
 
-		self.update_queue.push(*coords);
+		self.update_queue.push(coords);
 	}
 
+	#[allow(clippy::too_many_lines)]
 	async fn process_one_block(
 		database: &Arc<Mutex<Database>>,
 		update_queue: &mut Vec<IVec2>,
 		zoom: u8,
 	) -> anyhow::Result<PreviewProcessResult> {
+		struct Quad {
+			topleft: Vec<u8>,
+			topright: Vec<u8>,
+			bottomleft: Vec<u8>,
+			bottomright: Vec<u8>,
+		}
+
 		if let Some(position) = update_queue.pop() {
 			// Fuse 2x2 chunks into one preview image
 			let topleft = IVec2::new(position.x * 2, position.y * 2);
 			let topright = IVec2::new(position.x * 2 + 1, position.y * 2);
 			let bottomleft = IVec2::new(position.x * 2, position.y * 2 + 1);
 			let bottomright = IVec2::new(position.x * 2 + 1, position.y * 2 + 1);
-
-			struct Quad {
-				topleft: Vec<u8>,
-				topright: Vec<u8>,
-				bottomleft: Vec<u8>,
-				bottomright: Vec<u8>,
-			}
 
 			let compressed = if zoom == 1 {
 				// Load real chunks data underneath
@@ -157,11 +153,7 @@ impl PreviewSystemLayer {
 
 			// Allocate preview chunk data
 			let image_size = CHUNK_SIZE_PX * 2;
-			let mut rgba: Vec<u8> = Vec::new();
-			rgba.resize(
-				(image_size * image_size /* 512² */ * 4/*RGBA*/) as usize,
-				0, /* Fill with transparent black */
-			);
+			let mut rgba: Vec<u8> = vec![0; (image_size * image_size /* 512² */ * 4/*RGBA*/) as usize];
 
 			// Blit images
 			fill_image(&mut rgba, &data_topleft, 0, 0);
@@ -181,10 +173,10 @@ impl PreviewSystemLayer {
 
 					let mut perform_channel = |channel: u32| {
 						// Same four pixels
-						let result = (rgba[((in_y) * image_pitch + (in_x) * 4 + channel) as usize] as u32
-							+ rgba[((in_y + 1) * image_pitch + (in_x) * 4 + channel) as usize] as u32
-							+ rgba[((in_y) * image_pitch + (in_x + 1) * 4 + channel) as usize] as u32
-							+ rgba[((in_y + 1) * image_pitch + (in_x + 1) * 4 + channel) as usize] as u32)
+						let result = (u32::from(rgba[((in_y) * image_pitch + (in_x) * 4 + channel) as usize])
+							+ u32::from(rgba[((in_y + 1) * image_pitch + (in_x) * 4 + channel) as usize])
+							+ u32::from(rgba[((in_y) * image_pitch + (in_x + 1) * 4 + channel) as usize])
+							+ u32::from(rgba[((in_y + 1) * image_pitch + (in_x + 1) * 4 + channel) as usize]))
 							/ 4;
 
 						// Save sampled pixel result for specific channel
@@ -252,7 +244,7 @@ pub struct PreviewSystem {
 	pub update_queue_cache: PreviewSystemQueuedChunks,
 }
 
-fn layer_index_to_zoom(index: u8) -> u8 {
+const fn layer_index_to_zoom(index: u8) -> u8 {
 	index + 1
 }
 
@@ -265,14 +257,8 @@ fn init_layers_vec() -> Vec<PreviewSystemLayer> {
 }
 
 impl PreviewSystem {
-	pub async fn new(database: Arc<Mutex<Database>>) -> Self {
+	pub fn new(database: Arc<Mutex<Database>>) -> Self {
 		let notifier = Arc::new(Notify::new());
-
-		// Init layers
-		let mut layers: Vec<PreviewSystemLayer> = Vec::new();
-		for i in 0..limits::PREVIEW_SYSTEM_LAYER_COUNT {
-			layers.push(PreviewSystemLayer::new(layer_index_to_zoom(i)));
-		}
 
 		Self {
 			database,
@@ -282,7 +268,7 @@ impl PreviewSystem {
 		}
 	}
 
-	fn layer_index_to_zoom(index: u8) -> u8 {
+	const fn layer_index_to_zoom(index: u8) -> u8 {
 		index + 1
 	}
 
@@ -294,16 +280,16 @@ impl PreviewSystem {
 		}
 	}
 
-	async fn process_queue(&mut self) {
+	fn process_queue(&mut self) {
 		for pos in &self.update_queue_cache.read_all() {
-			self.layers[0].add_to_queue(pos);
+			self.layers[0].add_to_queue(*pos);
 		}
 	}
 
 	async fn process_layers(preview_system_weak: PreviewSystemWeak) -> anyhow::Result<()> {
 		let preview_system_mtx = preview_system_weak
 			.upgrade()
-			.ok_or(anyhow!("Preview system expired"))?;
+			.ok_or_else(|| anyhow!("Preview system expired"))?;
 		let mut preview_system = preview_system_mtx.lock().await;
 		let mut layers = std::mem::take(&mut preview_system.layers);
 		preview_system.layers = init_layers_vec();
@@ -324,7 +310,7 @@ impl PreviewSystem {
 
 					if i < layers.len() - 1 {
 						let upper_layer = &mut layers[i + 1];
-						upper_layer.add_to_queue(&res.upper_pos);
+						upper_layer.add_to_queue(res.upper_pos);
 					}
 				} else {
 					return Err(anyhow!("Database expired"));
@@ -338,12 +324,12 @@ impl PreviewSystem {
 	pub async fn process_all(preview_system_mtx: PreviewSystemMutex) {
 		log::trace!("Processing all pending previews");
 		let mut preview_system = preview_system_mtx.lock().await;
-		preview_system.process_queue().await;
+		preview_system.process_queue();
 		drop(preview_system);
 		let weak = Arc::downgrade(&preview_system_mtx);
 		drop(preview_system_mtx);
 
-		if let Err(e) = PreviewSystem::process_layers(weak).await {
+		if let Err(e) = Self::process_layers(weak).await {
 			// This shouldn't happen on non-corrupted database anyways
 			log::error!("Failed to process previews: {e}");
 		}
@@ -352,7 +338,7 @@ impl PreviewSystem {
 
 impl Drop for PreviewSystem {
 	fn drop(&mut self) {
-		log::trace!("Preview system freed")
+		log::trace!("Preview system freed");
 	}
 }
 

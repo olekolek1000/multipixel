@@ -139,7 +139,7 @@ impl ChunkInstance {
 		self.main_layer.get_pixel(chunk_pixel_pos)
 	}
 
-	pub fn get_layer_main(&self) -> &LayerRGBA {
+	pub const fn get_layer_main(&self) -> &LayerRGBA {
 		&self.main_layer
 	}
 
@@ -200,7 +200,8 @@ impl ChunkInstance {
 		let layer_data = self.main_layer.read_unchecked_mut();
 		for pixel in pixels {
 			// Update pixel
-			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 4 + pixel.pos.x as u32 * 4) as usize;
+			let offset =
+				(u32::from(pixel.pos.y) * CHUNK_SIZE_PX * 4 + u32::from(pixel.pos.x) * 4) as usize;
 			(layer_data.0)[offset] = pixel.color.r;
 			(layer_data.0)[offset + 1] = pixel.color.g;
 			(layer_data.0)[offset + 2] = pixel.color.b;
@@ -226,7 +227,8 @@ impl ChunkInstance {
 			let layer_data = self.main_layer.read_unchecked_mut();
 
 			// Update pixel
-			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 4 + pixel.pos.x as u32 * 4) as usize;
+			let offset =
+				(u32::from(pixel.pos.y) * CHUNK_SIZE_PX * 4 + u32::from(pixel.pos.x) * 4) as usize;
 			(layer_data.0)[offset] = pixel.color.r;
 			(layer_data.0)[offset + 1] = pixel.color.g;
 			(layer_data.0)[offset + 2] = pixel.color.b;
@@ -255,12 +257,7 @@ impl ChunkInstance {
 		}
 
 		for session in self.refs.linked_sessions.lock().unwrap().iter() {
-			if !self.compositor.has_session_composition(&session.handle) {
-				// Send plain pixel data
-				session
-					.queue_send
-					.send(packet_pixel_pack_plain.as_ref().unwrap().clone());
-			} else {
+			if self.compositor.has_session_composition(&session.handle) {
 				// Send composited pixel pack exclusively for this client
 				let layers = self
 					.compositor
@@ -272,11 +269,16 @@ impl ChunkInstance {
 					composited_pixels.push(ChunkPixelRGBA {
 						color: rgb,
 						pos: pixel.pos,
-					})
+					});
 				}
 
 				let packet = gen_packet_pixel_pack(self.position, &composited_pixels);
 				session.queue_send.send(packet);
+			} else {
+				// Send plain pixel data
+				session
+					.queue_send
+					.send(packet_pixel_pack_plain.as_ref().unwrap().clone());
 			}
 		}
 	}
@@ -291,7 +293,7 @@ impl ChunkInstance {
 		}
 	}
 
-	pub fn send_pixel_updates(&mut self, coords: &[U8Vec2]) {
+	pub fn send_pixel_updates(&self, coords: &[U8Vec2]) {
 		debug_assert!(self.main_layer.read().is_some());
 
 		for session in self.refs.linked_sessions.lock().unwrap().iter() {
@@ -305,7 +307,7 @@ impl ChunkInstance {
 				composited_pixels.push(ChunkPixelRGBA {
 					color: rgba,
 					pos: *coord,
-				})
+				});
 			}
 
 			let packet = gen_packet_pixel_pack(self.position, &composited_pixels);
@@ -324,29 +326,26 @@ impl ChunkInstance {
 			.collect();
 
 		for (session_handle, send_queue) in session_send_queues {
-			self.send_chunk_data_to_session(&session_handle, send_queue);
+			self.send_chunk_data_to_session(&session_handle, &send_queue);
 		}
 	}
 
 	pub fn send_chunk_data_to_session(
 		&mut self,
 		session_handle: &SessionHandle,
-		session_queue_send: EventQueue<packet_server::Packet>,
+		session_queue_send: &EventQueue<packet_server::Packet>,
 	) {
 		let composited = self.compositor.has_session_composition(session_handle);
 
-		let compressed_data = match composited {
-			false => {
-				// read compressed data directly from the memory, no compositing needed
-				if let Some(compressed) = &self.compressed_image_data {
-					compressed.clone()
-				} else {
-					self.encode_chunk_data(false)
-				}
-			}
-			true => {
-				// composite image data, compress and send it
-				Arc::new(self.encode_composited_chunk_data(session_handle))
+		let compressed_data = if composited {
+			// composite image data, compress and send it
+			Arc::new(self.encode_composited_chunk_data(session_handle))
+		} else {
+			// read compressed data directly from the memory, no compositing needed
+			if let Some(compressed) = &self.compressed_image_data {
+				compressed.clone()
+			} else {
+				self.encode_chunk_data(false)
 			}
 		};
 
@@ -357,9 +356,9 @@ impl ChunkInstance {
 	}
 
 	pub fn link_session(
-		&mut self,
+		&self,
 		handle: &SessionHandle,
-		session: SessionInstanceWeak,
+		session: &SessionInstanceWeak,
 		session_queue_send: EventQueue<packet_server::Packet>,
 	) {
 		let mut linked_sessions = self.refs.linked_sessions.lock().unwrap();
