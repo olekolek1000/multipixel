@@ -1,6 +1,6 @@
 use glam::IVec2;
 
-#[derive(Default, Copy, Clone, PartialEq)]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 pub struct ColorRGB {
 	pub r: u8,
 	pub g: u8,
@@ -8,7 +8,7 @@ pub struct ColorRGB {
 }
 
 impl ColorRGB {
-	pub fn rgba(&self, a: u8) -> ColorRGBA {
+	pub const fn rgba(self, a: u8) -> ColorRGBA {
 		ColorRGBA {
 			r: self.r,
 			g: self.g,
@@ -18,7 +18,7 @@ impl ColorRGB {
 	}
 }
 
-#[derive(Default, Copy, Clone, PartialEq)]
+#[derive(Default, Copy, Clone, PartialEq, Eq)]
 pub struct ColorRGBA {
 	pub r: u8,
 	pub g: u8,
@@ -27,8 +27,8 @@ pub struct ColorRGBA {
 }
 
 impl ColorRGBA {
-	pub fn zero() -> ColorRGBA {
-		ColorRGBA {
+	pub const fn zero() -> Self {
+		Self {
 			r: 0,
 			g: 0,
 			b: 0,
@@ -36,19 +36,19 @@ impl ColorRGBA {
 		}
 	}
 
-	pub fn blend_gamma_corrected(alpha: u8, from: &ColorRGBA, to: &ColorRGBA) -> ColorRGBA {
-		let alpha = alpha as u32;
+	pub fn blend_gamma_corrected(alpha: u8, from: Self, to: Self) -> Self {
+		let alpha = u32::from(alpha);
 		let alpha_inv = 255 - alpha;
-		let from_r = from.r as u32;
-		let from_g = from.g as u32;
-		let from_b = from.b as u32;
-		let from_a = from.a as u32;
-		let to_r = to.r as u32;
-		let to_g = to.g as u32;
-		let to_b = to.b as u32;
-		let to_a = to.a as u32;
+		let from_r = u32::from(from.r);
+		let from_g = u32::from(from.g);
+		let from_b = u32::from(from.b);
+		let from_a = u32::from(from.a);
+		let to_r = u32::from(to.r);
+		let to_g = u32::from(to.g);
+		let to_b = u32::from(to.b);
+		let to_a = u32::from(to.a);
 		// sqrt() is implemented at hardware level for floats in ALU
-		ColorRGBA {
+		Self {
 			r: f32::sqrt((((from_r * from_r) * alpha_inv + (to_r * to_r) * alpha) / 255) as f32) as u8,
 			g: f32::sqrt((((from_g * from_g) * alpha_inv + (to_g * to_g) * alpha) / 255) as f32) as u8,
 			b: f32::sqrt((((from_b * from_b) * alpha_inv + (to_b * to_b) * alpha) / 255) as f32) as u8,
@@ -64,10 +64,10 @@ pub struct GlobalPixelRGBA {
 }
 
 impl GlobalPixelRGBA {
-	pub fn insert_to_vec(vec: &mut Vec<GlobalPixelRGBA>, x: i32, y: i32, color: &ColorRGBA) {
-		vec.push(GlobalPixelRGBA {
+	pub fn insert_to_vec(vec: &mut Vec<Self>, x: i32, y: i32, color: ColorRGBA) {
+		vec.push(Self {
 			pos: IVec2::new(x, y),
-			color: *color,
-		})
+			color,
+		});
 	}
 }

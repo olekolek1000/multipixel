@@ -5,7 +5,7 @@ pub struct SerialGenerator {
 }
 
 impl SerialGenerator {
-	pub fn new() -> SerialGenerator {
+	pub fn new() -> Self {
 		Self {
 			serial: Arc::new(SyncMutex::new(0)),
 		}

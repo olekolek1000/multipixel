@@ -27,7 +27,7 @@ fn print_help() {
 }
 
 async fn process_command(line: String, server: &ServerMutex) -> anyhow::Result<()> {
-	let mut parts: VecDeque<&str> = line.split(" ").collect();
+	let mut parts: VecDeque<&str> = line.split(' ').collect();
 	if let Some(raw_keyword) = parts.pop_front() {
 		let keyword = raw_keyword.trim();
 		match keyword {
@@ -89,7 +89,7 @@ pub fn start(server: ServerMutex, cancel_token: CancellationToken) {
 	tokio::spawn(async move {
 		loop {
 			tokio::select! {
-				_ = cancel_token.cancelled() => {
+				() = cancel_token.cancelled() => {
 					log::info!("Exiting command runner");
 					break;
 				}

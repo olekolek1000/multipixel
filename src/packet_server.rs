@@ -142,7 +142,7 @@ pub fn prepare_packet_chunk_create(chunk_pos: IVec2) -> Packet {
 	Packet { data: buf.into() }
 }
 
-pub fn prepare_packet_preview_image(preview_pos: &IVec2, zoom: u8, data: &[u8]) -> Packet {
+pub fn prepare_packet_preview_image(preview_pos: IVec2, zoom: u8, data: &[u8]) -> Packet {
 	let mut buf = BytesMut::with_capacity(COMMAND_INDEX_SIZE);
 
 	buf.put_u16(ServerCmd::PreviewImage as CommandIndex);

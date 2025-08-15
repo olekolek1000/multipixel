@@ -22,7 +22,7 @@ impl<DataType> EventQueue<DataType> {
 		Self {
 			data: Arc::new(SyncMutex::new(Data {
 				notifier,
-				queue: Default::default(),
+				queue: VecDeque::default(),
 			})),
 		}
 	}

@@ -75,8 +75,8 @@ impl Default for ToolData {
 		Self {
 			size: 1,
 			flow: 0.5,
-			color: Default::default(),
-			tool_type: Default::default(),
+			color: ColorRGB::default(),
+			tool_type: None,
 		}
 	}
 }
@@ -88,9 +88,9 @@ struct LinkedChunk {
 }
 
 impl LinkedChunk {
-	fn new(pos: &IVec2, chunk: &ChunkInstanceWeak) -> Self {
+	fn new(pos: IVec2, chunk: &ChunkInstanceWeak) -> Self {
 		Self {
-			pos: *pos,
+			pos,
 			chunk: chunk.clone(),
 			outside_boundary_duration: 0,
 		}
@@ -125,7 +125,7 @@ impl History {
 		self.modified_pixel_coords.clear();
 
 		self.cells.push(HistoryCell {
-			pixels: Default::default(),
+			pixels: Vec::default(),
 		});
 	}
 
@@ -210,15 +210,15 @@ impl SessionInstance {
 			announced: false,
 			needs_boundary_test: false,
 			room_refs: None,
-			chunk_cache: Default::default(),
-			tool: Default::default(),
+			chunk_cache: ChunkCache::default(),
+			tool: ToolData::default(),
 			notifier: notifier.clone(),
 			queue_send: EventQueue::new(notifier),
 			chunks_received: 0,
 			chunks_sent: 0,
-			linked_chunks: Default::default(),
-			boundary: Default::default(),
-			history: Default::default(),
+			linked_chunks: Vec::default(),
+			boundary: Boundary::default(),
+			history: History::default(),
 			cleaned_up: false,
 			task_sender: None,
 			task_tick: None,
@@ -249,7 +249,7 @@ impl SessionInstance {
 					.tick_boundary_check(&room_refs, session_handle, &session_mtx)
 					.await
 				{
-					session.handle_error(&e).await?;
+					session.handle_error(&e)?;
 				}
 
 				if ticks % 20 == 0 {
@@ -270,14 +270,14 @@ impl SessionInstance {
 
 	pub fn launch_task_tick(
 		session_handle: SessionHandle,
-		session: &mut SessionInstance,
+		session: &mut Self,
 		session_weak: SessionInstanceWeak,
 	) {
 		session.task_tick = Some(
 			tokio::task::Builder::new()
 				.name(format!("Session {} tick task", session_handle.id()).as_str())
 				.spawn(async move {
-					if let Err(e) = SessionInstance::tick_task_runner(session_weak, &session_handle).await {
+					if let Err(e) = Self::tick_task_runner(session_weak, &session_handle).await {
 						log::error!("Session tick task ended abnormally: {e}");
 					} else {
 						log::trace!("Session tick task ended gracefully");
@@ -289,7 +289,7 @@ impl SessionInstance {
 
 	pub fn launch_task_sender(
 		session_id: u32,
-		session: &mut SessionInstance,
+		session: &mut Self,
 		session_weak: SessionInstanceWeak,
 		writer: ConnectionWriter,
 	) {
@@ -339,36 +339,36 @@ impl SessionInstance {
 			let refs = refs.clone();
 			match command {
 				ClientCmd::Announce => {
-					let _ = self.kick("you have already announced").await;
+					self.kick("you have already announced");
 				}
 				ClientCmd::Message => {
 					self
 						.process_command_message(reader, session_weak.clone(), &refs, server_mtx)
-						.await?
+						.await?;
 				}
-				ClientCmd::Ping => self.process_command_ping(reader).await,
+				ClientCmd::Ping => { /* do nothing */ }
 				ClientCmd::CursorPos => {
 					self
 						.process_command_cursor_pos(&refs, reader, session_handle)
-						.await?
+						.await?;
 				}
 				ClientCmd::CursorDown => {
 					self
 						.process_command_cursor_down(&refs, reader, session_handle)
-						.await?
+						.await?;
 				}
 				ClientCmd::CursorUp => {
 					self
 						.process_command_cursor_up(&refs, reader, session_handle)
-						.await?
+						.await?;
 				}
-				ClientCmd::Boundary => self.process_command_boundary(reader).await?,
-				ClientCmd::ChunksReceived => self.process_command_chunks_received(reader).await?,
+				ClientCmd::Boundary => self.process_command_boundary(reader)?,
+				ClientCmd::ChunksReceived => self.process_command_chunks_received(reader)?,
 				ClientCmd::PreviewRequest => self.process_command_preview_request(&refs, reader).await?,
-				ClientCmd::ToolSize => self.process_command_tool_size(reader).await?,
-				ClientCmd::ToolFlow => self.process_command_tool_flow(reader).await?,
-				ClientCmd::ToolColor => self.process_command_tool_color(reader).await?,
-				ClientCmd::ToolType => self.process_command_tool_type(reader).await?,
+				ClientCmd::ToolSize => self.process_command_tool_size(reader)?,
+				ClientCmd::ToolFlow => self.process_command_tool_flow(reader)?,
+				ClientCmd::ToolColor => self.process_command_tool_color(reader)?,
+				ClientCmd::ToolType => self.process_command_tool_type(reader)?,
 				ClientCmd::Undo => self.process_command_undo(&refs, reader).await,
 			}
 		}
@@ -376,16 +376,16 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn handle_error(&mut self, e: &anyhow::Error) -> anyhow::Result<()> {
+	fn handle_error(&mut self, e: &anyhow::Error) -> anyhow::Result<()> {
 		if e.is::<UserError>() {
 			log::error!("User error: {e}");
-			let _ = self.kick(format!("User error: {e}").as_str()).await;
+			self.kick(format!("User error: {e}").as_str());
 		} else if e.is::<io::Error>() {
 			log::error!("IO error: {e}");
-			let _ = self.kick(format!("IO error: {e}").as_str()).await;
+			self.kick(format!("IO error: {e}").as_str());
 		} else {
 			log::error!("Unknown error: {e}");
-			let _ = self.kick("Internal server error. This is a bug.").await;
+			self.kick("Internal server error. This is a bug.");
 			// Pass error further
 			return Err(anyhow::anyhow!("Internal server error: {}", e));
 		}
@@ -403,7 +403,7 @@ impl SessionInstance {
 			.process_payload_wrap(session_weak, session_handle, data, server_mtx)
 			.await
 		{
-			self.handle_error(&e).await?;
+			self.handle_error(&e)?;
 		}
 
 		Ok(())
@@ -443,7 +443,7 @@ impl SessionInstance {
 		match &mut self.tool_state {
 			ToolState::None => {}
 			ToolState::Line(state) => {
-				state.cleanup(refs).await;
+				state.cleanup(refs);
 				let pixels = state.gen_global_pixel_vec_rgba(self.tool.color.rgba(255));
 				self.set_pixels_main(refs, &pixels, true).await;
 			}
@@ -469,7 +469,7 @@ impl SessionInstance {
 	}
 
 	async fn floodfill_check_color(
-		&mut self,
+		&self,
 		refs: &RoomRefs,
 		task: &mut FloodfillTask,
 		global_pos: IVec2,
@@ -538,7 +538,7 @@ impl SessionInstance {
 						color: self.tool.color.rgba(255),
 					};
 
-					task.canvas_cache.set_pixel(&pixel.pos, &pixel.color);
+					task.canvas_cache.set_pixel(pixel.pos, pixel.color);
 					task.pixels_changed.push(pixel);
 
 					if self
@@ -597,6 +597,7 @@ impl SessionInstance {
 			{
 				// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 				state.cursor.down = false;
+				drop(state);
 				return;
 			}
 
@@ -619,20 +620,20 @@ impl SessionInstance {
 		drop(brush_shapes);
 
 		for (index, line) in iter.enumerate() {
-			if index as u32 % step as u32 != 0 {
+			if index as u32 % u32::from(step) != 0 {
 				continue;
 			}
 
 			let tool_color = self.tool.color.rgba(255);
 
 			match tool_size {
-				1 => GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &tool_color),
+				1 => GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, tool_color),
 				2 => {
-					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &tool_color);
-					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x - 1, line.pos.y, &tool_color);
-					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x + 1, line.pos.y, &tool_color);
-					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y - 1, &tool_color);
-					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y + 1, &tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x - 1, line.pos.y, tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x + 1, line.pos.y, tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y - 1, tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y + 1, tool_color);
 				}
 				_ => {
 					let shape = if index == 0 {
@@ -642,9 +643,9 @@ impl SessionInstance {
 					};
 
 					for s in shape.iterate() {
-						let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
-						let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
-						GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &tool_color);
+						let pos_x = line.pos.x + i32::from(s.local_x) - i32::from(tool_size / 2);
+						let pos_y = line.pos.y + i32::from(s.local_y) - i32::from(tool_size / 2);
+						GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, tool_color);
 					}
 				}
 			}
@@ -674,12 +675,7 @@ impl SessionInstance {
 				.await;
 		}
 
-		let mut ending_drawing = false;
-
-		if !cursor_down && matches!(self.tool_state, ToolState::Line(_)) {
-			// Stop drawing line
-			ending_drawing = true;
-		}
+		let ending_drawing = !cursor_down && matches!(self.tool_state, ToolState::Line(_));
 
 		if ending_drawing {
 			// render for the last time
@@ -713,6 +709,7 @@ impl SessionInstance {
 			{
 				// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 				state.cursor.down = false;
+				drop(state);
 				return;
 			}
 			(tool_size, iter, step)
@@ -721,37 +718,41 @@ impl SessionInstance {
 		let mut pixels: Vec<GlobalPixelRGBA> = Vec::new();
 		let mut cache = CanvasCache::default();
 
-		let intensity = (self.tool.flow.powf(2.0) * 255.0) as u8;
-		let center_pos = (tool_size / 2) as f32 + 0.01 /* prevent NaN */;
+		let intensity = (self.tool.flow.powi(2) * 255.0) as u8;
+		let center_pos = f32::from(tool_size / 2) + 0.01 /* prevent NaN */;
 
 		let mut index = 0;
 		for line in iter {
 			if index % step == 0 {
 				for brush_y in 0..tool_size {
 					for brush_x in 0..tool_size {
-						let pos_x = line.pos.x + brush_x as i32 - tool_size as i32 / 2;
-						let pos_y = line.pos.y + brush_y as i32 - tool_size as i32 / 2;
+						let pos_x = line.pos.x + i32::from(brush_x) - i32::from(tool_size) / 2;
+						let pos_y = line.pos.y + i32::from(brush_y) - i32::from(tool_size) / 2;
 
 						let current = cache
 							.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
 							.await;
 
-						let mult = (util::distance32(brush_x as f32, brush_y as f32, center_pos, center_pos)
-							/ (tool_size / 2) as f32)
-							.clamp(0.0, 1.0); // normalized from 0.0 to 1.0
+						let mult = (util::distance32(
+							f32::from(brush_x),
+							f32::from(brush_y),
+							center_pos,
+							center_pos,
+						) / f32::from(tool_size / 2))
+						.clamp(0.0, 1.0); // normalized from 0.0 to 1.0
 
 						if mult <= 0.0 {
 							continue;
 						}
 
 						let blended = ColorRGBA::blend_gamma_corrected(
-							(intensity as f32 * (1.0 - mult)) as u8,
-							&current,
-							&self.tool.color.rgba(255),
+							(f32::from(intensity) * (1.0 - mult)) as u8,
+							current,
+							self.tool.color.rgba(255),
 						);
 
-						cache.set_pixel(&IVec2::new(pos_x, pos_y), &blended);
-						GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+						cache.set_pixel(IVec2::new(pos_x, pos_y), blended);
+						GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, blended);
 					}
 				}
 			}
@@ -776,6 +777,7 @@ impl SessionInstance {
 			{
 				// Too much pixels at one iteration, stop drawing (prevent griefing and server overload)
 				state.cursor.down = false;
+				drop(state);
 				return;
 			}
 			iter
@@ -788,7 +790,7 @@ impl SessionInstance {
 		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
-		let threshold = 0.001 + self.tool.flow.powf(4.0) * 0.05;
+		let threshold = self.tool.flow.powi(4).mul_add(0.05, 0.001);
 
 		for line in iter {
 			for s in shape_filled.iterate() {
@@ -797,9 +799,9 @@ impl SessionInstance {
 					continue;
 				}
 
-				let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
-				let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
-				GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color.rgba(255));
+				let pos_x = line.pos.x + i32::from(s.local_x) - i32::from(tool_size / 2);
+				let pos_y = line.pos.y + i32::from(s.local_y) - i32::from(tool_size / 2);
+				GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, self.tool.color.rgba(255));
 			}
 		}
 
@@ -830,8 +832,8 @@ impl SessionInstance {
 		let mut cache = CanvasCache::default();
 
 		for s in shape_filled.iterate() {
-			let pos_x = cursor_pos.x + s.local_x as i32 - (tool_size / 2) as i32;
-			let pos_y = cursor_pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+			let pos_x = cursor_pos.x + i32::from(s.local_x) - i32::from(tool_size / 2);
+			let pos_y = cursor_pos.y + i32::from(s.local_y) - i32::from(tool_size / 2);
 
 			let center = cache
 				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
@@ -849,11 +851,11 @@ impl SessionInstance {
 				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y + 1))
 				.await;
 
-			let blended_horiz = ColorRGBA::blend_gamma_corrected(127, &left, &right);
-			let blended_vert = ColorRGBA::blend_gamma_corrected(127, &top, &bottom);
-			let blended = ColorRGBA::blend_gamma_corrected(127, &blended_horiz, &blended_vert);
-			let current = ColorRGBA::blend_gamma_corrected(blend_intensity, &center, &blended);
-			GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
+			let blended_horiz = ColorRGBA::blend_gamma_corrected(127, left, right);
+			let blended_vert = ColorRGBA::blend_gamma_corrected(127, top, bottom);
+			let blended = ColorRGBA::blend_gamma_corrected(127, blended_horiz, blended_vert);
+			let current = ColorRGBA::blend_gamma_corrected(blend_intensity, center, blended);
+			GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, current);
 		}
 
 		self.set_pixels_main(refs, &pixels, true).await;
@@ -898,8 +900,8 @@ impl SessionInstance {
 
 			pixels_temp.clear();
 			for s in shape_filled.iterate() {
-				let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
-				let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
+				let pos_x = line.pos.x + i32::from(s.local_x) - i32::from(tool_size / 2);
+				let pos_y = line.pos.y + i32::from(s.local_y) - i32::from(tool_size / 2);
 
 				let prev = cache
 					.get_pixel(
@@ -912,12 +914,12 @@ impl SessionInstance {
 					.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
 					.await;
 
-				let blended = ColorRGBA::blend_gamma_corrected(blend_intensity, &center, &prev);
-				GlobalPixelRGBA::insert_to_vec(&mut pixels_temp, pos_x, pos_y, &blended);
+				let blended = ColorRGBA::blend_gamma_corrected(blend_intensity, center, prev);
+				GlobalPixelRGBA::insert_to_vec(&mut pixels_temp, pos_x, pos_y, blended);
 			}
 
 			for pixel in &pixels_temp {
-				cache.set_pixel(&pixel.pos, &pixel.color);
+				cache.set_pixel(pixel.pos, pixel.color);
 			}
 			pixels_final.append(&mut pixels_temp);
 
@@ -988,7 +990,7 @@ impl SessionInstance {
 		}
 	}
 
-	pub async fn send_all(&mut self) -> anyhow::Result<()> {
+	pub async fn send_all(&self) -> anyhow::Result<()> {
 		if let Some(writer) = &self.writer {
 			let mut writer = writer.lock().await;
 			let packets_to_send = self.queue_send.read_all();
@@ -1002,16 +1004,15 @@ impl SessionInstance {
 		}
 	}
 
-	pub async fn kick(&mut self, cause: &str) -> Result<(), tokio_websockets::Error> {
+	pub fn kick(&mut self, cause: &str) {
 		if self.kicked {
 			//Enough
-			return Ok(());
+			return;
 		}
 		self
 			.queue_send
 			.send(packet_server::prepare_packet_kick(cause));
 		self.kicked = true;
-		Ok(())
 	}
 
 	pub async fn cleanup(&mut self, session_handle: &SessionHandle) {
@@ -1042,7 +1043,7 @@ impl SessionInstance {
 		self.cancel_token.cancel();
 	}
 
-	pub async fn leave_room(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
+	pub async fn leave_room(&self, refs: &RoomRefs, session_handle: &SessionHandle) {
 		let mut room = refs.room_mtx.lock().await;
 
 		// Remove itself from the room
@@ -1170,8 +1171,7 @@ impl SessionInstance {
 		let suitable_nick = room_mtx
 			.lock()
 			.await
-			.get_suitable_nick_name(packet.nick_name.as_str(), session_handle)
-			.await;
+			.get_suitable_nick_name(packet.nick_name.as_str(), session_handle);
 
 		self.state().nick_name = suitable_nick;
 
@@ -1184,7 +1184,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn broadcast_self(&mut self, room_mtx: RoomInstanceMutex, session_handle: &SessionHandle) {
+	async fn broadcast_self(&self, room_mtx: RoomInstanceMutex, session_handle: &SessionHandle) {
 		let room = room_mtx.lock().await;
 
 		let nick_name = self.state().nick_name.clone();
@@ -1258,27 +1258,27 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	fn send_reply(&self, text: String) {
+	fn send_reply(&self, text: &str) {
 		self.queue_send.send(packet_server::prepare_packet_message(
 			packet_server::MessageType::PlainText,
 			SERVER_STR,
-			text.as_str(),
+			text,
 		));
 	}
 
-	fn send_reply_stylized(&self, text: String) {
+	fn send_reply_stylized(&self, text: &str) {
 		self.queue_send.send(packet_server::prepare_packet_message(
 			packet_server::MessageType::Stylized,
 			SERVER_STR,
-			text.as_str(),
+			text,
 		));
 	}
 
 	fn send_unauthenticated(&self) {
-		self.send_reply_stylized(String::from("[error]Unauthenticated[/error]"));
+		self.send_reply_stylized("[error]Unauthenticated[/error]");
 	}
 
-	async fn handle_chat_message(&mut self, refs: &RoomRefs, mut msg: &str) {
+	async fn handle_chat_message(&self, refs: &RoomRefs, mut msg: &str) {
 		msg = msg.trim();
 		let nick_name = self.state().nick_name.clone();
 		log::info!("Chat message: {msg}");
@@ -1304,11 +1304,11 @@ impl SessionInstance {
 	) -> anyhow::Result<()> {
 		log::info!("Command requested: {msg}");
 
-		let mut parts: VecDeque<&str> = msg.split(" ").collect();
+		let mut parts: VecDeque<&str> = msg.split(' ').collect();
 		if let Some(command) = parts.pop_front() {
 			let redacted = command == "admin";
 
-			self.send_reply_stylized(format!(
+			self.send_reply_stylized(&format!(
 				"[color=green]/{}[/color]",
 				if redacted {
 					String::from("&lt;redacted&gt;")
@@ -1319,7 +1319,7 @@ impl SessionInstance {
 
 			match command {
 				"help" | "?" => {
-					self.send_reply_stylized(String::from(
+					self.send_reply_stylized(&String::from(
 						"
 						User commands:
 						[color=blue]help[/color]: [i]Show this message[/i]
@@ -1330,48 +1330,44 @@ impl SessionInstance {
 						",
 					));
 				}
-				"leave" => self.kick("Goodbye.").await?,
+				"leave" => self.kick("Goodbye."),
 				"admin" => {
 					let server = server_mtx.lock().await;
 					if let Some(password) = parts.pop_front() {
 						if let Some(config_password) = &server.config.admin_password {
-							if config_password != password {
-								self.send_reply_stylized(String::from("[color=red]Invalid password[/color]"));
-							} else {
+							if config_password == password {
 								self.admin_mode = true;
-								self.send_reply_stylized(String::from("[color=blue]Authenticated[/color]"));
+								self.send_reply_stylized("[color=blue]Authenticated[/color]");
+							} else {
+								self.send_reply_stylized("[color=red]Invalid password[/color]");
 							}
 						} else {
-							self.send_reply_stylized(String::from(
+							self.send_reply_stylized(
 								"[color=red]admin_password in settings.json is not set[/color]",
-							));
+							);
 						}
 					} else {
-						self.send_reply(String::from("Usage: admin <password>"));
+						self.send_reply("Usage: admin <password>");
 					}
 				}
 				"process_preview_system" => {
-					if !self.admin_mode {
-						self.send_unauthenticated();
-					} else {
-						self.send_reply(String::from("Preview regeneration started"));
+					if self.admin_mode {
+						self.send_reply("Preview regeneration started");
 						let cs = Arc::downgrade(&refs.chunk_system_mtx);
 
 						tokio::spawn(async {
 							ChunkSystem::regenerate_all_previews(cs).await;
 						});
+					} else {
+						self.send_unauthenticated();
 					}
 				}
 				_ => {
-					self.send_reply_stylized(String::from("[color=red]Unknown command[/color]"));
+					self.send_reply_stylized("[color=red]Unknown command[/color]");
 				}
 			}
 		}
 		Ok(())
-	}
-
-	async fn process_command_ping(&mut self, _reader: &mut BinaryReader) {
-		// Ignore
 	}
 
 	async fn process_command_cursor_pos(
@@ -1451,7 +1447,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_boundary(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	fn process_command_boundary(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let start_x = reader.read_i32()?;
 		let start_y = reader.read_i32()?;
 		let mut end_x = reader.read_i32()?;
@@ -1476,10 +1472,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_chunks_received(
-		&mut self,
-		reader: &mut BinaryReader,
-	) -> anyhow::Result<()> {
+	fn process_command_chunks_received(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let chunks_received = reader.read_u32()?;
 		if chunks_received > self.chunks_sent {
 			let msg = format!(
@@ -1497,7 +1490,7 @@ impl SessionInstance {
 	}
 
 	async fn process_command_preview_request(
-		&mut self,
+		&self,
 		refs: &RoomRefs,
 		reader: &mut BinaryReader,
 	) -> anyhow::Result<()> {
@@ -1515,7 +1508,7 @@ impl SessionInstance {
 			.await
 		{
 			image_packet = Some(packet_server::prepare_packet_preview_image(
-				&IVec2::new(preview_x, preview_y),
+				IVec2::new(preview_x, preview_y),
 				zoom,
 				&data,
 			));
@@ -1528,7 +1521,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_tool_size(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	fn process_command_tool_size(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let size = reader.read_u8()?;
 		self.tool.size = size;
 		Ok(())
@@ -1555,7 +1548,7 @@ impl SessionInstance {
 		}
 	}
 
-	async fn process_command_tool_flow(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	fn process_command_tool_flow(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let flow = reader.read_f32()?;
 		if !flow.is_finite() {
 			Err(UserError::new("Invalid tool flow"))?;
@@ -1565,7 +1558,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_tool_color(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	fn process_command_tool_color(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let red = reader.read_u8()?;
 		let green = reader.read_u8()?;
 		let blue = reader.read_u8()?;
@@ -1580,7 +1573,7 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	async fn process_command_tool_type(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
+	fn process_command_tool_type(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let tool_type_num = reader.read_u8()?;
 
 		if let Ok(tool_type) = packet_client::ToolType::try_from(tool_type_num) {
@@ -1606,7 +1599,7 @@ impl SessionInstance {
 		}
 	}
 
-	async fn send_cursor_pos_to_all(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
+	async fn send_cursor_pos_to_all(&self, refs: &RoomRefs, session_handle: &SessionHandle) {
 		let cursor_pos = {
 			let mut state = self.state();
 			state.cursor.pos_sent = Some(state.cursor.pos.clone());
@@ -1722,14 +1715,14 @@ impl SessionInstance {
 
 		for _iterations in 0..to_send {
 			// Get closest chunk (circular loading)
-			let center_x = cursor_pos.x as f64 / limits::CHUNK_SIZE_PX as f64;
-			let center_y = cursor_pos.y as f64 / limits::CHUNK_SIZE_PX as f64;
+			let center_x = f64::from(cursor_pos.x) / f64::from(limits::CHUNK_SIZE_PX);
+			let center_y = f64::from(cursor_pos.y) / f64::from(limits::CHUNK_SIZE_PX);
 
 			let mut closest_position = IVec2 { x: 0, y: 0 };
 			let mut closest_distance: f64 = f64::MAX;
 
 			for ch in &chunks_to_load {
-				let distance = util::distance64(center_x, center_y, ch.x as f64, ch.y as f64);
+				let distance = util::distance64(center_x, center_y, f64::from(ch.x), f64::from(ch.y));
 				if distance < closest_distance {
 					closest_distance = distance;
 					closest_position = *ch;
@@ -1754,12 +1747,12 @@ impl SessionInstance {
 				let mut chunk = chunk_mtx.lock().await;
 				chunk.link_session(
 					session_handle,
-					Arc::downgrade(session),
+					&Arc::downgrade(session),
 					self.queue_send.clone(),
 				);
-				let linked_chunk = LinkedChunk::new(&closest_position, &Arc::downgrade(&chunk_mtx));
+				let linked_chunk = LinkedChunk::new(closest_position, &Arc::downgrade(&chunk_mtx));
 				self.link_chunk(linked_chunk);
-				chunk.send_chunk_data_to_session(session_handle, self.queue_send.clone());
+				chunk.send_chunk_data_to_session(session_handle, &self.queue_send);
 			}
 
 			if chunks_to_load.is_empty() {

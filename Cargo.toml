@@ -2,6 +2,7 @@
 name = "multipixel"
 version = "0.1.0"
 edition = "2021"
+description = "An app for multiplayer drawing on an infinite canvas"
 
 [features]
 default = []

@@ -48,7 +48,7 @@ impl Server {
 				let handle = SessionVec::get_handle(cell, idx);
 				log::info!("Cleaning-up session ID {idx}");
 				let mut session = cell.obj.session.lock().await;
-				session.kick("Server closed").await?;
+				session.kick("Server closed");
 				// Send remaining data to the client
 				let _dont_care = session.send_all().await;
 				session.cleanup(&handle).await;

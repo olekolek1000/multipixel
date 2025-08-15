@@ -17,7 +17,7 @@ pub struct BrushShapeIter<'a> {
 }
 
 impl BrushShapeIter<'_> {
-	fn go_next(&mut self) {
+	const fn go_next(&mut self) {
 		self.cur_x += 1;
 		if self.cur_x >= self.shape.size {
 			self.cur_x = 0;
@@ -36,11 +36,9 @@ impl Iterator for BrushShapeIter<'_> {
 			}
 
 			unsafe {
-				if *self
-					.shape
-					.data
-					.get_unchecked((self.cur_y as u32 * self.shape.size as u32 + self.cur_x as u32) as usize)
-					== 1
+				if *self.shape.data.get_unchecked(
+					(u32::from(self.cur_y) * u32::from(self.shape.size) + u32::from(self.cur_x)) as usize,
+				) == 1
 				{
 					let cell = BrushShapeIterCell {
 						local_x: self.cur_x,
@@ -62,19 +60,22 @@ pub enum ShapeType {
 }
 
 impl BrushShape {
-	pub fn new(shape_type: ShapeType, size: u8, filled: bool) -> Self {
+	pub fn new(shape_type: &ShapeType, size: u8, filled: bool) -> Self {
 		let data = match shape_type {
 			ShapeType::Circle => (0..size)
 				.flat_map(|y| (0..size).map(move |x| (x, y)))
 				.map(|(x, y)| {
-					let diff_x = (size as i32 / 2) - x as i32;
-					let diff_y = (size as i32 / 2) - y as i32;
+					let diff_x = (i32::from(size) / 2) - i32::from(x);
+					let diff_y = (i32::from(size) / 2) - i32::from(y);
 					let distance = ((diff_x * diff_x + diff_y * diff_y) as f32).sqrt();
 
 					if filled {
-						(distance <= (size as f32 - 0.1) / 2.0) as u8
+						u8::from(distance <= (f32::from(size) - 0.1) / 2.0)
 					} else {
-						(distance <= (size as f32 - 0.1) / 2.0 && distance >= (size as f32 / 2.0) - 2.0) as u8
+						u8::from(
+							distance <= (f32::from(size) - 0.1) / 2.0
+								&& distance >= (f32::from(size) / 2.0) - 2.0,
+						)
 					}
 				})
 				.collect::<Vec<u8>>(),
@@ -84,7 +85,7 @@ impl BrushShape {
 					if filled {
 						1 // kek
 					} else {
-						(x == 0 || y == 0 || x == size - 1 || y == size - 1) as u8
+						u8::from(x == 0 || y == 0 || x == size - 1 || y == size - 1)
 					}
 				})
 				.collect::<Vec<u8>>(),
@@ -93,7 +94,7 @@ impl BrushShape {
 		Self { size, data }
 	}
 
-	pub fn iterate(&self) -> BrushShapeIter {
+	pub const fn iterate(&self) -> BrushShapeIter {
 		BrushShapeIter {
 			shape: self,
 			cur_x: 0,
@@ -103,26 +104,26 @@ impl BrushShape {
 }
 
 pub struct BrushShapes {
-	shapes_circle_filled: HashMap<u8, Arc<BrushShape>>,
-	shapes_circle_outline: HashMap<u8, Arc<BrushShape>>,
+	circle_filled: HashMap<u8, Arc<BrushShape>>,
+	circle_outline: HashMap<u8, Arc<BrushShape>>,
 
-	shapes_square_filled: HashMap<u8, Arc<BrushShape>>,
-	shapes_square_outline: HashMap<u8, Arc<BrushShape>>,
+	square_filled: HashMap<u8, Arc<BrushShape>>,
+	square_outline: HashMap<u8, Arc<BrushShape>>,
 }
 
 impl BrushShapes {
 	pub fn new() -> Self {
 		Self {
-			shapes_circle_filled: HashMap::new(),
-			shapes_circle_outline: HashMap::new(),
+			circle_filled: HashMap::new(),
+			circle_outline: HashMap::new(),
 
-			shapes_square_filled: HashMap::new(),
-			shapes_square_outline: HashMap::new(),
+			square_filled: HashMap::new(),
+			square_outline: HashMap::new(),
 		}
 	}
 
 	fn get(
-		shape_type: ShapeType,
+		shape_type: &ShapeType,
 		map: &mut HashMap<u8, Arc<BrushShape>>,
 		size: u8,
 	) -> Arc<BrushShape> {
@@ -135,18 +136,18 @@ impl BrushShapes {
 	}
 
 	pub fn get_square_filled(&mut self, size: u8) -> Arc<BrushShape> {
-		BrushShapes::get(ShapeType::Square, &mut self.shapes_square_filled, size)
+		Self::get(&ShapeType::Square, &mut self.square_filled, size)
 	}
 
 	pub fn get_square_outline(&mut self, size: u8) -> Arc<BrushShape> {
-		BrushShapes::get(ShapeType::Square, &mut self.shapes_square_outline, size)
+		Self::get(&ShapeType::Square, &mut self.square_outline, size)
 	}
 
 	pub fn get_circle_filled(&mut self, size: u8) -> Arc<BrushShape> {
-		BrushShapes::get(ShapeType::Circle, &mut self.shapes_circle_filled, size)
+		Self::get(&ShapeType::Circle, &mut self.circle_filled, size)
 	}
 
 	pub fn get_circle_outline(&mut self, size: u8) -> Arc<BrushShape> {
-		BrushShapes::get(ShapeType::Circle, &mut self.shapes_circle_outline, size)
+		Self::get(&ShapeType::Circle, &mut self.circle_outline, size)
 	}
 }

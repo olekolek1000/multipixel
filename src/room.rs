@@ -44,11 +44,11 @@ impl RoomInstance {
 	pub async fn new(room_name: &str, config: &Config) -> anyhow::Result<Self> {
 		let db_path = format!("rooms/{room_name}.db");
 
-		let db = Database::new(db_path.as_str()).await?;
+		let db = Database::new(db_path.as_str())?;
 		let from_db_version = db.migrated_from_version;
 
 		let database = Arc::new(Mutex::new(db));
-		let preview_system_mtx = Arc::new(Mutex::new(PreviewSystem::new(database.clone()).await));
+		let preview_system_mtx = Arc::new(Mutex::new(PreviewSystem::new(database.clone())));
 
 		let chunk_system_notifier = Arc::new(Notify::new());
 		let chunk_system_sender =
@@ -57,7 +57,7 @@ impl RoomInstance {
 		let chunk_system_mtx = Arc::new(Mutex::new(ChunkSystem::new(
 			database.clone(),
 			chunk_system_notifier,
-			chunk_system_sender.clone(),
+			&chunk_system_sender,
 			preview_system_mtx.clone(),
 			config.autosave_interval_ms,
 		)));
@@ -107,7 +107,7 @@ impl RoomInstance {
 		self.sessions.retain(|cell| cell.handle != *session_handle);
 	}
 
-	pub fn wants_to_be_removed(&self) -> bool {
+	pub const fn wants_to_be_removed(&self) -> bool {
 		self.sessions.is_empty()
 	}
 
@@ -137,15 +137,11 @@ impl RoomInstance {
 		ret
 	}
 
-	fn gen_suitable_name(current: &str, occupied_num: &Option<u32>) -> String {
-		if let Some(num) = occupied_num {
-			format!("{current} ({num})")
-		} else {
-			String::from(current)
-		}
+	fn gen_suitable_name(current: &str, occupied_num: Option<u32>) -> String {
+		occupied_num.map_or_else(|| String::from(current), |num| format!("{current} ({num})"))
 	}
 
-	pub async fn get_suitable_nick_name(&self, current: &str, except: &SessionHandle) -> String {
+	pub fn get_suitable_nick_name(&self, current: &str, except: &SessionHandle) -> String {
 		let mut occupied_num: Option<u32> = None;
 
 		loop {
@@ -156,7 +152,7 @@ impl RoomInstance {
 				}
 
 				if *session_data.state.lock().unwrap().nick_name
-					== Self::gen_suitable_name(current, &occupied_num)
+					== Self::gen_suitable_name(current, occupied_num)
 				{
 					occupied = true;
 					if let Some(num) = &mut occupied_num {
@@ -172,14 +168,14 @@ impl RoomInstance {
 			}
 		}
 
-		Self::gen_suitable_name(current, &occupied_num)
+		Self::gen_suitable_name(current, occupied_num)
 	}
 
 	pub async fn cleanup(&mut self) {
 		log::trace!("Cleaning-up room");
 		ChunkSystem::cleanup(self.chunk_system.clone()).await;
 		PreviewSystem::process_all(self.preview_system.clone()).await;
-		self.database.lock().await.cleanup().await;
+		self.database.lock().await.cleanup();
 		self.cleaned_up = true;
 		log::debug!("Room cleaned up");
 	}

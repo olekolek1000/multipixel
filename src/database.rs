@@ -12,10 +12,9 @@ use crate::pixel::ColorRGBA;
 const SECONDS_BETWEEN_SNAPSHOTS: u32 = 14400;
 
 fn get_unix_timestamp() -> u64 {
-	match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
-		Ok(n) => n.as_secs(),
-		Err(_) => 0,
-	}
+	std::time::SystemTime::now()
+		.duration_since(std::time::SystemTime::UNIX_EPOCH)
+		.map_or(0, |n| n.as_secs())
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
@@ -63,17 +62,18 @@ fn set_version(conn: &rusqlite::Connection, version: u32) -> rusqlite::Result<()
 }
 
 fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+	struct ChunkDataRow {
+		x: i32,
+		y: i32,
+		data: Vec<u8>,
+	}
+
 	log::info!("Migrating to version 1");
 
 	log::info!("removing previews");
 	conn.execute("DELETE FROM previews", [])?;
 
 	log::info!("loading all compressed rgb chunks into memory");
-	struct ChunkDataRow {
-		x: i32,
-		y: i32,
-		data: Vec<u8>,
-	}
 
 	let old_data: Vec<_> = {
 		let mut stmt = conn.prepare("SELECT x, y, data FROM chunk_data")?;
@@ -145,8 +145,10 @@ fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 }
 
 impl Database {
-	pub async fn new(path: &str) -> rusqlite::Result<Self> {
+	pub fn new(path: &str) -> rusqlite::Result<Self> {
 		log::trace!("Opening database at path {path}");
+		let db_exists = std::fs::exists(path).unwrap_or(false);
+		let newly_created = !db_exists;
 		let conn = rusqlite::Connection::open(path)?;
 
 		let mut db = Self {
@@ -157,17 +159,17 @@ impl Database {
 
 		Self::run_empty_query(&db.conn, "PRAGMA SYNCHRONOUS=OFF")?;
 
-		let db_version = get_version(&db.conn)?;
-		db.migrated_from_version = db_version;
+		if !newly_created {
+			let db_version = get_version(&db.conn)?;
+			db.migrated_from_version = db_version;
 
-		if db_version != DATABASE_VERSION {
-			log::info!("Updating database from version {db_version} to version {DATABASE_VERSION}");
+			if db_version != DATABASE_VERSION {
+				log::info!("Updating database from version {db_version} to version {DATABASE_VERSION}");
+				if db_version == 0 {
+					migrate_to_version_1(&db.conn)?;
+				}
+			}
 		}
-
-		if db_version == 0 {
-			migrate_to_version_1(&db.conn)?;
-		}
-
 		set_version(&db.conn, DATABASE_VERSION)?;
 
 		Self::init_table_chunk_data(&db.conn)?;
@@ -247,7 +249,7 @@ impl Database {
 		) {
 			//Chunk already exists, update chunk
 			log::trace!("Updating chunk");
-			if get_unix_timestamp() as i64 - row.timestamp > SECONDS_BETWEEN_SNAPSHOTS as i64 {
+			if get_unix_timestamp() as i64 - row.timestamp > i64::from(SECONDS_BETWEEN_SNAPSHOTS) {
 				//Insert a new chunk in its place
 				Self::chunk_insert(conn, pos, data, compression_type)?;
 			} else {
@@ -294,10 +296,7 @@ impl Database {
 		Ok(res)
 	}
 
-	fn chunk_load_data(
-		conn: &rusqlite::Connection,
-		pos: IVec2,
-	) -> rusqlite::Result<Option<ChunkDatabaseRecord>> {
+	fn chunk_load_data(conn: &rusqlite::Connection, pos: IVec2) -> Option<ChunkDatabaseRecord> {
 		struct Row {
 			data: Vec<u8>,
 			compression: u8,
@@ -318,22 +317,22 @@ impl Database {
 					})
 				},
 			) {
-				return Ok(Some(ChunkDatabaseRecord{
+				return Some(ChunkDatabaseRecord{
 					compression_type: CompressionType::try_from(row.compression).unwrap_or(CompressionType::Lz4),
 					created_at: row.created as u64,
 					modified_at: row.modified as u64,
 					data: row.data,
-				}));
+				});
 			}
 
-		Ok(None)
+		None
 	}
 
 	fn preview_load_data(
 		conn: &rusqlite::Connection,
-		pos: &IVec2,
+		pos: IVec2,
 		zoom: u8,
-	) -> rusqlite::Result<Option<PreviewDatabaseRecord>> {
+	) -> Option<PreviewDatabaseRecord> {
 		struct Row {
 			data: Vec<u8>,
 		}
@@ -343,10 +342,10 @@ impl Database {
 			params![pos.x, pos.y, zoom],
 			|row| Ok(Row { data: row.get(0)? }),
 		) {
-			return Ok(Some(PreviewDatabaseRecord { data: row.data }));
+			return Some(PreviewDatabaseRecord { data: row.data });
 		}
 
-		Ok(None)
+		None
 	}
 
 	fn preview_save_data(
@@ -379,13 +378,13 @@ impl Database {
 		Ok(())
 	}
 
-	pub async fn cleanup(&mut self) {
+	pub fn cleanup(&mut self) {
 		log::trace!("Cleaning-up database");
 		self.cleaned_up = true;
 	}
 
 	pub async fn get_conn<F, ResultType>(
-		database: &Arc<Mutex<Database>>,
+		database: &Arc<Mutex<Self>>,
 		callback: F,
 	) -> anyhow::Result<ResultType>
 	where
@@ -417,7 +416,7 @@ impl DatabaseFunc {
 		chunk_pos: IVec2,
 	) -> anyhow::Result<Option<ChunkDatabaseRecord>> {
 		Database::get_conn(database, move |conn| {
-			Database::chunk_load_data(conn, chunk_pos)
+			Ok(Database::chunk_load_data(conn, chunk_pos))
 		})
 		.await
 	}
@@ -440,7 +439,7 @@ impl DatabaseFunc {
 		zoom: u8,
 	) -> anyhow::Result<Option<PreviewDatabaseRecord>> {
 		Database::get_conn(database, move |conn| {
-			Database::preview_load_data(conn, &pos, zoom)
+			Ok(Database::preview_load_data(conn, pos, zoom))
 		})
 		.await
 	}

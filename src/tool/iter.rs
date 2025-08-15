@@ -18,7 +18,7 @@ pub struct LineMoveIter {
 struct Octant(u8);
 
 impl Octant {
-	fn points(start: IVec2, end: IVec2) -> Octant {
+	const fn points(start: IVec2, end: IVec2) -> Self {
 		let mut dx = end.x - start.x;
 		let mut dy = end.y - start.y;
 
@@ -34,14 +34,14 @@ impl Octant {
 			let tmp = dx;
 			dx = dy;
 			dy = -tmp;
-			octant += 2
+			octant += 2;
 		}
 
 		if dx < dy {
-			octant += 1
+			octant += 1;
 		}
 
-		Octant(octant)
+		Self(octant)
 	}
 
 	fn octant_to(&self, p: IVec2) -> IVec2 {
@@ -74,14 +74,14 @@ impl Octant {
 }
 
 impl LineMoveIter {
-	pub fn iterate(start: IVec2, end: IVec2) -> LineMoveIter {
+	pub fn iterate(start: IVec2, end: IVec2) -> Self {
 		let octant = Octant::points(start, end);
 		let start = octant.octant_to(start);
 		let end = octant.octant_to(end);
 		let dx = end.x - start.x;
 		let dy = end.y - start.y;
 
-		LineMoveIter {
+		Self {
 			pos: start,
 			dx,
 			dy,

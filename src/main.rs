@@ -1,3 +1,13 @@
+// make the compiler as annoying as possible
+#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::cast_possible_wrap)]
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::cast_precision_loss)]
+
 use std::{collections::VecDeque, sync::Arc};
 
 use futures_util::{
@@ -57,8 +67,9 @@ async fn connection_read_packet(
 			Ok(msg) => {
 				if msg.is_binary() {
 					let session_weak = Arc::downgrade(session_mtx);
-					let mut session = session_mtx.lock().await;
-					session
+					session_mtx
+						.lock()
+						.await
 						.process_payload(session_weak, session_handle, msg.as_payload(), server_mtx)
 						.await?;
 				} else {
@@ -112,7 +123,7 @@ async fn task_connection(tcp_conn: TcpStream, server_mtx: ServerMutex) -> anyhow
 
 	loop {
 		tokio::select! {
-			_ = cancel_token.cancelled() => {
+			() = cancel_token.cancelled() => {
 				log::info!("Got cancel token, freeing session");
 				break;
 			}
@@ -177,7 +188,7 @@ async fn task_listener(listener: TcpListener, config: config::Config) -> anyhow:
 	}
 
 	tokio::select! {
-		_ = cancel_token.cancelled() => {
+		() = cancel_token.cancelled() => {
 			log::info!("Got cancel token, stopping server");
 		}
 		res = server_listener_loop(listener, server.clone()) => {

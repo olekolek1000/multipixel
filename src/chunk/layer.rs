@@ -16,13 +16,13 @@ pub struct LayerRGBA {
 }
 
 impl LayerRGBA {
-	pub fn new() -> Self {
+	pub const fn new() -> Self {
 		Self {
 			data: RGBAData(Vec::new()),
 		}
 	}
 
-	pub fn read(&self) -> Option<&RGBAData> {
+	pub const fn read(&self) -> Option<&RGBAData> {
 		if self.data.0.is_empty() {
 			None
 		} else {
@@ -34,7 +34,7 @@ impl LayerRGBA {
 		self.data = data;
 	}
 
-	pub fn read_unchecked(&self) -> &RGBAData {
+	pub const fn read_unchecked(&self) -> &RGBAData {
 		&self.data
 	}
 
@@ -42,7 +42,7 @@ impl LayerRGBA {
 		compression::compress_lz4(&self.data.0)
 	}
 
-	pub fn read_unchecked_mut(&mut self) -> &mut RGBAData {
+	pub const fn read_unchecked_mut(&mut self) -> &mut RGBAData {
 		&mut self.data
 	}
 
@@ -60,8 +60,8 @@ impl LayerRGBA {
 		debug_assert!(!self.data.0.is_empty());
 
 		let data = self.read_unchecked();
-		let offset =
-			(chunk_pixel_pos.y as u32 * CHUNK_SIZE_PX * 4 + chunk_pixel_pos.x as u32 * 4) as usize;
+		let offset = (u32::from(chunk_pixel_pos.y) * CHUNK_SIZE_PX * 4
+			+ u32::from(chunk_pixel_pos.x) * 4) as usize;
 
 		ColorRGBA {
 			r: (data.0)[offset],
@@ -90,7 +90,8 @@ impl LayerRGBA {
 
 		for pixel in pixels {
 			// Update pixel
-			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 4 + pixel.pos.x as u32 * 4) as usize;
+			let offset =
+				(u32::from(pixel.pos.y) * CHUNK_SIZE_PX * 4 + u32::from(pixel.pos.x) * 4) as usize;
 			(data.0)[offset] = pixel.color.r;
 			(data.0)[offset + 1] = pixel.color.g;
 			(data.0)[offset + 2] = pixel.color.b;
