@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use glam::U8Vec2;
 use smallvec::SmallVec;
 
-use super::layer::{LayerRGB, LayerRGBA};
-use crate::{limits::CHUNK_SIZE_PX, pixel::ColorRGB, session::SessionHandle};
+use super::layer::LayerRGBA;
+use crate::{limits::CHUNK_SIZE_PX, pixel::ColorRGBA, session::SessionHandle};
 
 pub struct CompositionLayer {
 	pub layer: LayerRGBA,
@@ -61,7 +61,7 @@ impl Compositor {
 			.map(|pair| pair.1)
 	}
 
-	pub fn calc_pixel(base: &LayerRGB, layers: &[&LayerRGBA], chunk_pixel_pos: U8Vec2) -> ColorRGB {
+	pub fn calc_pixel(base: &LayerRGBA, layers: &[&LayerRGBA], chunk_pixel_pos: U8Vec2) -> ColorRGBA {
 		debug_assert!(base.read().is_some());
 
 		let mut col = base.get_pixel(chunk_pixel_pos);
@@ -70,7 +70,7 @@ impl Compositor {
 			debug_assert!(layer.read().is_some());
 			let rgba = layer.get_pixel(chunk_pixel_pos);
 
-			col = ColorRGB::blend_gamma_corrected(rgba.a, &col, &rgba.rgb());
+			col = ColorRGBA::blend_gamma_corrected(rgba.a, &col, &rgba);
 		}
 
 		col
@@ -111,56 +111,59 @@ impl Compositor {
 		out
 	}
 
-	pub fn composite(base: &LayerRGB, layers: &[&LayerRGBA]) -> LayerRGB {
+	pub fn composite(base: &LayerRGBA, layers: &[&LayerRGBA]) -> LayerRGBA {
 		debug_assert!(base.read().is_some());
 		for layer in layers {
 			debug_assert!(layer.read().is_some())
 		}
 
-		let mut out = LayerRGB::new();
+		let mut out = LayerRGBA::new();
 
 		// Fill with base background data
-		out.apply(base.read_unchecked().clone());
+		out.set_data(base.read_unchecked().clone());
 
 		//it's safe, trust me
 		unsafe {
 			// Composite layer by layer
 			for layer in layers {
 				debug_assert!(layer.read().is_some());
-				let out_rgb = out.read_unchecked_mut().0.as_mut_ptr();
+				let out_rgba = out.read_unchecked_mut().0.as_mut_ptr();
 				let layer_rgba = layer.read_unchecked();
 
 				for y in 0..CHUNK_SIZE_PX {
 					for x in 0..CHUNK_SIZE_PX {
-						let offset_rgb = (y * (CHUNK_SIZE_PX * 3) + x * 3) as isize;
 						let offset_rgba = (y * (CHUNK_SIZE_PX * 4) + x * 4) as isize;
 
-						let out_red = out_rgb.offset(offset_rgb);
-						let out_green = out_rgb.offset(offset_rgb + 1);
-						let out_blue = out_rgb.offset(offset_rgb + 2);
+						let out_red = out_rgba.offset(offset_rgba);
+						let out_green = out_rgba.offset(offset_rgba + 1);
+						let out_blue = out_rgba.offset(offset_rgba + 2);
+						let out_alpha = out_rgba.offset(offset_rgba + 3);
 
 						let layer_red = (layer_rgba.0)[(offset_rgba) as usize];
 						let layer_green = (layer_rgba.0)[(offset_rgba + 1) as usize];
 						let layer_blue = (layer_rgba.0)[(offset_rgba + 2) as usize];
 						let layer_alpha = (layer_rgba.0)[(offset_rgba + 3) as usize];
 
-						let blended = ColorRGB::blend_gamma_corrected(
+						let blended = ColorRGBA::blend_gamma_corrected(
 							layer_alpha,
-							&ColorRGB {
+							&ColorRGBA {
 								r: *out_red,
 								g: *out_green,
 								b: *out_blue,
+								a: *out_alpha,
 							},
-							&ColorRGB {
+							&ColorRGBA {
 								r: layer_red,
 								g: layer_green,
 								b: layer_blue,
+								a: layer_alpha,
 							},
 						);
 
 						*out_red = blended.r;
 						*out_green = blended.g;
 						*out_blue = blended.b;
+						*out_alpha = blended.a;
 					}
 				}
 			}

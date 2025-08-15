@@ -10,13 +10,15 @@ class PixelQueueCell {
 	red: number;
 	green: number;
 	blue: number;
+	alpha: number;
 
-	constructor(x: number, y: number, red: number, green: number, blue: number) {
+	constructor(x: number, y: number, red: number, green: number, blue: number, alpha: number) {
 		this.x = x;
 		this.y = y;
 		this.red = red;
 		this.green = green;
 		this.blue = blue;
+		this.alpha = alpha;
 	}
 }
 
@@ -39,7 +41,7 @@ class Chunk {
 		this.tex.texture = gl.createTexture()!;
 		gl.bindTexture(gl.TEXTURE_2D, this.tex.texture);
 
-		this.pixels = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * 3);
+		this.pixels = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * 4);
 		this.updateTexture(gl);
 
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -58,40 +60,43 @@ class Chunk {
 	updateTexture(gl: WebGL2RenderingContext) {
 		this.initTexture(gl);
 		gl.bindTexture(gl.TEXTURE_2D, this.tex!.texture);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, CHUNK_SIZE, CHUNK_SIZE, 0, gl.RGB, gl.UNSIGNED_BYTE, this.pixels);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, CHUNK_SIZE, CHUNK_SIZE, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.pixels);
 	}
 
-	putPixel(x: number, y: number, red: number, green: number, blue: number) {
-		this.pixel_queue.push(new PixelQueueCell(x, y, red, green, blue));
+	putPixel(x: number, y: number, red: number, green: number, blue: number, alpha: number) {
+		this.pixel_queue.push(new PixelQueueCell(x, y, red, green, blue, alpha));
 	}
 
-	// returns array of 3 numbers (R,G,B)
+	// returns array of 4 numbers (R,G,B,A)
 	getPixel(x: number, y: number) {
 		let data = this.pixels!;
-		let image_offset = y * CHUNK_SIZE * 3 + x * 3;
+		let image_offset = y * CHUNK_SIZE * 4 + x * 4;
 		return [
 			data[image_offset + 0],
 			data[image_offset + 1],
-			data[image_offset + 2]
+			data[image_offset + 2],
+			data[image_offset + 3]
 		];
 	}
 
-	putImage(gl: WebGL2RenderingContext, dataview_rgb: DataView) {
+	putImage(gl: WebGL2RenderingContext, dataview_rgba: DataView) {
 		this.initTexture(gl);
 		let offset = 0;
 		let data = this.pixels!;
 
 		for (let y = 0; y < CHUNK_SIZE; y++) {
 			for (let x = 0; x < CHUNK_SIZE; x++) {
-				let red = dataview_rgb.getUint8(offset + 0);
-				let green = dataview_rgb.getUint8(offset + 1);
-				let blue = dataview_rgb.getUint8(offset + 2);
-				offset += 3;
+				let red = dataview_rgba.getUint8(offset + 0);
+				let green = dataview_rgba.getUint8(offset + 1);
+				let blue = dataview_rgba.getUint8(offset + 2);
+				let alpha = dataview_rgba.getUint8(offset + 3);
+				offset += 4;
 
-				let image_offset = y * CHUNK_SIZE * 3 + x * 3;
+				let image_offset = y * CHUNK_SIZE * 4 + x * 4;
 				data[image_offset + 0] = red;
 				data[image_offset + 1] = green;
 				data[image_offset + 2] = blue;
+				data[image_offset + 3] = alpha;
 			}
 		}
 
@@ -110,10 +115,11 @@ class Chunk {
 		for (let i = 0; i < count; i++) {
 			let cell = this.pixel_queue[i];
 
-			let offset = cell.y * CHUNK_SIZE * 3 + cell.x * 3;
+			let offset = cell.y * CHUNK_SIZE * 4 + cell.x * 4;
 			data[offset + 0] = cell.red;
 			data[offset + 1] = cell.green;
 			data[offset + 2] = cell.blue;
+			data[offset + 3] = cell.alpha;
 		}
 
 		this.updateTexture(gl);
@@ -343,7 +349,7 @@ export class ChunkMap {
 
 			chunk.processPixels(renderer.gl);
 			renderer.drawRect(
-				renderer.params.color_keyed ? renderer.shader_color_keyed : renderer.shader_solid,
+				renderer.shader_solid,
 				chunk.tex,
 				chunk.x * CHUNK_SIZE,
 				chunk.y * CHUNK_SIZE,
@@ -373,7 +379,7 @@ export class ChunkMap {
 				render_count += 1;
 				//console.log("preview zoom", zoom, "x", preview.x, "y", preview.y);
 				renderer.drawRect(
-					renderer.params.color_keyed ? renderer.shader_color_keyed : renderer.shader_solid,
+					renderer.shader_solid,
 					preview.tex,
 					preview.x * SIZE,
 					preview.y * SIZE,
@@ -457,7 +463,7 @@ export class ChunkMap {
 		let renderer = this.state.renderer;
 
 		renderer.viewportFullscreen();
-		renderer.clear(1.0, 1.0, 1.0, renderer.params.color_keyed ? 0.0 : 1.0);
+		renderer.clear(1.0, 1.0, 1.0, 0.0);
 
 		this.updateBoundary();
 
@@ -517,7 +523,7 @@ export class ChunkMap {
 		return this.scrolling.zoom;
 	}
 
-	putPixel(x: number, y: number, red: number, green: number, blue: number) {
+	putPixel(x: number, y: number, red: number, green: number, blue: number, alpha: number) {
 		x = Math.floor(x);
 		y = Math.floor(y);
 
@@ -527,15 +533,17 @@ export class ChunkMap {
 		let chunkX = Math.floor(x / CHUNK_SIZE);
 		let chunkY = Math.floor(y / CHUNK_SIZE);
 
-		if (localX < 0)
+		if (localX < 0) {
 			localX += CHUNK_SIZE;
+		}
 
-		if (localY < 0)
+		if (localY < 0) {
 			localY += CHUNK_SIZE;
+		}
 
 		let chunk = this.state.map.getChunk(chunkX, chunkY);
 		if (chunk) {
-			chunk.putPixel(localX, localY, red, green, blue);
+			chunk.putPixel(localX, localY, red, green, blue, alpha);
 			this.triggerRerender();
 		}
 	}

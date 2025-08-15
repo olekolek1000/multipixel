@@ -2,7 +2,7 @@
 import { Chat } from "./chat/chat";
 import { ChunkMap } from "./chunk_map";
 import { Client, User } from "./client";
-import { Preview, PreviewSystem } from "./preview_system";
+import { PreviewSystem } from "./preview_system";
 import { RenderEngine } from "./render_engine";
 import { lerp } from "./timestep";
 import tool from "./tool";
@@ -106,7 +106,6 @@ export class RoomInstance {
 				canvas_render: refs.canvas_render,
 				renderer: new RenderEngine({
 					canvas: refs.canvas_render,
-					color_keyed: true,
 				}),
 			});
 			this.state = state;

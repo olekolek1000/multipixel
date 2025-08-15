@@ -1,77 +1,18 @@
 use glam::{U8Vec2, UVec2};
 
 use crate::{
+	compression,
 	limits::{self, CHUNK_SIZE_PX},
-	pixel::{ColorRGB, ColorRGBA},
+	pixel::ColorRGBA,
 };
 
 use super::chunk::ChunkPixelRGBA;
 
 #[derive(Clone)]
-pub struct RGBData(pub Vec<u8>);
-
-#[derive(Clone)]
 pub struct RGBAData(pub Vec<u8>);
 
-pub struct LayerRGB {
-	pub data: RGBData,
-}
-
 pub struct LayerRGBA {
-	data: RGBAData,
-}
-
-impl LayerRGB {
-	pub fn new() -> Self {
-		Self {
-			data: RGBData(Vec::new()),
-		}
-	}
-
-	pub fn read(&self) -> Option<&RGBData> {
-		if self.data.0.is_empty() {
-			None
-		} else {
-			Some(&self.data)
-		}
-	}
-
-	pub fn read_unchecked(&self) -> &RGBData {
-		&self.data
-	}
-
-	pub fn read_unchecked_mut(&mut self) -> &mut RGBData {
-		&mut self.data
-	}
-
-	pub fn apply(&mut self, data: RGBData) {
-		self.data = data;
-	}
-
-	pub fn alloc_white(&mut self) {
-		let mut data = Vec::<u8>::new();
-		data.resize(limits::CHUNK_IMAGE_SIZE_BYTES_RGB, 255); // White color
-		self.data = RGBData(data);
-	}
-
-	pub fn free(&mut self) {
-		self.data = RGBData(Vec::new());
-	}
-
-	/// Chunk needs to be allocated first!
-	pub fn get_pixel(&self, chunk_pixel_pos: U8Vec2) -> ColorRGB {
-		debug_assert!(!self.data.0.is_empty());
-
-		let data = self.read_unchecked();
-		let offset =
-			(chunk_pixel_pos.y as u32 * CHUNK_SIZE_PX * 3 + chunk_pixel_pos.x as u32 * 3) as usize;
-
-		ColorRGB {
-			r: (data.0)[offset],
-			g: (data.0)[offset + 1],
-			b: (data.0)[offset + 2],
-		}
-	}
+	pub data: RGBAData,
 }
 
 impl LayerRGBA {
@@ -89,17 +30,29 @@ impl LayerRGBA {
 		}
 	}
 
+	pub fn set_data(&mut self, data: RGBAData) {
+		self.data = data;
+	}
+
 	pub fn read_unchecked(&self) -> &RGBAData {
 		&self.data
+	}
+
+	pub fn compress_lz4(&self) -> Vec<u8> {
+		compression::compress_lz4(&self.data.0)
 	}
 
 	pub fn read_unchecked_mut(&mut self) -> &mut RGBAData {
 		&mut self.data
 	}
 
-	pub fn alloc_blank(&mut self) {
+	pub fn alloc_transparent_black(&mut self) {
 		let data: Vec<u8> = vec![0; limits::CHUNK_IMAGE_SIZE_BYTES_RGBA];
 		self.data = RGBAData(data);
+	}
+
+	pub fn free(&mut self) {
+		self.data = RGBAData(Vec::new());
 	}
 
 	/// Chunk needs to be allocated first!

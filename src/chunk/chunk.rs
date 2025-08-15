@@ -6,27 +6,19 @@ use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 use crate::{
+	chunk::layer::{LayerRGBA, RGBAData},
 	compression::{self, compress_lz4},
 	event_queue::EventQueue,
 	gen_id,
 	limits::{self, CHUNK_SIZE_PX},
 	packet_server::{self, prepare_packet_pixel_pack},
-	pixel::{ColorRGB, ColorRGBA},
+	pixel::ColorRGBA,
 	preview_system::PreviewSystemQueuedChunks,
 	session::{SessionHandle, SessionInstanceWeak},
 	signal::Signal,
 };
 
-use super::{
-	compositor::{self, Compositor},
-	layer::{LayerRGB, RGBData},
-};
-
-#[derive(Clone)]
-pub struct ChunkPixelRGB {
-	pub pos: U8Vec2,
-	pub color: ColorRGB,
-}
+use super::compositor::{self, Compositor};
 
 #[derive(Clone)]
 pub struct ChunkPixelRGBA {
@@ -51,7 +43,7 @@ pub struct ChunkInstance {
 	pub position: IVec2,
 	refs: ChunkInstanceRefs,
 
-	main_layer: LayerRGB,
+	main_layer: LayerRGBA,
 	pub compositor: compositor::Compositor,
 
 	compressed_image_data: Option<Arc<Vec<u8>>>,
@@ -59,17 +51,16 @@ pub struct ChunkInstance {
 	signal_garbage_collect: Signal,
 }
 
-// Returns LZ4-compressed empty, white chunk. Generates once.
-fn get_empty_chunk_rgb() -> &'static std::sync::Mutex<Arc<Vec<u8>>> {
+// Returns LZ4-compressed empty, blank chunk. Generates once.
+fn get_empty_chunk_rgba() -> &'static std::sync::Mutex<Arc<Vec<u8>>> {
 	static CHUNK_DATA: OnceLock<std::sync::Mutex<Arc<Vec<u8>>>> = OnceLock::new();
 	CHUNK_DATA.get_or_init(|| {
-		let mut stub_img: Vec<u8> = Vec::new();
-		stub_img.resize(limits::CHUNK_IMAGE_SIZE_BYTES_RGB, 255);
+		let stub_img: Vec<u8> = vec![0; limits::CHUNK_IMAGE_SIZE_BYTES_RGBA];
 		std::sync::Mutex::new(Arc::new(compression::compress_lz4(&stub_img)))
 	})
 }
 
-fn gen_pixel_pack(buf: &mut BytesMut, pixels: &[ChunkPixelRGB]) {
+fn gen_pixel_pack(buf: &mut BytesMut, pixels: &[ChunkPixelRGBA]) {
 	// Prepare pixel data
 	for pixel in pixels {
 		buf.put_u8(pixel.pos.x);
@@ -77,10 +68,11 @@ fn gen_pixel_pack(buf: &mut BytesMut, pixels: &[ChunkPixelRGB]) {
 		buf.put_u8(pixel.color.r);
 		buf.put_u8(pixel.color.g);
 		buf.put_u8(pixel.color.b);
+		buf.put_u8(pixel.color.a);
 	}
 }
 
-fn gen_packet_pixel_pack(chunk_pos: IVec2, pixels: &[ChunkPixelRGB]) -> packet_server::Packet {
+fn gen_packet_pixel_pack(chunk_pos: IVec2, pixels: &[ChunkPixelRGBA]) -> packet_server::Packet {
 	let mut buf = BytesMut::new();
 
 	gen_pixel_pack(&mut buf, pixels);
@@ -109,7 +101,7 @@ impl ChunkInstance {
 			preview_system_queued_chunks,
 			signal_garbage_collect,
 			compressed_image_data: compressed_image_data.map(Arc::new),
-			main_layer: LayerRGB::new(),
+			main_layer: LayerRGBA::new(),
 			compositor: compositor::Compositor::new(),
 		}
 	}
@@ -123,15 +115,16 @@ impl ChunkInstance {
 
 		if let Some(compressed) = &self.compressed_image_data {
 			// Decode compressed data
-			if let Some(raw) = compression::decompress_lz4(compressed, limits::CHUNK_IMAGE_SIZE_BYTES_RGB)
+			if let Some(raw) =
+				compression::decompress_lz4(compressed, limits::CHUNK_IMAGE_SIZE_BYTES_RGBA)
 			{
-				self.main_layer.apply(RGBData(raw));
+				self.main_layer.set_data(RGBAData(raw));
 				return;
 			}
 		}
 
-		// Failed to load image, allocate white chunk
-		self.main_layer.alloc_white();
+		// Failed to load image, allocate transparent chunk
+		self.main_layer.alloc_transparent_black();
 	}
 
 	fn set_main_modified(&mut self, modified: bool) {
@@ -142,15 +135,15 @@ impl ChunkInstance {
 		}
 	}
 
-	pub fn get_pixel_main(&self, chunk_pixel_pos: U8Vec2) -> ColorRGB {
+	pub fn get_pixel_main(&self, chunk_pixel_pos: U8Vec2) -> ColorRGBA {
 		self.main_layer.get_pixel(chunk_pixel_pos)
 	}
 
-	pub fn get_layer_main(&self) -> &LayerRGB {
+	pub fn get_layer_main(&self) -> &LayerRGBA {
 		&self.main_layer
 	}
 
-	pub fn replace_layer_main(&mut self, layer: LayerRGB) {
+	pub fn replace_layer_main(&mut self, layer: LayerRGBA) {
 		self.main_layer = layer;
 		self.set_main_modified(true);
 		self.send_chunk_data_to_all();
@@ -173,11 +166,10 @@ impl ChunkInstance {
 	pub fn encode_chunk_data(&mut self, clear_modified: bool) -> Arc<Vec<u8>> {
 		let compressed = if self.new_chunk {
 			// Return compressed empty chunk
-			return get_empty_chunk_rgb().lock().unwrap().clone();
+			return get_empty_chunk_rgba().lock().unwrap().clone();
 		} else {
 			self.allocate_image();
-			let raw_image = self.main_layer.read_unchecked();
-			let data = Arc::new(compression::compress_lz4(&raw_image.0));
+			let data = Arc::new(self.main_layer.compress_lz4());
 			self.compressed_image_data = Some(data.clone());
 			data
 		};
@@ -204,25 +196,26 @@ impl ChunkInstance {
 		compressed
 	}
 
-	fn set_pixels_internal(&mut self, pixels: &[ChunkPixelRGB]) {
+	fn set_pixels_internal(&mut self, pixels: &[ChunkPixelRGBA]) {
 		let layer_data = self.main_layer.read_unchecked_mut();
 		for pixel in pixels {
 			// Update pixel
-			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 3 + pixel.pos.x as u32 * 3) as usize;
+			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 4 + pixel.pos.x as u32 * 4) as usize;
 			(layer_data.0)[offset] = pixel.color.r;
 			(layer_data.0)[offset + 1] = pixel.color.g;
 			(layer_data.0)[offset + 2] = pixel.color.b;
+			(layer_data.0)[offset + 3] = pixel.color.a;
 		}
 	}
 
-	fn set_pixels_whole_chunk(&mut self, pixels: &[ChunkPixelRGB]) {
+	fn set_pixels_whole_chunk(&mut self, pixels: &[ChunkPixelRGBA]) {
 		self.set_pixels_internal(pixels);
 		self.set_main_modified(true);
 		self.send_chunk_data_to_all();
 	}
 
-	fn set_pixels_pack(&mut self, pixels: &[ChunkPixelRGB]) {
-		let mut modified_pixels = Vec::<ChunkPixelRGB>::new();
+	fn set_pixels_pack(&mut self, pixels: &[ChunkPixelRGBA]) {
+		let mut modified_pixels = Vec::<ChunkPixelRGBA>::new();
 
 		for pixel in pixels {
 			let color = self.main_layer.get_pixel(pixel.pos);
@@ -233,10 +226,11 @@ impl ChunkInstance {
 			let layer_data = self.main_layer.read_unchecked_mut();
 
 			// Update pixel
-			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 3 + pixel.pos.x as u32 * 3) as usize;
+			let offset = (pixel.pos.y as u32 * CHUNK_SIZE_PX * 4 + pixel.pos.x as u32 * 4) as usize;
 			(layer_data.0)[offset] = pixel.color.r;
 			(layer_data.0)[offset + 1] = pixel.color.g;
 			(layer_data.0)[offset + 2] = pixel.color.b;
+			(layer_data.0)[offset + 3] = pixel.color.a;
 
 			modified_pixels.push(pixel.clone());
 		}
@@ -271,11 +265,11 @@ impl ChunkInstance {
 				let layers = self
 					.compositor
 					.construct_layers_from_session(&session.handle);
-				let mut composited_pixels = Vec::<ChunkPixelRGB>::with_capacity(modified_pixels.len());
+				let mut composited_pixels = Vec::<ChunkPixelRGBA>::with_capacity(modified_pixels.len());
 
 				for pixel in &modified_pixels {
 					let rgb = Compositor::calc_pixel(&self.main_layer, &layers, pixel.pos);
-					composited_pixels.push(ChunkPixelRGB {
+					composited_pixels.push(ChunkPixelRGBA {
 						color: rgb,
 						pos: pixel.pos,
 					})
@@ -287,7 +281,7 @@ impl ChunkInstance {
 		}
 	}
 
-	pub fn set_pixels(&mut self, pixels: &[ChunkPixelRGB], send_whole_chunk: bool) {
+	pub fn set_pixels(&mut self, pixels: &[ChunkPixelRGBA], send_whole_chunk: bool) {
 		debug_assert!(self.main_layer.read().is_some());
 
 		if send_whole_chunk {
@@ -304,12 +298,12 @@ impl ChunkInstance {
 			let layers = self
 				.compositor
 				.construct_layers_from_session(&session.handle);
-			let mut composited_pixels = Vec::<ChunkPixelRGB>::with_capacity(coords.len());
+			let mut composited_pixels = Vec::<ChunkPixelRGBA>::with_capacity(coords.len());
 
 			for coord in coords {
-				let rgb = Compositor::calc_pixel(&self.main_layer, &layers, *coord);
-				composited_pixels.push(ChunkPixelRGB {
-					color: rgb,
+				let rgba = Compositor::calc_pixel(&self.main_layer, &layers, *coord);
+				composited_pixels.push(ChunkPixelRGBA {
+					color: rgba,
 					pos: *coord,
 				})
 			}

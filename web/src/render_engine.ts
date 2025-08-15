@@ -23,22 +23,6 @@ const text_fs_solid = `
 	}
 `;
 
-// FFFFFF keying
-const text_fs_color_keyed = `
-	precision highp float;
-	varying vec2 UV;
-
-	uniform sampler2D tex;
-
-	void main() {
-		vec4 color = texture2D(tex, UV).rgba;
-		if(color.r == 1.0 && color.b == 1.0 && color.a == 1.0) {
-			color.a = 0.0;
-		}
-
-		gl_FragColor = color;
-	}
-`;
 
 function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 	const shader = gl.createShader(type);
@@ -165,7 +149,6 @@ export class Texture {
 }
 
 export interface RenderEngineParams {
-	color_keyed: boolean,
 	canvas: HTMLCanvasElement,
 }
 
@@ -176,14 +159,13 @@ export class RenderEngine {
 	display_scale: number = 1.0;
 	buffer_quad: RObject;
 	shader_solid: Shader;
-	shader_color_keyed: Shader;
 
 	constructor(params: RenderEngineParams) {
 		this.params = params;
 		const gl = params.canvas.getContext("webgl2",
 			{
 				antialias: false,
-				alpha: params.color_keyed,
+				alpha: true,
 				premultipliedAlpha: false
 			});
 
@@ -196,7 +178,6 @@ export class RenderEngine {
 
 		this.buffer_quad = initBufferQuad(this.gl);
 		this.shader_solid = new Shader(this.gl, text_vs_standard, text_fs_solid);
-		this.shader_color_keyed = new Shader(this.gl, text_vs_standard, text_fs_color_keyed);
 
 		this.gl.disable(this.gl.DEPTH_TEST);
 		this.gl.enable(this.gl.BLEND);
@@ -238,8 +219,9 @@ export class RenderEngine {
 		image.onload = function () {
 			const tex = gl.createTexture();
 
-			if (!tex)
+			if (!tex) {
 				return;
+			}
 
 			gl.bindTexture(gl.TEXTURE_2D, tex);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);

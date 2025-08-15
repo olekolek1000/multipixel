@@ -1,4 +1,4 @@
-import React, { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { ToolPanel, ToolType } from "../../tool_panel"
 import style_room from "./room_screen.module.scss"
 import { BoxRight, ButtonTool, Icon, Tooltip } from "../../gui_custom";

@@ -171,7 +171,7 @@ pub fn prepare_packet_chunk_image(chunk_pos: IVec2, compressed_chunk_data: &[u8]
 	buf.put_u16(ServerCmd::ChunkImage as CommandIndex);
 	buf.put_i32(chunk_pos.x);
 	buf.put_i32(chunk_pos.y);
-	buf.put_u32(limits::CHUNK_IMAGE_SIZE_BYTES_RGB as u32);
+	buf.put_u32(limits::CHUNK_IMAGE_SIZE_BYTES_RGBA as u32);
 	buf.put_slice(compressed_chunk_data);
 
 	Packet { data: buf.into() }

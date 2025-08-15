@@ -1,9 +1,13 @@
-use glam::IVec2;
+use glam::{IVec2, UVec2};
 use num_enum::TryFromPrimitive;
 use rusqlite::params;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+
+use crate::chunk::layer::LayerRGBA;
+use crate::compression::decompress_lz4;
+use crate::pixel::ColorRGBA;
 
 const SECONDS_BETWEEN_SNAPSHOTS: u32 = 14400;
 
@@ -23,6 +27,7 @@ pub enum CompressionType {
 pub struct Database {
 	pub conn: rusqlite::Connection,
 	cleaned_up: bool,
+	pub migrated_from_version: u32,
 }
 
 #[allow(dead_code)]
@@ -37,17 +42,134 @@ pub struct PreviewDatabaseRecord {
 	pub data: Vec<u8>,
 }
 
+const DATABASE_VERSION: u32 = 1;
+
+fn get_version(conn: &rusqlite::Connection) -> rusqlite::Result<u32> {
+	let mut stmt = conn.prepare("PRAGMA user_version")?;
+	let mut res = stmt.query([])?;
+
+	let Some(row) = res.next()? else {
+		return Ok(0);
+	};
+
+	let val: u32 = row.get(0)?;
+
+	Ok(val)
+}
+
+fn set_version(conn: &rusqlite::Connection, version: u32) -> rusqlite::Result<()> {
+	conn.execute(&format!("PRAGMA user_version = {version}"), [])?;
+	Ok(())
+}
+
+fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+	log::info!("Migrating to version 1");
+
+	log::info!("removing previews");
+	conn.execute("DELETE FROM previews", [])?;
+
+	log::info!("loading all compressed rgb chunks into memory");
+	struct ChunkDataRow {
+		x: i32,
+		y: i32,
+		data: Vec<u8>,
+	}
+
+	let old_data: Vec<_> = {
+		let mut stmt = conn.prepare("SELECT x, y, data FROM chunk_data")?;
+		let res: Vec<_> = stmt
+			.query_map([], |row| {
+				Ok(ChunkDataRow {
+					x: row.get(0)?,
+					y: row.get(1)?,
+					data: row.get(2)?,
+				})
+			})?
+			.flatten()
+			.collect();
+		res
+	};
+
+	log::info!("loaded {} chunks", old_data.len());
+	log::info!("converting chunks from rgb to rgba");
+
+	let old_data_len = old_data.len();
+
+	let mut i = 0;
+	for old_cell in old_data {
+		i += 1;
+		log::info!(
+			"updating chunk at {}x{} {}%",
+			old_cell.x,
+			old_cell.y,
+			((i as f32 / old_data_len as f32) * 100.0).round()
+		);
+
+		let Some(rgb) = decompress_lz4(&old_cell.data, 256 * 256 * 3) else {
+			log::error!("failed to decompress");
+			continue;
+		};
+
+		let mut layer = LayerRGBA::new();
+		layer.alloc_transparent_black();
+
+		for y in 0..256 {
+			for x in 0..256 {
+				let offset = y * 256 * 3 + x * 3;
+
+				let red = rgb[offset];
+				let green = rgb[offset + 1];
+				let blue = rgb[offset + 2];
+
+				layer.set_pixel(
+					UVec2::new(x as u32, y as u32),
+					ColorRGBA {
+						r: red,
+						g: green,
+						b: blue,
+						a: 255,
+					},
+				);
+			}
+		}
+
+		let compressed = layer.compress_lz4();
+
+		conn.execute(
+			"UPDATE chunk_data SET data=? WHERE x=? AND y=?",
+			params![compressed, old_cell.x, old_cell.y],
+		)?;
+	}
+
+	Ok(())
+}
+
 impl Database {
 	pub async fn new(path: &str) -> rusqlite::Result<Self> {
 		log::trace!("Opening database at path {path}");
 		let conn = rusqlite::Connection::open(path)?;
 
-		let db = Self {
+		let mut db = Self {
 			conn,
 			cleaned_up: false,
+			migrated_from_version: 0,
 		};
 
 		Self::run_empty_query(&db.conn, "PRAGMA SYNCHRONOUS=OFF")?;
+
+		let db_version = get_version(&db.conn)?;
+		db.migrated_from_version = db_version;
+
+		if db_version != DATABASE_VERSION {
+			log::info!("Updating database from version {db_version} to version {DATABASE_VERSION}");
+		}
+
+		if db_version == 0 {
+			migrate_to_version_1(&db.conn)?;
+		}
+
+		set_version(&db.conn, DATABASE_VERSION)?;
+
 		Self::init_table_chunk_data(&db.conn)?;
 		Self::init_table_previews(&db.conn)?;
 
@@ -155,7 +277,7 @@ impl Database {
 			y: i32,
 		}
 
-		let mut stmt = conn.prepare("SELECT x, y FROM chunk_data").unwrap();
+		let mut stmt = conn.prepare("SELECT x, y FROM chunk_data")?;
 		let iter = stmt.query_map([], |row| {
 			Ok(Row {
 				x: row.get(0)?,

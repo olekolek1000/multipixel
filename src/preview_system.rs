@@ -40,7 +40,7 @@ fn decompress_vec_lz4(compressed: &[u8]) -> anyhow::Result<Vec<u8>> {
 		return Ok(Vec::new());
 	}
 	if let Some(decompressed) =
-		compression::decompress_lz4(compressed, (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 3) as usize)
+		compression::decompress_lz4(compressed, (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize)
 	{
 		Ok(decompressed)
 	} else {
@@ -57,20 +57,21 @@ fn fill_image(out_data: &mut [u8], in_data: &[u8], x: u32, y: u32) {
 	let offset_y = CHUNK_SIZE_PX * y;
 
 	let image_size = CHUNK_SIZE_PX * 2;
-	let pitch_in = CHUNK_SIZE_PX * 3;
-	let pitch_out = image_size * 3;
+	let pitch_in = CHUNK_SIZE_PX * 4;
+	let pitch_out = image_size * 4;
 
 	for local_y in 0..CHUNK_SIZE_PX {
 		for local_x in 0..CHUNK_SIZE_PX {
 			let target_x = offset_x + local_x;
 			let target_y = offset_y + local_y;
 
-			let offset_in = local_y * pitch_in + local_x * 3;
-			let offset_out = target_y * pitch_out + target_x * 3;
+			let offset_in = local_y * pitch_in + local_x * 4;
+			let offset_out = target_y * pitch_out + target_x * 4;
 
 			out_data[(offset_out) as usize] = in_data[(offset_in) as usize];
 			out_data[(offset_out + 1) as usize] = in_data[(offset_in + 1) as usize];
 			out_data[(offset_out + 2) as usize] = in_data[(offset_in + 2) as usize];
+			out_data[(offset_out + 3) as usize] = in_data[(offset_in + 3) as usize];
 		}
 	}
 }
@@ -156,23 +157,23 @@ impl PreviewSystemLayer {
 
 			// Allocate preview chunk data
 			let image_size = CHUNK_SIZE_PX * 2;
-			let mut rgb: Vec<u8> = Vec::new();
-			rgb.resize(
-				(image_size * image_size /* 512² */ * 3/*RGB*/) as usize,
-				255, /* Fill with white */
+			let mut rgba: Vec<u8> = Vec::new();
+			rgba.resize(
+				(image_size * image_size /* 512² */ * 4/*RGBA*/) as usize,
+				0, /* Fill with transparent black */
 			);
 
 			// Blit images
-			fill_image(&mut rgb, &data_topleft, 0, 0);
-			fill_image(&mut rgb, &data_topright, 1, 0);
-			fill_image(&mut rgb, &data_bottomleft, 0, 1);
-			fill_image(&mut rgb, &data_bottomright, 1, 1);
+			fill_image(&mut rgba, &data_topleft, 0, 0);
+			fill_image(&mut rgba, &data_topright, 1, 0);
+			fill_image(&mut rgba, &data_bottomleft, 0, 1);
+			fill_image(&mut rgba, &data_bottomright, 1, 1);
 
 			// Downscale image
-			let mut downscaled: Vec<u8> = vec![0; (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 3) as usize];
+			let mut downscaled: Vec<u8> = vec![0; (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize];
 
-			let downscaled_pitch = CHUNK_SIZE_PX * 3;
-			let image_pitch = image_size * 3;
+			let downscaled_pitch = CHUNK_SIZE_PX * 4;
+			let image_pitch = image_size * 4;
 			for y in 0..CHUNK_SIZE_PX {
 				for x in 0..CHUNK_SIZE_PX {
 					let in_x = x * 2;
@@ -180,19 +181,20 @@ impl PreviewSystemLayer {
 
 					let mut perform_channel = |channel: u32| {
 						// Same four pixels
-						let result = (rgb[((in_y) * image_pitch + (in_x) * 3 + channel) as usize] as u32
-							+ rgb[((in_y + 1) * image_pitch + (in_x) * 3 + channel) as usize] as u32
-							+ rgb[((in_y) * image_pitch + (in_x + 1) * 3 + channel) as usize] as u32
-							+ rgb[((in_y + 1) * image_pitch + (in_x + 1) * 3 + channel) as usize] as u32)
+						let result = (rgba[((in_y) * image_pitch + (in_x) * 4 + channel) as usize] as u32
+							+ rgba[((in_y + 1) * image_pitch + (in_x) * 4 + channel) as usize] as u32
+							+ rgba[((in_y) * image_pitch + (in_x + 1) * 4 + channel) as usize] as u32
+							+ rgba[((in_y + 1) * image_pitch + (in_x + 1) * 4 + channel) as usize] as u32)
 							/ 4;
 
 						// Save sampled pixel result for specific channel
-						downscaled[(y * downscaled_pitch + x * 3 + channel) as usize] = result as u8;
+						downscaled[(y * downscaled_pitch + x * 4 + channel) as usize] = result as u8;
 					};
 
 					perform_channel(0); // Red
 					perform_channel(1); // Green
 					perform_channel(2); // Blue
+					perform_channel(3); // Alpha
 				}
 			}
 
@@ -263,7 +265,7 @@ fn init_layers_vec() -> Vec<PreviewSystemLayer> {
 }
 
 impl PreviewSystem {
-	pub fn new(database: Arc<Mutex<Database>>) -> Self {
+	pub async fn new(database: Arc<Mutex<Database>>) -> Self {
 		let notifier = Arc::new(Notify::new());
 
 		// Init layers
