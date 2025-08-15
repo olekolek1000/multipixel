@@ -1,13 +1,13 @@
 use crate::canvas_cache::CanvasCache;
 use crate::chunk::cache::ChunkCache;
-use crate::chunk::chunk::{ChunkInstanceWeak, ChunkPixelRGB};
+use crate::chunk::chunk::{ChunkInstanceWeak, ChunkPixelRGBA};
 use crate::chunk::compositor::LayerID;
 use crate::chunk::system::ChunkSystem;
-use crate::chunk::writer::ChunkWriterRGB;
+use crate::chunk::writer::ChunkWriterRGBA;
 use crate::event_queue::EventQueue;
 use crate::limits::CHUNK_SIZE_PX;
 use crate::packet_client::ClientCmd;
-use crate::pixel::{ColorRGB, GlobalPixelRGB};
+use crate::pixel::{ColorRGB, ColorRGBA, GlobalPixelRGBA};
 use crate::room::{RoomInstanceMutex, RoomRefs};
 use crate::serial_generator::SerialGenerator;
 use crate::server::ServerMutex;
@@ -55,11 +55,11 @@ impl fmt::Display for UserError {
 
 #[derive(Default)]
 struct FloodfillTask {
-	to_replace: ColorRGB,
+	to_replace: ColorRGBA,
 	start_pos: IVec2,
 	stack: Vec<IVec2>,
 	affected_chunks: HashSet<IVec2>,
-	pixels_changed: Vec<GlobalPixelRGB>,
+	pixels_changed: Vec<GlobalPixelRGBA>,
 	canvas_cache: CanvasCache,
 }
 
@@ -98,7 +98,7 @@ impl LinkedChunk {
 }
 
 struct HistoryCell {
-	pixels: Vec<GlobalPixelRGB>,
+	pixels: Vec<GlobalPixelRGBA>,
 }
 
 #[derive(Default)]
@@ -129,7 +129,7 @@ impl History {
 		});
 	}
 
-	fn add_pixel(&mut self, pixel: GlobalPixelRGB) {
+	fn add_pixel(&mut self, pixel: GlobalPixelRGBA) {
 		if self.cells.is_empty() {
 			self.create_snapshot();
 		}
@@ -444,7 +444,7 @@ impl SessionInstance {
 			ToolState::None => {}
 			ToolState::Line(state) => {
 				state.cleanup(refs).await;
-				let pixels = state.gen_global_pixel_vec_rgb(self.tool.color);
+				let pixels = state.gen_global_pixel_vec_rgba(self.tool.color.rgba(255));
 				self.set_pixels_main(refs, &pixels, true).await;
 			}
 		}
@@ -479,7 +479,7 @@ impl SessionInstance {
 			.get_pixel(&refs.chunk_system_mtx, &global_pos)
 			.await;
 
-		if color == self.tool.color {
+		if color == self.tool.color.rgba(255) {
 			return false;
 		}
 
@@ -511,7 +511,7 @@ impl SessionInstance {
 		}
 
 		if let Some(color) = self.get_pixel_main(refs, global_pos).await {
-			if self.tool.color == color {
+			if self.tool.color.rgba(255) == color {
 				return; // Nothing to do.
 			}
 
@@ -533,9 +533,9 @@ impl SessionInstance {
 						continue;
 					}
 
-					let pixel = GlobalPixelRGB {
+					let pixel = GlobalPixelRGBA {
 						pos: cell,
-						color: self.tool.color,
+						color: self.tool.color.rgba(255),
 					};
 
 					task.canvas_cache.set_pixel(&pixel.pos, &pixel.color);
@@ -604,7 +604,7 @@ impl SessionInstance {
 		};
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGBA> = Vec::new();
 		let shape_filled = if square {
 			brush_shapes.get_square_filled(tool_size)
 		} else {
@@ -623,14 +623,16 @@ impl SessionInstance {
 				continue;
 			}
 
+			let tool_color = self.tool.color.rgba(255);
+
 			match tool_size {
-				1 => GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &self.tool.color),
+				1 => GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &tool_color),
 				2 => {
-					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &self.tool.color);
-					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x - 1, line.pos.y, &self.tool.color);
-					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x + 1, line.pos.y, &self.tool.color);
-					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y - 1, &self.tool.color);
-					GlobalPixelRGB::insert_to_vec(&mut pixels, line.pos.x, line.pos.y + 1, &self.tool.color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, &tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x - 1, line.pos.y, &tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x + 1, line.pos.y, &tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y - 1, &tool_color);
+					GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y + 1, &tool_color);
 				}
 				_ => {
 					let shape = if index == 0 {
@@ -642,7 +644,7 @@ impl SessionInstance {
 					for s in shape.iterate() {
 						let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
 						let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
-						GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
+						GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &tool_color);
 					}
 				}
 			}
@@ -716,7 +718,7 @@ impl SessionInstance {
 			(tool_size, iter, step)
 		};
 
-		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGBA> = Vec::new();
 		let mut cache = CanvasCache::default();
 
 		let intensity = (self.tool.flow.powf(2.0) * 255.0) as u8;
@@ -742,14 +744,14 @@ impl SessionInstance {
 							continue;
 						}
 
-						let blended = ColorRGB::blend_gamma_corrected(
+						let blended = ColorRGBA::blend_gamma_corrected(
 							(intensity as f32 * (1.0 - mult)) as u8,
 							&current,
-							&self.tool.color,
+							&self.tool.color.rgba(255),
 						);
 
 						cache.set_pixel(&IVec2::new(pos_x, pos_y), &blended);
-						GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
+						GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &blended);
 					}
 				}
 			}
@@ -782,7 +784,7 @@ impl SessionInstance {
 		let tool_size = self.get_tool_size();
 
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
-		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGBA> = Vec::new();
 		let shape_filled = brush_shapes.get_circle_filled(tool_size);
 		drop(brush_shapes);
 
@@ -797,7 +799,7 @@ impl SessionInstance {
 
 				let pos_x = line.pos.x + s.local_x as i32 - (tool_size / 2) as i32;
 				let pos_y = line.pos.y + s.local_y as i32 - (tool_size / 2) as i32;
-				GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color);
+				GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &self.tool.color.rgba(255));
 			}
 		}
 
@@ -821,7 +823,7 @@ impl SessionInstance {
 			brush_shapes.get_circle_filled(tool_size)
 		};
 
-		let mut pixels: Vec<GlobalPixelRGB> = Vec::new();
+		let mut pixels: Vec<GlobalPixelRGBA> = Vec::new();
 
 		let blend_intensity = (self.tool.flow * 255.0) as u8;
 
@@ -847,11 +849,11 @@ impl SessionInstance {
 				.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y + 1))
 				.await;
 
-			let blended_horiz = ColorRGB::blend_gamma_corrected(127, &left, &right);
-			let blended_vert = ColorRGB::blend_gamma_corrected(127, &top, &bottom);
-			let blended = ColorRGB::blend_gamma_corrected(127, &blended_horiz, &blended_vert);
-			let current = ColorRGB::blend_gamma_corrected(blend_intensity, &center, &blended);
-			GlobalPixelRGB::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
+			let blended_horiz = ColorRGBA::blend_gamma_corrected(127, &left, &right);
+			let blended_vert = ColorRGBA::blend_gamma_corrected(127, &top, &bottom);
+			let blended = ColorRGBA::blend_gamma_corrected(127, &blended_horiz, &blended_vert);
+			let current = ColorRGBA::blend_gamma_corrected(blend_intensity, &center, &blended);
+			GlobalPixelRGBA::insert_to_vec(&mut pixels, pos_x, pos_y, &current);
 		}
 
 		self.set_pixels_main(refs, &pixels, true).await;
@@ -875,8 +877,8 @@ impl SessionInstance {
 			brush_shapes.get_circle_filled(tool_size)
 		};
 
-		let mut pixels_final: Vec<GlobalPixelRGB> = Vec::new();
-		let mut pixels_temp: Vec<GlobalPixelRGB> = Vec::new();
+		let mut pixels_final: Vec<GlobalPixelRGBA> = Vec::new();
+		let mut pixels_temp: Vec<GlobalPixelRGBA> = Vec::new();
 
 		let blend_intensity = (self.tool.flow * 255.0) as u8;
 
@@ -910,8 +912,8 @@ impl SessionInstance {
 					.get_pixel(&refs.chunk_system_mtx, &IVec2::new(pos_x, pos_y))
 					.await;
 
-				let blended = ColorRGB::blend_gamma_corrected(blend_intensity, &center, &prev);
-				GlobalPixelRGB::insert_to_vec(&mut pixels_temp, pos_x, pos_y, &blended);
+				let blended = ColorRGBA::blend_gamma_corrected(blend_intensity, &center, &prev);
+				GlobalPixelRGBA::insert_to_vec(&mut pixels_temp, pos_x, pos_y, &blended);
 			}
 
 			for pixel in &pixels_temp {
@@ -926,7 +928,7 @@ impl SessionInstance {
 		self.set_pixels_main(refs, &pixels_final, true).await;
 	}
 
-	async fn get_pixel_main(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<ColorRGB> {
+	async fn get_pixel_main(&mut self, refs: &RoomRefs, global_pos: IVec2) -> Option<ColorRGBA> {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(global_pos);
 
 		if let Some(chunk) = self
@@ -946,10 +948,10 @@ impl SessionInstance {
 	async fn set_pixels_main(
 		&mut self,
 		refs: &RoomRefs,
-		pixels: &[GlobalPixelRGB],
+		pixels: &[GlobalPixelRGBA],
 		with_history: bool,
 	) {
-		let mut writer = ChunkWriterRGB::new();
+		let mut writer = ChunkWriterRGBA::new();
 
 		writer
 			.generate_affected(pixels, &mut self.chunk_cache, &refs.chunk_system_mtx)
@@ -969,7 +971,7 @@ impl SessionInstance {
 					let color = chunk.get_pixel_main(local_pos.pos);
 
 					if local_pos.color != color {
-						self.history.add_pixel(GlobalPixelRGB {
+						self.history.add_pixel(GlobalPixelRGBA {
 							pos: *global_pos,
 							color,
 						});
@@ -977,7 +979,7 @@ impl SessionInstance {
 				}
 			}
 
-			let queued_pixels: Vec<ChunkPixelRGB> =
+			let queued_pixels: Vec<ChunkPixelRGBA> =
 				cell.queued_pixels.iter().map(|c| c.0.clone()).collect();
 
 			let threshold = CHUNK_SIZE_PX * (CHUNK_SIZE_PX / 5); // over 1/5th of chunk modified

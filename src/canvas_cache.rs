@@ -4,15 +4,15 @@ use glam::IVec2;
 
 use crate::{
 	chunk::{
-		layer::RGBData,
+		layer::RGBAData,
 		system::{ChunkSystem, ChunkSystemMutex},
 	},
 	limits::CHUNK_SIZE_PX,
-	pixel::ColorRGB,
+	pixel::ColorRGBA,
 };
 
 struct Cell {
-	pub data: RGBData, // same size as chunk data
+	pub data: RGBAData, // same size as chunk data
 }
 
 #[derive(Default)]
@@ -48,31 +48,33 @@ impl CanvasCache {
 		&mut self,
 		chunk_system_mtx: &ChunkSystemMutex,
 		global_pos: &IVec2,
-	) -> ColorRGB {
+	) -> ColorRGBA {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(*global_pos);
 		if let Some(cell) = self.get_cell_mut(chunk_system_mtx, &chunk_pos).await {
 			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(*global_pos);
-			let offset = (local_pos.y as u32 * CHUNK_SIZE_PX * 3 + local_pos.x as u32 * 3) as usize;
-			ColorRGB {
+			let offset = (local_pos.y as u32 * CHUNK_SIZE_PX * 4 + local_pos.x as u32 * 4) as usize;
+			ColorRGBA {
 				r: cell.data.0[offset],
 				g: cell.data.0[offset + 1],
 				b: cell.data.0[offset + 2],
+				a: cell.data.0[offset + 3],
 			}
 		} else {
-			ColorRGB {
+			ColorRGBA {
 				..Default::default()
 			}
 		}
 	}
 
-	pub fn set_pixel(&mut self, global_pos: &IVec2, color: &ColorRGB) {
+	pub fn set_pixel(&mut self, global_pos: &IVec2, color: &ColorRGBA) {
 		let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(*global_pos);
 		if let Some(cell) = self.cells.get_mut(&chunk_pos) {
 			let local_pos = ChunkSystem::global_pixel_pos_to_local_pixel_pos(*global_pos);
-			let offset = (local_pos.y as u32 * CHUNK_SIZE_PX * 3 + local_pos.x as u32 * 3) as usize;
+			let offset = (local_pos.y as u32 * CHUNK_SIZE_PX * 4 + local_pos.x as u32 * 4) as usize;
 			cell.data.0[offset] = color.r;
 			cell.data.0[offset + 1] = color.g;
 			cell.data.0[offset + 2] = color.b;
+			cell.data.0[offset + 3] = color.a;
 		}
 	}
 }

@@ -337,10 +337,10 @@ export class Client {
 				let compressed_data = raw_data.slice(header_offset + offset);
 				lz4.decompressBlock(Buffer.from(compressed_data), uncompressed_buffer, 0, raw_size, 0);
 
-				let rgb_view = new DataView(uncompressed_buffer.buffer);
+				let rgba_view = new DataView(uncompressed_buffer.buffer);
 				let chunk = map.getChunk(chunk_x, chunk_y);
 				if (chunk) {
-					chunk.putImage(renderer.gl, rgb_view);
+					chunk.putImage(renderer.gl, rgba_view);
 				}
 				map.triggerRerender();
 				break;
@@ -373,11 +373,12 @@ export class Client {
 					let red = pixel_view.getUint8(offset + 2);
 					let green = pixel_view.getUint8(offset + 3);
 					let blue = pixel_view.getUint8(offset + 4);
-					offset += 5;
+					let alpha = pixel_view.getUint8(offset + 5);
+					offset += 6;
 
 					let global_x = chunk_x * CHUNK_SIZE + local_x;
 					let global_y = chunk_y * CHUNK_SIZE + local_y;
-					map.putPixel(global_x, global_y, red, green, blue);
+					map.putPixel(global_x, global_y, red, green, blue, alpha);
 				}
 
 				break;
@@ -417,13 +418,13 @@ export class Client {
 				let zoom = dataview.getUint8(offset); offset += 1;
 				let data_size = dataview.getUint32(offset); offset += 4;
 
-				let rgb = Buffer.alloc(CHUNK_SIZE * CHUNK_SIZE * 3);
+				let rgba = Buffer.alloc(CHUNK_SIZE * CHUNK_SIZE * 4);
 				const data_from = header_offset + offset;
 				let compressed = raw_data.slice(data_from, data_from + data_size);
-				lz4.decompressBlock(Buffer.from(compressed), rgb, 0, data_size, 0);
+				lz4.decompressBlock(Buffer.from(compressed), rgba, 0, data_size, 0);
 
 				let preview = this.instance.preview_system.getOrCreateLayer(zoom).getOrCreatePreview(previewX, previewY);
-				preview.setData(new Uint8Array(rgb));
+				preview.setData(new Uint8Array(rgba));
 				map.triggerRerender();
 				break;
 			}

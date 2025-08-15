@@ -62,7 +62,7 @@ impl ChunkCache {
 
 			let layer = chunk.compositor.get_or_alloc_mut(&layer_id);
 			if layer.layer.read().is_none() {
-				layer.layer.alloc_blank();
+				layer.layer.alloc_transparent_black();
 			}
 
 			let queued_pixels: Vec<ChunkPixelRGBA> = cell

@@ -1,10 +1,10 @@
 use glam::IVec2;
 
-use crate::pixel::{GlobalPixelRGB, GlobalPixelRGBA};
+use crate::pixel::GlobalPixelRGBA;
 
 use super::{
 	cache::ChunkCache,
-	chunk::{ChunkInstanceMutex, ChunkPixelRGB, ChunkPixelRGBA},
+	chunk::{ChunkInstanceMutex, ChunkPixelRGBA},
 	system::{ChunkSystem, ChunkSystemMutex},
 };
 
@@ -22,7 +22,6 @@ pub struct ChunkWriter<T> {
 	pub affected_chunks: Vec<ChunkCacheCell<T>>,
 }
 
-pub type ChunkWriterRGB = ChunkWriter<ChunkPixelRGB>;
 pub type ChunkWriterRGBA = ChunkWriter<ChunkPixelRGBA>;
 
 impl<T> ChunkWriter<T> {
@@ -53,46 +52,6 @@ impl<T> ChunkWriter<T> {
 				chunk,
 				queued_pixels: Vec::new(),
 			});
-		}
-	}
-}
-
-impl ChunkWriterRGB {
-	pub async fn generate_affected(
-		&mut self,
-		pixels: &[GlobalPixelRGB],
-		chunk_cache: &mut ChunkCache,
-		chunk_system_mtx: &ChunkSystemMutex,
-	) {
-		// Generate affected chunks list
-		for pixel in pixels {
-			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-			if Self::fetch_cell(&mut self.affected_chunks, &chunk_pos).is_none() {
-				Self::cache_new_chunk(
-					chunk_cache,
-					chunk_system_mtx,
-					&mut self.affected_chunks,
-					&chunk_pos,
-				)
-				.await;
-			}
-		}
-
-		// Queue pixels to send
-		for pixel in pixels {
-			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-			if let Some(cell) = ChunkWriterRGB::fetch_cell(&mut self.affected_chunks, &chunk_pos) {
-				cell.queued_pixels.push((
-					ChunkPixelRGB {
-						color: pixel.color,
-						pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
-					},
-					pixel.pos,
-				));
-			} else {
-				// Skip pixel, already set
-				continue;
-			}
 		}
 	}
 }

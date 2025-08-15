@@ -4,7 +4,7 @@ use glam::IVec2;
 
 use crate::{
 	chunk::{cache::ChunkCache, compositor::LayerID, system::ChunkSystemSignal},
-	pixel::{ColorRGB, ColorRGBA, GlobalPixelRGB, GlobalPixelRGBA},
+	pixel::{ColorRGB, ColorRGBA, GlobalPixelRGBA},
 	room::RoomRefs,
 };
 
@@ -28,19 +28,11 @@ impl ToolStateLine {
 		}
 	}
 
-	fn gen_global_pixel_vec_rgba(&self, color: ColorRGBA) -> Vec<GlobalPixelRGBA> {
+	pub fn gen_global_pixel_vec_rgba(&self, color: ColorRGBA) -> Vec<GlobalPixelRGBA> {
 		self
 			.affected_pixels
 			.iter()
 			.map(|pos| GlobalPixelRGBA { pos: *pos, color })
-			.collect()
-	}
-
-	pub fn gen_global_pixel_vec_rgb(&self, color: ColorRGB) -> Vec<GlobalPixelRGB> {
-		self
-			.affected_pixels
-			.iter()
-			.map(|pos| GlobalPixelRGB { pos: *pos, color })
 			.collect()
 	}
 
