@@ -14,5 +14,6 @@
 		url("/img/cursor.png") 12 12,
 		auto;
 
-	background: repeating-conic-gradient(#eee 0 25%, #0000 0 50%) 50% / 20px 20px;
+	background: repeating-conic-gradient(#fafafa 0 25%, #fff 0 50%) 50% / 20px
+		20px;
 }
