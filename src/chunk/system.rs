@@ -338,23 +338,30 @@ impl ChunkSystem {
 		}
 	}
 
-	pub async fn regenerate_all_previews(chunk_system_weak: ChunkSystemWeak) {
-		if let Some(chunk_system_mtx) = chunk_system_weak.upgrade() {
-			let chunk_system = chunk_system_mtx.lock().await;
-			let database = chunk_system.database.clone();
-			let preview_system_mtx = chunk_system.preview_system.clone();
-			drop(chunk_system);
-			drop(chunk_system_mtx);
+	pub async fn regenerate_all_previews(chunk_system_mtx: ChunkSystemMutex) {
+		let chunk_system = chunk_system_mtx.lock().await;
+		let database = chunk_system.database.clone();
+		let preview_system_mtx = chunk_system.preview_system.clone();
+		drop(chunk_system);
+		drop(chunk_system_mtx);
 
-			let queue_cache = preview_system_mtx.lock().await.update_queue_cache.clone();
-			if let Ok(res) = DatabaseFunc::chunk_list_all(&database).await {
-				for pos in res {
-					queue_cache.send(pos);
-				}
-				drop(database);
-				PreviewSystem::process_all(preview_system_mtx).await;
-			}
+		let queue_cache = preview_system_mtx.lock().await.update_queue_cache.clone();
+
+		if let Err(e) = DatabaseFunc::preview_clear_all(&database).await {
+			log::error!("{e:?}");
 		}
+
+		let Ok(chunk_positions) = DatabaseFunc::chunk_list_all(&database).await else {
+			return; // nothing to do
+		};
+
+		for pos in chunk_positions {
+			queue_cache.send(ChunkInstance::get_upper_pos_div2(pos));
+		}
+
+		drop(database);
+
+		PreviewSystem::process_all(preview_system_mtx).await;
 	}
 
 	async fn save_chunk_wrapper(database: Arc<Mutex<Database>>, chunk: &mut ChunkInstance) {

@@ -1,7 +1,6 @@
 use glam::{IVec2, UVec2};
 use num_enum::TryFromPrimitive;
 use rusqlite::params;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -66,6 +65,9 @@ fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 		x: i32,
 		y: i32,
 		data: Vec<u8>,
+		modified: i64,
+		created: i64,
+		compression: i64,
 	}
 
 	log::info!("Migrating to version 1");
@@ -76,13 +78,17 @@ fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 	log::info!("loading all compressed rgb chunks into memory");
 
 	let old_data: Vec<_> = {
-		let mut stmt = conn.prepare("SELECT x, y, data FROM chunk_data")?;
+		let mut stmt =
+			conn.prepare("SELECT x, y, data, modified, created, compression FROM chunk_data")?;
 		let res: Vec<_> = stmt
 			.query_map([], |row| {
 				Ok(ChunkDataRow {
 					x: row.get(0)?,
 					y: row.get(1)?,
 					data: row.get(2)?,
+					modified: row.get(3)?,
+					created: row.get(4)?,
+					compression: row.get(5)?,
 				})
 			})?
 			.flatten()
@@ -136,8 +142,8 @@ fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 		let compressed = layer.compress_lz4();
 
 		conn.execute(
-			"UPDATE chunk_data SET data=? WHERE x=? AND y=?",
-			params![compressed, old_cell.x, old_cell.y],
+			"UPDATE chunk_data SET data=? WHERE x=? AND y=? AND modified=? AND created=? AND compression=?",
+			params![compressed, old_cell.x, old_cell.y, old_cell.modified, old_cell.created, old_cell.compression],
 		)?;
 	}
 
@@ -273,13 +279,15 @@ impl Database {
 		Ok(())
 	}
 
-	fn chunk_list_all(conn: &rusqlite::Connection) -> rusqlite::Result<HashSet<IVec2>> {
+	fn chunk_list_all(conn: &rusqlite::Connection) -> rusqlite::Result<Vec<IVec2>> {
 		struct Row {
 			x: i32,
 			y: i32,
 		}
 
-		let mut stmt = conn.prepare("SELECT x, y FROM chunk_data")?;
+		let mut res = Vec::<IVec2>::new();
+
+		let mut stmt = conn.prepare("SELECT x, y FROM chunk_data GROUP BY x, y")?;
 		let iter = stmt.query_map([], |row| {
 			Ok(Row {
 				x: row.get(0)?,
@@ -287,10 +295,8 @@ impl Database {
 			})
 		})?;
 
-		let mut res: HashSet<IVec2> = HashSet::new();
-
 		for row in iter.flatten() {
-			res.insert(IVec2::new(row.x, row.y));
+			res.push(IVec2::new(row.x, row.y));
 		}
 
 		Ok(res)
@@ -326,6 +332,11 @@ impl Database {
 			}
 
 		None
+	}
+
+	fn preview_clear_all(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+		conn.execute("DELETE FROM previews", [])?;
+		Ok(())
 	}
 
 	fn preview_load_data(
@@ -407,7 +418,7 @@ impl Drop for Database {
 pub struct DatabaseFunc {}
 
 impl DatabaseFunc {
-	pub async fn chunk_list_all(database: &Arc<Mutex<Database>>) -> anyhow::Result<HashSet<IVec2>> {
+	pub async fn chunk_list_all(database: &Arc<Mutex<Database>>) -> anyhow::Result<Vec<IVec2>> {
 		Database::get_conn(database, Database::chunk_list_all).await
 	}
 
@@ -431,6 +442,10 @@ impl DatabaseFunc {
 			Database::chunk_save_data(conn, pos, &data, compression_type)
 		})
 		.await
+	}
+
+	pub async fn preview_clear_all(database: &Arc<Mutex<Database>>) -> anyhow::Result<()> {
+		Database::get_conn(database, Database::preview_clear_all).await
 	}
 
 	pub async fn preview_load_data(

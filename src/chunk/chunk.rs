@@ -163,6 +163,21 @@ impl ChunkInstance {
 		)
 	}
 
+	pub const fn get_upper_pos_div2(position: IVec2) -> IVec2 {
+		IVec2::new(
+			if position.x >= 0 {
+				position.x / 2
+			} else {
+				(position.x - 1) / 2
+			},
+			if position.y >= 0 {
+				position.y / 2
+			} else {
+				(position.y - 1) / 2
+			},
+		)
+	}
+
 	pub fn encode_chunk_data(&mut self, clear_modified: bool) -> Arc<Vec<u8>> {
 		let compressed = if self.new_chunk {
 			// Return compressed empty chunk
@@ -178,18 +193,7 @@ impl ChunkInstance {
 			self.set_main_modified(false);
 			self.main_layer.free();
 
-			let upper_pos = IVec2::new(
-				if self.position.x >= 0 {
-					self.position.x / 2
-				} else {
-					(self.position.x - 1) / 2
-				},
-				if self.position.y >= 0 {
-					self.position.y / 2
-				} else {
-					(self.position.y - 1) / 2
-				},
-			);
+			let upper_pos = Self::get_upper_pos_div2(self.position);
 			self.preview_system_queued_chunks.send(upper_pos);
 		}
 

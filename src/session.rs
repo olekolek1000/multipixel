@@ -1353,8 +1353,7 @@ impl SessionInstance {
 				"process_preview_system" => {
 					if self.admin_mode {
 						self.send_reply("Preview regeneration started");
-						let cs = Arc::downgrade(&refs.chunk_system_mtx);
-
+						let cs = refs.chunk_system_mtx.clone();
 						tokio::spawn(async {
 							ChunkSystem::regenerate_all_previews(cs).await;
 						});

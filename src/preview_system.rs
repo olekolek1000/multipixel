@@ -47,7 +47,6 @@ fn fill_image(out_data: &mut [u8], in_data: &[u8], x: u32, y: u32) {
 	if in_data.is_empty() {
 		return; // blank
 	}
-
 	let offset_x = CHUNK_SIZE_PX * x;
 	let offset_y = CHUNK_SIZE_PX * y;
 
@@ -74,6 +73,17 @@ fn fill_image(out_data: &mut [u8], in_data: &[u8], x: u32, y: u32) {
 struct PreviewProcessResult {
 	has_more: bool,
 	upper_pos: IVec2,
+}
+
+fn decompress_and_blit(
+	compressed: &[u8],
+	x: u32,
+	y: u32,
+	out_rgba: &mut [u8],
+) -> anyhow::Result<()> {
+	let data = decompress_vec_lz4(compressed)?;
+	fill_image(out_rgba, &data, x, y);
+	Ok(())
 }
 
 impl PreviewSystemLayer {
@@ -108,58 +118,60 @@ impl PreviewSystemLayer {
 			bottomright: Vec<u8>,
 		}
 
-		if let Some(position) = update_queue.pop() {
-			// Fuse 2x2 chunks into one preview image
-			let topleft = IVec2::new(position.x * 2, position.y * 2);
-			let topright = IVec2::new(position.x * 2 + 1, position.y * 2);
-			let bottomleft = IVec2::new(position.x * 2, position.y * 2 + 1);
-			let bottomright = IVec2::new(position.x * 2 + 1, position.y * 2 + 1);
+		let Some(position) = update_queue.pop() else {
+			// Nothing to do
+			return Ok(PreviewProcessResult {
+				has_more: false,
+				upper_pos: IVec2::ZERO,
+			});
+		};
 
-			let compressed = if zoom == 1 {
-				// Load real chunks data underneath
-				Quad {
-					topleft: extract_chunk_record(DatabaseFunc::chunk_load_data(database, topleft).await?),
-					topright: extract_chunk_record(DatabaseFunc::chunk_load_data(database, topright).await?),
-					bottomleft: extract_chunk_record(
-						DatabaseFunc::chunk_load_data(database, bottomleft).await?,
-					),
-					bottomright: extract_chunk_record(
-						DatabaseFunc::chunk_load_data(database, bottomright).await?,
-					),
-				}
-			} else {
-				// Load preview system layer chunks
-				Quad {
-					topleft: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, topleft, zoom - 1).await?,
-					),
-					topright: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, topright, zoom - 1).await?,
-					),
-					bottomleft: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, bottomleft, zoom - 1).await?,
-					),
-					bottomright: extract_preview_record(
-						DatabaseFunc::preview_load_data(database, bottomright, zoom - 1).await?,
-					),
-				}
-			};
+		// Fuse 2x2 chunks into one preview image
+		let topleft = IVec2::new(position.x * 2, position.y * 2);
+		let topright = IVec2::new(position.x * 2 + 1, position.y * 2);
+		let bottomleft = IVec2::new(position.x * 2, position.y * 2 + 1);
+		let bottomright = IVec2::new(position.x * 2 + 1, position.y * 2 + 1);
 
-			// Decompress data
-			let data_topleft = decompress_vec_lz4(&compressed.topleft)?;
-			let data_topright = decompress_vec_lz4(&compressed.topright)?;
-			let data_bottomleft = decompress_vec_lz4(&compressed.bottomleft)?;
-			let data_bottomright = decompress_vec_lz4(&compressed.bottomright)?;
+		let compressed = if zoom == 1 {
+			// Load real chunks data underneath
+			Quad {
+				topleft: extract_chunk_record(DatabaseFunc::chunk_load_data(database, topleft).await?),
+				topright: extract_chunk_record(DatabaseFunc::chunk_load_data(database, topright).await?),
+				bottomleft: extract_chunk_record(
+					DatabaseFunc::chunk_load_data(database, bottomleft).await?,
+				),
+				bottomright: extract_chunk_record(
+					DatabaseFunc::chunk_load_data(database, bottomright).await?,
+				),
+			}
+		} else {
+			// Load preview system layer chunks
+			Quad {
+				topleft: extract_preview_record(
+					DatabaseFunc::preview_load_data(database, topleft, zoom - 1).await?,
+				),
+				topright: extract_preview_record(
+					DatabaseFunc::preview_load_data(database, topright, zoom - 1).await?,
+				),
+				bottomleft: extract_preview_record(
+					DatabaseFunc::preview_load_data(database, bottomleft, zoom - 1).await?,
+				),
+				bottomright: extract_preview_record(
+					DatabaseFunc::preview_load_data(database, bottomright, zoom - 1).await?,
+				),
+			}
+		};
 
+		let compressed = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
 			// Allocate preview chunk data
 			let image_size = CHUNK_SIZE_PX * 2;
 			let mut rgba: Vec<u8> = vec![0; (image_size * image_size /* 512² */ * 4/*RGBA*/) as usize];
 
-			// Blit images
-			fill_image(&mut rgba, &data_topleft, 0, 0);
-			fill_image(&mut rgba, &data_topright, 1, 0);
-			fill_image(&mut rgba, &data_bottomleft, 0, 1);
-			fill_image(&mut rgba, &data_bottomright, 1, 1);
+			// Decompress data
+			decompress_and_blit(&compressed.topleft, 0, 0, &mut rgba)?;
+			decompress_and_blit(&compressed.topright, 1, 0, &mut rgba)?;
+			decompress_and_blit(&compressed.bottomleft, 0, 1, &mut rgba)?;
+			decompress_and_blit(&compressed.bottomright, 1, 1, &mut rgba)?;
 
 			// Downscale image
 			let mut downscaled: Vec<u8> = vec![0; (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize];
@@ -193,42 +205,39 @@ impl PreviewSystemLayer {
 			// Compress downscaled image
 			let compressed = compression::compress_lz4(&downscaled);
 
-			DatabaseFunc::preview_save_data(database, position, zoom, compressed).await?;
+			Ok(compressed)
+		})
+		.await??;
 
-			let upper_pos = IVec2::new(
-				/* X */
-				if position.x >= 0 {
-					position.x / 2
-				} else {
-					(position.x - 1) / 2
-				},
-				/* Y */
-				if position.y >= 0 {
-					position.y / 2
-				} else {
-					(position.y - 1) / 2
-				},
-			);
+		DatabaseFunc::preview_save_data(database, position, zoom, compressed).await?;
 
-			log::trace!(
-				"Processed block at {}x{}, zoom {} ({} remaining)",
-				position.x,
-				position.y,
-				zoom,
-				update_queue.len()
-			);
+		let upper_pos = IVec2::new(
+			/* X */
+			if position.x >= 0 {
+				position.x / 2
+			} else {
+				(position.x - 1) / 2
+			},
+			/* Y */
+			if position.y >= 0 {
+				position.y / 2
+			} else {
+				(position.y - 1) / 2
+			},
+		);
 
-			Ok(PreviewProcessResult {
-				has_more: true,
-				upper_pos,
-			})
-		} else {
-			// Nothing to do
-			Ok(PreviewProcessResult {
-				has_more: false,
-				upper_pos: IVec2::ZERO,
-			})
-		}
+		log::trace!(
+			"Processed block at {}x{}, zoom {} ({} remaining)",
+			position.x,
+			position.y,
+			zoom,
+			update_queue.len()
+		);
+
+		Ok(PreviewProcessResult {
+			has_more: true,
+			upper_pos,
+		})
 	}
 }
 

@@ -63,7 +63,7 @@ impl RoomInstance {
 		)));
 
 		if from_db_version == 0 {
-			ChunkSystem::regenerate_all_previews(Arc::downgrade(&chunk_system_mtx)).await;
+			ChunkSystem::regenerate_all_previews(chunk_system_mtx.clone()).await;
 		}
 
 		{
