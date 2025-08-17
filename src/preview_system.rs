@@ -162,52 +162,47 @@ impl PreviewSystemLayer {
 			}
 		};
 
-		let compressed = tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
-			// Allocate preview chunk data
-			let image_size = CHUNK_SIZE_PX * 2;
-			let mut rgba: Vec<u8> = vec![0; (image_size * image_size /* 512² */ * 4/*RGBA*/) as usize];
+		// Allocate preview chunk data
+		let image_size = CHUNK_SIZE_PX * 2;
+		let mut rgba: Vec<u8> = vec![0; (image_size * image_size /* 512² */ * 4/*RGBA*/) as usize];
 
-			// Decompress data
-			decompress_and_blit(&compressed.topleft, 0, 0, &mut rgba)?;
-			decompress_and_blit(&compressed.topright, 1, 0, &mut rgba)?;
-			decompress_and_blit(&compressed.bottomleft, 0, 1, &mut rgba)?;
-			decompress_and_blit(&compressed.bottomright, 1, 1, &mut rgba)?;
+		// Decompress data
+		decompress_and_blit(&compressed.topleft, 0, 0, &mut rgba)?;
+		decompress_and_blit(&compressed.topright, 1, 0, &mut rgba)?;
+		decompress_and_blit(&compressed.bottomleft, 0, 1, &mut rgba)?;
+		decompress_and_blit(&compressed.bottomright, 1, 1, &mut rgba)?;
 
-			// Downscale image
-			let mut downscaled: Vec<u8> = vec![0; (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize];
+		// Downscale image
+		let mut downscaled: Vec<u8> = vec![0; (CHUNK_SIZE_PX * CHUNK_SIZE_PX * 4) as usize];
 
-			let downscaled_pitch = CHUNK_SIZE_PX * 4;
-			let image_pitch = image_size * 4;
-			for y in 0..CHUNK_SIZE_PX {
-				for x in 0..CHUNK_SIZE_PX {
-					let in_x = x * 2;
-					let in_y = y * 2;
+		let downscaled_pitch = CHUNK_SIZE_PX * 4;
+		let image_pitch = image_size * 4;
+		for y in 0..CHUNK_SIZE_PX {
+			for x in 0..CHUNK_SIZE_PX {
+				let in_x = x * 2;
+				let in_y = y * 2;
 
-					let mut perform_channel = |channel: u32| {
-						// Same four pixels
-						let result = (u32::from(rgba[((in_y) * image_pitch + (in_x) * 4 + channel) as usize])
-							+ u32::from(rgba[((in_y + 1) * image_pitch + (in_x) * 4 + channel) as usize])
-							+ u32::from(rgba[((in_y) * image_pitch + (in_x + 1) * 4 + channel) as usize])
-							+ u32::from(rgba[((in_y + 1) * image_pitch + (in_x + 1) * 4 + channel) as usize]))
-							/ 4;
+				let mut perform_channel = |channel: u32| {
+					// Same four pixels
+					let result = (u32::from(rgba[((in_y) * image_pitch + (in_x) * 4 + channel) as usize])
+						+ u32::from(rgba[((in_y + 1) * image_pitch + (in_x) * 4 + channel) as usize])
+						+ u32::from(rgba[((in_y) * image_pitch + (in_x + 1) * 4 + channel) as usize])
+						+ u32::from(rgba[((in_y + 1) * image_pitch + (in_x + 1) * 4 + channel) as usize]))
+						/ 4;
 
-						// Save sampled pixel result for specific channel
-						downscaled[(y * downscaled_pitch + x * 4 + channel) as usize] = result as u8;
-					};
+					// Save sampled pixel result for specific channel
+					downscaled[(y * downscaled_pitch + x * 4 + channel) as usize] = result as u8;
+				};
 
-					perform_channel(0); // Red
-					perform_channel(1); // Green
-					perform_channel(2); // Blue
-					perform_channel(3); // Alpha
-				}
+				perform_channel(0); // Red
+				perform_channel(1); // Green
+				perform_channel(2); // Blue
+				perform_channel(3); // Alpha
 			}
+		}
 
-			// Compress downscaled image
-			let compressed = compression::compress_lz4(&downscaled);
-
-			Ok(compressed)
-		})
-		.await??;
+		// Compress downscaled image
+		let compressed = compression::compress_lz4(&downscaled);
 
 		DatabaseFunc::preview_save_data(database, position, zoom, compressed).await?;
 
