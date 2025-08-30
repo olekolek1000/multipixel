@@ -5,6 +5,7 @@ import style_room from "./views/canvas/room_screen.module.scss";
 import { Multipixel, rgb2hex } from "./multipixel"
 import { lerp } from "./timestep";
 import Picker from "vanilla-picker";
+import { lerpSrgbInLab, RGBColor } from "./color";
 
 export enum ToolType {
 	none,
@@ -123,17 +124,6 @@ export class ToolboxGlobals {
 };
 
 
-class RGBColor {
-	r: number;
-	g: number;
-	b: number;
-	constructor() {
-		this.r = 255;
-		this.g = 255;
-		this.b = 255;
-	}
-}
-
 class ColorPaletteRow {
 	color_left: RGBColor;
 	color_right: RGBColor;
@@ -226,10 +216,7 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 			else {
 				//Gradient
 				let weight = (i - gradient_begin + 1) / (gradient_count + 1);
-				let clr = new RGBColor();
-				clr.r = lerp(weight, row.color_left.r, row.color_right.r);
-				clr.g = lerp(weight, row.color_left.g, row.color_right.g);
-				clr.b = lerp(weight, row.color_left.b, row.color_right.b);
+				let clr = lerpSrgbInLab(weight, row.color_left, row.color_right)
 				cell_style.backgroundColor = rgb2hex(clr.r, clr.g, clr.b);
 
 				click_callback = () => {
