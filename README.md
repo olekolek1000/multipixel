@@ -85,18 +85,14 @@ cd web
 # Install dependencies
 npm install
 
-# Build web application
-npm run build:prod
-# or:
-npx webpack serve
+# Start web application
+npx vite serve
 ```
-
-Built web app is located in `./web/dist` directory.
 
 ### Changing server address
 
 1. `export CONNECT_URL="ws://1.2.3.4:59900"`
-2. Build web app again (commands above)
+2. Build/serve web app again (commands above)
 
 #
 
