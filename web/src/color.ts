@@ -4,10 +4,18 @@ export class RGBColor {
 	r: number;
 	g: number;
 	b: number;
+
 	constructor() {
 		this.r = 255;
 		this.g = 255;
 		this.b = 255;
+	}
+
+	clampToRange() {
+		this.r = Math.min(Math.max(this.r, 0), 255);
+		this.g = Math.min(Math.max(this.g, 0), 255);
+		this.b = Math.min(Math.max(this.b, 0), 255);
+		return this;
 	}
 }
 
@@ -78,5 +86,5 @@ export function lerpSrgbInLab(t: number, a: RGBColor, b: RGBColor): RGBColor {
 	let u = linearRgbToOklab(srgbColorToLinearRgb(a));
 	let v = linearRgbToOklab(srgbColorToLinearRgb(b));
 	let w = { l: lerp(t, u.l, v.l), a: lerp(t, u.a, v.a), b: lerp(t, u.b, v.b) };
-	return linearRgbToSrgbColor(oklabToLinearRgb(w));
+	return linearRgbToSrgbColor(oklabToLinearRgb(w)).clampToRange();
 }

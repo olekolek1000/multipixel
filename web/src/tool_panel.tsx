@@ -216,7 +216,7 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 			else {
 				//Gradient
 				let weight = (i - gradient_begin + 1) / (gradient_count + 1);
-				let clr = lerpSrgbInLab(weight, row.color_left, row.color_right)
+				let clr = lerpSrgbInLab(weight, row.color_left, row.color_right);
 				cell_style.backgroundColor = rgb2hex(clr.r, clr.g, clr.b);
 
 				click_callback = () => {
