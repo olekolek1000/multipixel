@@ -40,7 +40,7 @@ export function BoxRight(
 ) {
 	return <div style={{
 		display: "flex",
-		gap: "0.35cm",
+		gap: "16px",
 		flexWrap: nowrap ? undefined : "wrap",
 		alignItems: "center",
 	}} ref={ref}>
@@ -54,7 +54,7 @@ export function BoxDown(
 ) {
 	return <div style={{
 		display: "flex",
-		gap: nogap ? undefined : "0.35cm",
+		gap: nogap ? undefined : "16px",
 		flexWrap: nowrap ? undefined : "wrap",
 		flexDirection: "column",
 		alignItems: center_horiz ? "center" : undefined,
@@ -91,8 +91,8 @@ export function FormErrorText() {
 	if (error_msg && error_msg.length > 0) {
 		msg = <span style={{
 			fontWeight: "bold",
-			color: "#F99",
-			fontSize: "1.1em"
+			color: "#F55",
+			fontSize: "0.8em",
 		}}>{error_msg}</span>
 	}
 
@@ -148,7 +148,6 @@ export function Tooltip({ children, title }: { children: any, title: any }) {
 }
 
 
-
 export function Icon({ path }: { path: string }) {
 	return <img src={path} className={scss.icon}>
 	</img>
@@ -171,7 +170,7 @@ function getSliderParams(el: HTMLDivElement, value: number, steps?: number) {
 	value = Math.min(value, 1.0);
 	const rect = el.getBoundingClientRect();
 
-	const margin = 12.0;
+	const margin = 8.0;
 	const width = rect.width - margin * 2.0;
 	const left = rect.x + margin;
 	const right = left + width;
@@ -215,7 +214,6 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 	const ref_bar = useRef<HTMLDivElement | null>(null);
 	const [handle_shift, setHandleShift] = useState(0.0);
 	const [down, setDown] = useState(false);
-	const [line_width, setLineWidth] = useState(0.0);
 
 	useEffect(() => {
 		const el = ref_bar.current;
@@ -225,7 +223,6 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 
 		const par = getSliderParams(el, getNorm(mapped_value), steps);
 		setHandleShift(par.handle_shift);
-		setLineWidth(par.width);
 	}, [ref_bar]);
 
 	const updatePos = (mouse_x: number) => {
@@ -246,7 +243,6 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 
 		const par2 = getSliderParams(el, norm_value, steps);
 		setHandleShift(par2.handle_shift);
-		setLineWidth(par2.width);
 	}
 
 	useEffect(() => {
@@ -271,18 +267,8 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 		}
 	}, [down]);
 
-	let lines: Array<ReactNode> | undefined = undefined;
 
 	const calc_width = width ? width : 160;
-
-	if (steps !== undefined) {
-		lines = [];
-		for (let i = 0; i <= steps; i++) {
-			lines.push(<div key={i} className={scss.slider_line} style={{
-				left: ((i + (max - min) / 16.0) * (line_width / (steps))) + "px"
-			}} />);
-		}
-	}
 
 	return <div className={scss.slider_container}>
 		<div className={scss.slider}
@@ -310,7 +296,6 @@ export function Slider({ title, mapped_value, setMappedValue, width, on_change, 
 						width: handle_shift + "px"
 					}}
 				/>
-				{lines}
 				<div className={scss.slider_handle}
 					style={{
 						visibility: (ref_bar && ref_bar.current) ? "visible" : "hidden",

@@ -2,6 +2,10 @@
 
 oo8dev (2021-2025): Lead developer
 
+riki moe (2025): Frontend tips and main logo
+
+Did3n (2025): Frontend improvements
+
 KuczaRacza (2021): Database engine
 
 Firstbober (2021): Port front-end to Typescript

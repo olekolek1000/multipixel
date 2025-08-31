@@ -1,6 +1,6 @@
 import React, { type ReactNode, useEffect, useState } from "react";
 import style_login from "./login_screen.module.scss";
-import { BoxDown, Button, LabeledTextField, FormErrorText, TitleTiny } from "../../gui_custom"
+import { BoxDown, Button, LabeledTextField, FormErrorText, TitleTiny, BoxRight } from "../../gui_custom"
 import { Multipixel } from "../../multipixel";
 import { globals } from "../..";
 
@@ -67,43 +67,28 @@ export function LoginScreen({ initial_error_text }: { initial_error_text?: strin
 			<LabeledTextField required label="Username" valfunc={[username, setUsername]} onReturnPress={start} />
 			<LabeledTextField required label="Room name" valfunc={[roomName, setRoomName]} onReturnPress={start} />
 			<Button on_click={start}>Join</Button>
-			<TitleTiny>
-				BETA VERSION, branch {defines.commit_branch}, git hash {defines.commit_hash}
-			</TitleTiny>
 			{error.msg}
 		</>
 	}
 
-	const ref_video = React.useRef(null);
-	const [logo_container, setLogoContainer] = useState(
-		<video ref={ref_video} width="512" height="128" autoPlay muted playsInline={true}>
-			<source src="logo.webm" type="video/webm" />
-			Logo
-		</video>
-	);
-
-	useEffect(() => {
-		if (!ref_video.current) {
-			return;
-		}
-		const video = ref_video.current as HTMLVideoElement;
-		video.muted = true;
-
-		video.play().catch((e) => {
-			console.log("Cannot play video:", e);
-			console.log("Falling back to plain logo image");
-			setLogoContainer(<img src="logo.webp" width={512} height={128} />);
-		});
-	}, []);
 
 	return <div className={style_login.background}>
-		<BoxDown center_vert center_horiz>
-			<div className={style_login.content_box} >
-				<BoxDown>
-					{logo_container}
-					{content}
-				</BoxDown>
+		<div className={style_login.version}>
+			branch {defines.commit_branch}, git hash {defines.commit_hash}
+			<br />
+			made by oo8dev and its contributors
+		</div>
+		<div className={style_login.content_box} >
+			<div className="flex items-center gap-4 justify-center">
+				<div className={style_login.logo} />
+				<div className={style_login.title_text}>
+					MultiPixel
+					<div className={style_login.title_text_under}>
+						Draw freely.
+					</div>
+				</div>
 			</div>
-		</BoxDown>
+			{content}
+		</div>
 	</div>;
 }

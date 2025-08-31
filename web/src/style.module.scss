@@ -19,72 +19,59 @@ img {
 }
 
 .text_input_title {
-	margin-left: -0.5cm;
 	margin-right: 0.25cm;
 	padding-right: 0.25cm;
 	height: 100%;
 	width: 4cm;
 	overflow: hidden;
-	background-color: #ffffff;
 	display: flex;
 	align-items: center;
 	justify-content: right;
-	border-radius: 0.5cm 0 0 0.25cm;
+	border-radius: 8px 0px 0px 8px;
 }
 
 .text_input_label {
 	font-style: italic;
-	color: globals.$accent-color;
 	font-size: 0.75em;
-	margin-top: 0.1cm;
+	margin-top: 4px;
 	user-select: none;
-}
-
-.text_input_bg {
-	padding: 0.15cm;
-	padding-left: 0.25cm;
-	padding-right: 0.25cm;
-	border: 0;
-	border-radius: 0.5cm 0.25cm 0.5cm 0.25cm;
-	background-color: #fff;
-	display: flex;
-	align-items: center;
-	font-size: 0.75em;
-	border: 2px solid rgba(0, 0, 0, 0.2);
+	color: rgba(255, 255, 255, 0.8);
+	mix-blend-mode: lighten;
 }
 
 .text_input_labeled_bg {
-	@extend .text_input_bg;
-	margin-left: 0.5cm;
+	@extend .mp_inset;
+	padding: 0.15cm;
+	padding-left: 0.25cm;
+	padding-right: 0.25cm;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	font-size: 0.75em;
 	padding: unset;
-	padding-left: 0.5cm;
-	padding-right: 0.5cm;
-	padding-left: 0;
-	border-radius: 0 0.25cm 0.5cm 0;
-	border: unset;
 	font-size: 1.25em;
-	height: 1.5cm;
+	height: 48px;
 }
 
 .text_input {
 	appearance: none;
 	border: 0;
 	font-size: inherit;
-	color: black;
 	font-weight: 500;
 	width: 100%;
 	outline: none;
 	font-size: 1.25em;
+	background-color: transparent;
 }
 
 .text_input_labeled {
 	@extend .text_input;
 	font-size: unset;
-	color: globals.$accent-color;
+	color: #fff;
 }
 
 ::selection {
-	background-color: globals.$accent-color;
+	background-color: rgba(0, 0, 0, 0.5);
 	color: #fff;
 }
 
@@ -101,8 +88,8 @@ img {
 }
 
 .button {
-	border-radius: 0.5cm 0.25cm 0.5cm 0.25cm;
-	background-color: rgba(255, 255, 255, 0.15);
+	@extend .mp_outset;
+	border-radius: 8px;
 	display: flex;
 	justify-content: center;
 	align-items: center;
@@ -114,23 +101,21 @@ img {
 	cursor: pointer;
 	user-select: none;
 	box-sizing: border-box;
-	height: 1.5cm;
-	border: 2px solid white;
+	height: 48px;
 }
 
 .button:hover {
-	background-color: white;
-	color: globals.$accent-color;
+	background-color: rgba(255, 255, 255, 0.25);
 }
 
 .button:active {
-	background-color: white;
-	color: globals.$accent-color;
+	background-color: rgba(255, 255, 255, 0.4);
 	transform: translateY(2px);
 }
 
 .button_tool {
-	border-radius: 18px 8px;
+	@extend .mp_outset;
+	border-radius: 8px;
 	width: 48px;
 	height: 48px;
 	padding: 6px;
@@ -171,7 +156,7 @@ img {
 .icon {
 	width: 100%;
 	height: 100%;
-	color: black;
+	filter: invert(1);
 	user-select: none;
 }
 
@@ -196,15 +181,16 @@ img {
 }
 
 .tooltip {
+	@extend .mp_outset;
+	background-color: rgba(0, 0, 0, 0.8);
 	position: absolute;
 	z-index: 10;
-	border-radius: 0px 12px 24px 0px;
+	border-radius: 0px 8px 8px 0px;
 	padding-left: 16px;
 	padding-right: 16px;
 	padding-top: 4px;
 	padding-bottom: 4px;
 	backdrop-filter: blur(24px);
-	background-color: rgba(255, 255, 255, 0.3);
 	display: flex;
 	justify-content: center;
 	align-items: center;
@@ -217,14 +203,6 @@ img {
 	transform-origin: 0% 50%;
 }
 
-.slider_line {
-	height: 12px;
-	position: absolute;
-	width: 2px;
-	background-color: rgba(255, 255, 255, 0.5);
-	transform: rotate(10deg); // this looks cool
-}
-
 .slider_container {
 	display: flex;
 	flex-direction: row;
@@ -233,7 +211,7 @@ img {
 }
 
 .slider {
-	height: 28px;
+	height: 24px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -246,16 +224,16 @@ img {
 	font-size: 12px;
 	font-weight: 900;
 	color: #fff;
-	left: 0;
-	transform: translateX(-50%);
+	transform: translateX(-62%) translateY(1px);
 	text-shadow: 1px 1px black;
 }
 
 .slider_bar {
+	@extend .mp_outset;
+	box-sizing: content-box;
 	width: 100%;
 	height: 10px;
 	border-radius: 16px;
-	border: 2px solid rgb(0, 0, 0);
 	position: relative;
 	background-color: rgba(0, 0, 0, 0.5);
 }
@@ -282,4 +260,16 @@ img {
 	background-color: globals.$accent-color;
 	border: 2px solid black;
 	box-shadow: 0px 1px 3px black;
+}
+
+.float_container {
+	@extend .mp_outset;
+	//+ " /85 backdrop-blur-lg rounded-2xl shadow-edge-shadow border-4 border-background/30 z-50
+	border-radius: 8px;
+	background-color: rgba(0, 0, 0, 0.8);
+	color: #fff;
+}
+
+input {
+	color: #fff;
 }

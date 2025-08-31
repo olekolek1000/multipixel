@@ -4,25 +4,25 @@
 //       so every nickname has a unique color
 
 const COLOR_LIST = [
-    "#6a4a0d",
-    "#2d6099",
-    "#8953aa",
-    "#267c22",
-    "#580d11",
-    "#513188"
+	"#ffbe46ff",
+	"#59a6ffff",
+	"#cf81ffff",
+	"#71ff69ff",
+	"#ff5961ff",
+	"#9c62ffff"
 ]
 
 const hashString = (str: string) =>
-    str.split('')
-        .reduce((hash, char) => {
-            hash = char.charCodeAt(0) + ((hash << 5) - hash);
-            return hash & hash; // Convert to 32bit integer
-        }, 0);
+	str.split('')
+		.reduce((hash, char) => {
+			hash = char.charCodeAt(0) + ((hash << 5) - hash);
+			return hash & hash; // Convert to 32bit integer
+		}, 0);
 
 export const getCssColorForName = (str: string): string => {
-    const hash = hashString(str);
+	const hash = hashString(str);
 
-    const index = Math.abs(hash) % COLOR_LIST.length;
-    
-    return COLOR_LIST[index];
+	const index = Math.abs(hash) % COLOR_LIST.length;
+
+	return COLOR_LIST[index];
 }

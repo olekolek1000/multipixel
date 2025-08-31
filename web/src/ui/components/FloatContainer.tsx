@@ -1,12 +1,13 @@
 import type { FC, ReactNode } from "react";
+import style from "@/style.module.scss"
 
 interface FloatContainerProps {
-    children: ReactNode;
-    className?: string;
+	children: ReactNode;
+	className?: string;
 }
 
-export const FloatContainer: FC<FloatContainerProps> = ({ children, className }) =>  (
-    <div className={"bg-background/85 backdrop-blur-lg rounded-2xl shadow-edge-shadow border-4 border-background/30 z-50 " + (className ?? "")}>
-        {children}
-    </div>
+export const FloatContainer: FC<FloatContainerProps> = ({ children, className }) => (
+	<div className={"" + style.float_container + " " + (className ?? "")}>
+		{children}
+	</div>
 );

@@ -21,21 +21,21 @@ export interface ChatInputProps {
 	onReturnPress?: () => void
 }
 
-export const ChatInput: FC<ChatInputProps> = ({ value, onChange, onReturnPress }) =>  {
+export const ChatInput: FC<ChatInputProps> = ({ value, onChange, onReturnPress }) => {
 	const [placeholder] = useState(getRandomPlaceholder());
 
 	return (
 		<FloatContainer className="flex p-0 mt-2 w-full">
 			<Input
 				className="focus:outline-none w-full py-1"
-				style={{ background: "none", border: "none"}}
+				style={{ background: "none", border: "none" }}
 				placeholder={placeholder}
 				value={value}
 				onChange={e => onChange(e.target.value)}
 				onKeyDown={(e) => {
 					if (e.key == "Enter")
 						onReturnPress?.();
-				}} 
+				}}
 			/>
 		</FloatContainer>
 	)

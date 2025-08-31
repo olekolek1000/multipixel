@@ -1,17 +1,51 @@
 @use "../../globals.scss";
 
 .background {
-	background-color: globals.$accent-color;
 	width: 100%;
 	min-height: 100vh;
 	display: flex;
+	align-items: center;
 	justify-content: center;
+
+	background-color: #000;
+	background-image: url("../../assets/background.webp");
+	background-size: cover;
+	background-position: center;
 }
 
 .content_box {
-	padding: 0.75cm;
-	padding-left: 1.5cm;
-	padding-right: 1.5cm;
-	border-radius: 1cm 0.5cm 1cm 0.5cm;
-	border: 2px solid white;
+	padding: 24px;
+	border-radius: 16px;
+	background-color: rgba(50, 80, 100, 0.5);
+	backdrop-filter: blur(32px);
+	height: fit-content;
+	display: flex;
+	gap: 16px;
+	flex-direction: column;
+
+	@extend .mp_outset;
+}
+
+.title_text {
+	font-size: 32px;
+}
+.title_text_under {
+	font-size: 16px;
+}
+
+.logo {
+	background-image: url("../../assets/logo.svg");
+	width: 80px;
+	height: 80px;
+	background-size: contain;
+}
+
+.version {
+	position: fixed;
+	right: 0;
+	bottom: 0;
+	margin: 8px;
+	font-size: 0.9em;
+	text-align: right;
+	line-height: 150%;
 }

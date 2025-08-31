@@ -1,30 +1,35 @@
 @use "globals.scss";
 
 .color_palette {
-	@extend .panel2;
 	padding: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.cs_rows {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
 }
 
 .row {
 	display: flex;
+	gap: 2px;
 }
 
 .cell,
 .control {
-	width: 24px;
+	width: 16px;
 	height: 16px;
+	border-radius: 8px;
 	user-select: none;
 	outline: 1px solid rgba(0, 0, 0, 0.4);
 }
 
 .control {
-	width: 16px;
-	height: 20px;
 	background-color: rgb(220, 220, 220);
 	color: #333;
-	margin-left: 2px;
-	margin-top: 2px;
-	padding-left: 2px;
 	cursor: pointer;
 }
 
@@ -35,15 +40,16 @@
 }
 
 .cs_buttons {
-	@extend .panel_appearance;
+	@extend .mp_outset;
 	display: flex;
 	flex-direction: row;
 	flex-grow: 1;
 	justify-content: center;
+	border-radius: 4px;
 }
 
 .cs_button {
-	@extend .panel_appearance;
+	@extend .mp_outset;
 	width: 16px;
 	height: 16px;
 	margin: 2px;
@@ -55,18 +61,15 @@
 }
 
 .cell_selected {
-	border-bottom: 4px solid black;
-	outline: 2px solid white;
-	height: 12px;
-	outline-offset: -2px;
+	transform: scale(1.5);
+	outline: 2px solid black;
 }
 
 .cell_small {
-	width: 10px;
+	width: 16px;
 }
 
 .tool_settings_parent {
-	@extend .panel2;
 	display: flex;
 	flex-direction: column;
 	justify-content: center;

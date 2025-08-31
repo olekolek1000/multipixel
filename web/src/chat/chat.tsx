@@ -64,8 +64,7 @@ export function ChatRender({ chat }: { chat?: Chat }) {
 	}, [chatHistory]);
 
 	return (
-		<div className="fixed bottom-4 left-4 w-full max-w-xs p-2">
-
+		<div className="fixed bottom-2 left-2 w-full max-w-xs p-2">
 			{!!chatHistory.length &&
 				<FloatContainer className="w-full">
 					<div ref={ref_history} className="max-h-64 flex flex-col overflow-y-scroll overflow-x-visible scroll-smooth">

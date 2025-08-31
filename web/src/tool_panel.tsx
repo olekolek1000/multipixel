@@ -19,81 +19,133 @@ export enum ToolType {
 	line,
 }
 
+interface ColorPaletteState {
+	column_count: number;
+	row_count: number;
+	rows: Array<ColorPaletteRow>;
+	selected_row: number;
+	selected_column: number;
+}
+
 export class ColorPaletteGlobals {
 	multipixel!: Multipixel;
 	toolbox_globals!: ToolboxGlobals;
 
-	column_count: number = 0;
-	row_count: number = 0;
-	rows = new Array<ColorPaletteRow>();
+	state: ColorPaletteState;
 
-	selected_row: number = 0;
-	selected_column: number = 0;
+	saveState() {
+		const json = JSON.stringify(this.state);
+		localStorage.setItem("color_selector", json);
+	}
+
+	loadState(): boolean {
+		const json = localStorage.getItem("color_selector");
+		if (json === null) {
+			return false;
+		}
+
+		this.state = JSON.parse(json);
+		return true;
+	}
 
 	constructor(toolbox_globals: ToolboxGlobals, multipixel: Multipixel) {
 		this.toolbox_globals = toolbox_globals;
 		this.multipixel = multipixel;
 
-		this.setColumnCount(10);
-		this.setRowCount(4);
+		this.state = {
+			column_count: 10,
+			row_count: 4,
+			rows: [],
+			selected_column: 0,
+			selected_row: 0
+		};
 
-		let clr = new RGBColor();
-		clr.r = 255;
-		clr.g = 0;
-		clr.b = 0;
-		this.rows[0].color_left = clr;
-		this.setSelected(0, 0, clr);
+
+
+		if (!this.loadState()) {
+			this.setRowCount(4);
+			this.setColumnCount(10);
+
+			// default colors
+			this.state.rows[0].color_left = { r: 255, g: 0, b: 0 } as RGBColor;
+			this.state.rows[0].color_right = { r: 0, g: 255, b: 0 } as RGBColor;
+
+			this.state.rows[1].color_left = { r: 0, g: 0, b: 255 } as RGBColor;
+			this.state.rows[1].color_right = { r: 0, g: 255, b: 0 } as RGBColor;
+
+			this.state.rows[2].color_left = { r: 255, g: 0, b: 255 } as RGBColor;
+			this.state.rows[2].color_right = { r: 0, g: 255, b: 0 } as RGBColor;
+
+			this.state.rows[3].color_left = { r: 0, g: 0, b: 0 } as RGBColor;
+			this.state.rows[3].color_right = { r: 255, g: 255, b: 255 } as RGBColor;
+		}
+
+		const cur_row = this.state.rows[this.state.selected_row];
+		this.setSelectedAndSend(this.state.selected_row, this.state.selected_column, this.state.selected_column < this.state.column_count ? cur_row.color_left : cur_row.color_right);
+		this.refreshList();
 	}
 
-	setSelected(row: number, column: number, color: RGBColor) {
-		this.selected_row = row;
-		this.selected_column = column;
+	setSelectedAndSend(row: number, column: number, color: RGBColor) {
+		this.state.selected_row = row;
+		this.state.selected_column = column;
 		const instance = this.multipixel.room_instance;
 		if (instance.state) {
 			instance.state.client.socketSendBrushColor(color.r, color.g, color.b);
 		}
 		this.refreshList();
+		this.saveState();
 	}
 
 	setColumnCount(count: number) {
 		if (count < 2) count = 2;
 		if (count > 30) count = 30;
-		this.column_count = count;
+		this.state.column_count = count;
 		this.refreshList();
+		this.saveState();
 	}
 
 	setRowCount(count: number) {
 		if (count < 1) count = 1;
 		if (count > 20) count = 20;
-		this.row_count = count;
+		this.state.row_count = count;
 		this.refreshList();
+		this.saveState();
 	}
 
 	refreshList() {
-		while (this.rows.length < this.row_count)
-			this.rows.push(new ColorPaletteRow(this.rows.length));
+		const state = this.state;
+		while (state.rows.length < state.row_count) {
+			state.rows.push(new ColorPaletteRow(state.rows.length));
+		}
 
-		while (this.rows.length > this.row_count)
-			this.rows.pop();
+		while (state.rows.length > state.row_count) {
+			state.rows.pop();
+		}
 
 		this.toolbox_globals.setKeyPalette(this.toolbox_globals.key_palette + 1);
 	}
 
 	setColor(color: RGBColor) {
+		const state = this.state;
+
 		let first = true;
-		let row = this.selected_row;
+		let row = state.selected_row;
 		let column = 0;
 
-		if (this.selected_column > this.column_count / 2) {
-			column = this.column_count - 1;
+		if (state.selected_column > state.column_count / 2) {
+			column = state.column_count - 1;
 			first = false;
 		}
 
-		if (first)
-			this.rows[row].color_left = color;
-		else
-			this.rows[row].color_right = color;
-		this.setSelected(row, column, color);
+		if (first) {
+			state.rows[row].color_left = color;
+		}
+		else {
+			state.rows[row].color_right = color;
+		}
+		this.setSelectedAndSend(row, column, color);
+
+		this.saveState();
 	}
 }
 
@@ -145,83 +197,80 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 
 	let rows = new Array<ReactNode>();
 
-	for (let row of cp.rows) {
-		let gradient_count = cp.column_count - 2;
+	const state = cp.state;
+
+	for (let row of state.rows) {
+		let gradient_count = state.column_count - 2;
 		let gradient_begin = 1;
 
 		let columns = new Array<ReactNode>();
 
-		for (let i = 0; i < cp.column_count; i++) {
+		for (let i = 0; i < state.column_count; i++) {
 			let class_name = style_toolbox.cell;
 
-			let big = i == 0 || i == cp.column_count - 1;
-			let first = i == 0;
+			let big = i == 0 || i == state.column_count - 1;
+			let is_first = i == 0;
 
-			if (!big)
+			if (!big) {
 				class_name += " " + style_toolbox.cell_small;
+			}
 
-			if (cp.selected_row == row.row_index && cp.selected_column == i)
+			if (state.selected_row == row.row_index && state.selected_column == i) {
 				class_name += " " + style_toolbox.cell_selected;
+			}
 
 			let cell_style: any = {};
 
-			let click_callback: () => void;
+			let to_modify = i < state.column_count / 2 ? row.color_left : row.color_right;
+			const click_callback = () => {
+				if (state.selected_column == i && state.selected_row == row.row_index) {
+					//Run color selector
+					if (!toolbox_globals.picker)
+						toolbox_globals.picker = new Picker({
+							parent: document.getElementById("root")!,
+							popup: "bottom",
+							alpha: false,
+							editor: true
+						});
+
+					let picker = toolbox_globals.picker;
+
+					picker.movePopup({ parent: document.getElementById("root")! }, true);
+
+					picker.setColor(rgb2hex(to_modify.r, to_modify.g, to_modify.b), true);
+
+					picker.onChange = (color) => {
+						to_modify.r = color.rgba[0];
+						to_modify.g = color.rgba[1];
+						to_modify.b = color.rgba[2];
+						cp.setSelectedAndSend(row.row_index, i, to_modify);
+						cp.refreshList();
+					};
+
+					picker.onClose = () => {
+						picker.destroy();
+						delete toolbox_globals.picker;
+						toolbox_globals.picker = undefined;
+					}
+				}
+				else {
+					//Select color
+					cp.setSelectedAndSend(row.row_index, i, to_modify);
+				}
+			};
 
 			if (big) {
 				let color_str;
-				if (first) color_str = rgb2hex(row.color_left.r, row.color_left.g, row.color_left.b);
+				if (is_first) color_str = rgb2hex(row.color_left.r, row.color_left.g, row.color_left.b);
 				else color_str = rgb2hex(row.color_right.r, row.color_right.g, row.color_right.b);
 
 				cell_style.backgroundColor = color_str;
-
-				let mod = first ? row.color_left : row.color_right;
-
-				click_callback = () => {
-					if (cp.selected_column == i && cp.selected_row == row.row_index) {
-						//Run color selector
-						if (!toolbox_globals.picker)
-							toolbox_globals.picker = new Picker({
-								parent: document.getElementById("root")!,
-								popup: "bottom",
-								alpha: false,
-								editor: true
-							});
-
-						let picker = toolbox_globals.picker;
-
-						picker.movePopup({ parent: document.getElementById("root")! }, true);
-
-						picker.setColor(rgb2hex(mod.r, mod.g, mod.b), true);
-
-						picker.onChange = (color) => {
-							mod.r = color.rgba[0];
-							mod.g = color.rgba[1];
-							mod.b = color.rgba[2];
-							cp.setSelected(row.row_index, i, mod);
-							cp.refreshList();
-						};
-
-						picker.onClose = () => {
-							picker.destroy();
-							delete toolbox_globals.picker;
-							toolbox_globals.picker = undefined;
-						}
-					}
-					else {
-						//Select color
-						cp.setSelected(row.row_index, i, mod);
-					}
-				};
 			}
 			else {
 				//Gradient
 				let weight = (i - gradient_begin + 1) / (gradient_count + 1);
 				let clr = lerpSrgbInLab(weight, row.color_left, row.color_right);
 				cell_style.backgroundColor = rgb2hex(clr.r, clr.g, clr.b);
-
-				click_callback = () => {
-					cp.setSelected(row.row_index, i, clr);
-				};
 			}
 
 			columns.push(<div className={class_name} style={cell_style} onClick={click_callback} key={i}>
@@ -234,30 +283,30 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 	}
 
 	return <div className={style_toolbox.color_palette}>
-		<div>
+		<div className={style_toolbox.cs_rows}>
 			{rows}
 		</div>
 		<div className={style_toolbox.cs_buttons_pair}>
 			<div className={style_toolbox.cs_buttons}>
 				<div className={style_toolbox.cs_button} onClick={() => {
-					cp.setColumnCount(cp.column_count + 1);
+					cp.setColumnCount(state.column_count + 1);
 				}}>
 					<Icon path="img/tool/plus.svg" />
 				</div>
 				<div className={style_toolbox.cs_button} onClick={() => {
-					cp.setColumnCount(cp.column_count - 1);
+					cp.setColumnCount(state.column_count - 1);
 				}}>
 					<Icon path="img/tool/minus.svg" />
 				</div>
 			</div>
 			<div className={style_toolbox.cs_buttons}>
 				<div className={style_toolbox.cs_button} onClick={() => {
-					cp.setRowCount(cp.row_count + 1);
+					cp.setRowCount(state.row_count + 1);
 				}}>
 					<Icon path="img/tool/plus.svg" />
 				</div>
 				<div className={style_toolbox.cs_button} onClick={() => {
-					cp.setRowCount(cp.row_count - 1);
+					cp.setRowCount(state.row_count - 1);
 				}}>
 					<Icon path="img/tool/minus.svg" />
 				</div>
