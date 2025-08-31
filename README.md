@@ -12,7 +12,7 @@ Server written in Rust (formerly in C++, see "cpp" tag), client written in Types
 
 <center>
 
-![Preview](contrib/preview.webp)
+![Preview](contrib/preview.png)
 
 ![Menu screen](contrib/menu.webp)
 
@@ -67,6 +67,7 @@ Tools:
 Build commands:
 
 ```bash
+mkdir rooms
 cargo run
 ```
 
