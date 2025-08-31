@@ -208,10 +208,10 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 		for (let i = 0; i < state.column_count; i++) {
 			let class_name = style_toolbox.cell;
 
-			let big = i == 0 || i == state.column_count - 1;
+			let is_first_or_last = i == 0 || i == state.column_count - 1;
 			let is_first = i == 0;
 
-			if (!big) {
+			if (!is_first_or_last) {
 				class_name += " " + style_toolbox.cell_small;
 			}
 
@@ -255,15 +255,22 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 				}
 				else {
 					//Select color
-					cp.setSelectedAndSend(row.row_index, i, to_modify);
+					if (is_first_or_last) {
+						cp.setSelectedAndSend(row.row_index, i, to_modify);
+					}
+					else {
+						//Gradient
+						let weight = (i - gradient_begin + 1) / (gradient_count + 1);
+						let clr = lerpSrgbInLab(weight, row.color_left, row.color_right);
+						cp.setSelectedAndSend(row.row_index, i, clr);
+					}
 				}
 			};
 
-			if (big) {
+			if (is_first_or_last) {
 				let color_str;
 				if (is_first) color_str = rgb2hex(row.color_left.r, row.color_left.g, row.color_left.b);
 				else color_str = rgb2hex(row.color_right.r, row.color_right.g, row.color_right.b);
-
 				cell_style.backgroundColor = color_str;
 			}
 			else {
