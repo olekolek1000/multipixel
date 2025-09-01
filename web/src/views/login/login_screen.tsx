@@ -1,6 +1,6 @@
-import React, { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import style_login from "./login_screen.module.scss";
-import { BoxDown, Button, LabeledTextField, FormErrorText, TitleTiny, BoxRight } from "../../gui_custom"
+import { Button, LabeledTextField, FormErrorText, TitleTiny } from "../../gui_custom"
 import { Multipixel } from "../../multipixel";
 import { globals } from "../..";
 

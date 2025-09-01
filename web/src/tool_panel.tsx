@@ -3,9 +3,8 @@ import { Icon, Slider } from "./gui_custom";
 import style_toolbox from "./toolbox.module.scss"
 import style_room from "./views/canvas/room_screen.module.scss";
 import { Multipixel, rgb2hex } from "./multipixel"
-import { lerp } from "./timestep";
 import Picker from "vanilla-picker";
-import { lerpSrgbInLab, RGBColor } from "./color";
+import { color } from "./color";
 
 export enum ToolType {
 	none,
@@ -67,17 +66,17 @@ export class ColorPaletteGlobals {
 			this.setColumnCount(10);
 
 			// default colors
-			this.state.rows[0].color_left = { r: 255, g: 0, b: 0 } as RGBColor;
-			this.state.rows[0].color_right = { r: 0, g: 255, b: 0 } as RGBColor;
+			this.state.rows[0].color_left = { r: 255, g: 0, b: 0 };
+			this.state.rows[0].color_right = { r: 0, g: 255, b: 0 };
 
-			this.state.rows[1].color_left = { r: 0, g: 0, b: 255 } as RGBColor;
-			this.state.rows[1].color_right = { r: 0, g: 255, b: 0 } as RGBColor;
+			this.state.rows[1].color_left = { r: 0, g: 0, b: 255 };
+			this.state.rows[1].color_right = { r: 0, g: 255, b: 0 };
 
-			this.state.rows[2].color_left = { r: 255, g: 0, b: 255 } as RGBColor;
-			this.state.rows[2].color_right = { r: 0, g: 255, b: 0 } as RGBColor;
+			this.state.rows[2].color_left = { r: 255, g: 0, b: 255 };
+			this.state.rows[2].color_right = { r: 0, g: 255, b: 0 };
 
-			this.state.rows[3].color_left = { r: 0, g: 0, b: 0 } as RGBColor;
-			this.state.rows[3].color_right = { r: 255, g: 255, b: 255 } as RGBColor;
+			this.state.rows[3].color_left = { r: 0, g: 0, b: 0 };
+			this.state.rows[3].color_right = { r: 255, g: 255, b: 255 };
 		}
 
 		const cur_row = this.state.rows[this.state.selected_row];
@@ -85,7 +84,7 @@ export class ColorPaletteGlobals {
 		this.refreshList();
 	}
 
-	setSelectedAndSend(row: number, column: number, color: RGBColor) {
+	setSelectedAndSend(row: number, column: number, color: color.Rgb) {
 		this.state.selected_row = row;
 		this.state.selected_column = column;
 		const instance = this.multipixel.room_instance;
@@ -125,7 +124,7 @@ export class ColorPaletteGlobals {
 		this.toolbox_globals.setKeyPalette(this.toolbox_globals.key_palette + 1);
 	}
 
-	setColor(color: RGBColor) {
+	setColor(color: color.Rgb) {
 		const state = this.state;
 
 		let first = true;
@@ -177,14 +176,14 @@ export class ToolboxGlobals {
 
 
 class ColorPaletteRow {
-	color_left: RGBColor;
-	color_right: RGBColor;
+	color_left: color.Rgb;
+	color_right: color.Rgb;
 	row_index: number;
 
 	constructor(row_index: number) {
 		this.row_index = row_index;
-		this.color_left = new RGBColor;
-		this.color_right = new RGBColor;
+		this.color_left = color.getWhite();
+		this.color_right = color.getWhite();
 	}
 }
 
@@ -261,7 +260,7 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 					else {
 						//Gradient
 						let weight = (i - gradient_begin + 1) / (gradient_count + 1);
-						let clr = lerpSrgbInLab(weight, row.color_left, row.color_right);
+						let clr = color.lerpSrgbInLab(weight, row.color_left, row.color_right);
 						cp.setSelectedAndSend(row.row_index, i, clr);
 					}
 				}
@@ -276,7 +275,7 @@ function ColorPalette({ toolbox_globals }: { toolbox_globals: ToolboxGlobals }) 
 			else {
 				//Gradient
 				let weight = (i - gradient_begin + 1) / (gradient_count + 1);
-				let clr = lerpSrgbInLab(weight, row.color_left, row.color_right);
+				let clr = color.lerpSrgbInLab(weight, row.color_left, row.color_right);
 				cell_style.backgroundColor = rgb2hex(clr.r, clr.g, clr.b);
 			}
 
