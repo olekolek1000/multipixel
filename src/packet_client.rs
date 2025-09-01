@@ -15,6 +15,7 @@ pub enum ToolType {
 	SmoothBrush = 5,
 	SquareBrush = 6,
 	Line = 7,
+	Eraser = 8,
 }
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]

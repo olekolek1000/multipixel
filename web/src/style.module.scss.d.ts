@@ -19,7 +19,6 @@ declare const classNames: {
   readonly text_big: "text_big";
   readonly button_tool_highlighted: "button_tool_highlighted";
   readonly icon: "icon";
-  readonly cursor_pos: "cursor_pos";
   readonly slider_container: "slider_container";
   readonly slider: "slider";
   readonly slider_value: "slider_value";

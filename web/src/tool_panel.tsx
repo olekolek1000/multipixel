@@ -11,6 +11,7 @@ export enum ToolType {
 	brush,
 	square_brush,
 	smooth_brush,
+	eraser,
 	spray,
 	floodfill,
 	blur,
@@ -387,14 +388,20 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 	globals.setKeyPalette = setKeyPalette;
 
 	let tool_settings = undefined;
+	let color_palette = undefined;
 
 	if (tool_type == ToolType.none) {
 		return <></>;
 	}
 
+	if (tool_type != ToolType.eraser) {
+		color_palette = <ColorPalette toolbox_globals={globals} key={key_palette} />
+	}
+
 	switch (tool_type) {
 		case ToolType.brush:
-		case ToolType.square_brush: {
+		case ToolType.square_brush:
+		case ToolType.eraser: {
 			tool_settings = <ToolList>
 				<ToolSize max={32} globals={globals} />
 				<ToolSmoothing globals={globals} />
@@ -428,7 +435,7 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 
 
 	return <div className={style_room.tool_panel}>
-		<ColorPalette toolbox_globals={globals} key={key_palette} />
+		{color_palette}
 		{tool_settings}
 	</div>
 }

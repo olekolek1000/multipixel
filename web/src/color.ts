@@ -14,8 +14,8 @@ export namespace color {
 	function clampToRange(input: Rgb): Rgb {
 		return {
 			r: Math.min(Math.max(input.r, 0), 255),
-			g: Math.min(Math.max(input.r, 0), 255),
-			b: Math.min(Math.max(input.r, 0), 255),
+			g: Math.min(Math.max(input.g, 0), 255),
+			b: Math.min(Math.max(input.b, 0), 255),
 		};
 	}
 

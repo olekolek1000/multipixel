@@ -199,6 +199,13 @@ pub struct SessionInstance {
 	serial_generator: SerialGenerator,
 }
 
+#[derive(Eq, PartialEq)]
+enum UpdateBrushType {
+	NormalBrush,
+	SquareBrush,
+	Eraser,
+}
+
 impl SessionInstance {
 	pub fn new(cancel_token: CancellationToken) -> Self {
 		let notifier = Arc::new(Notify::new());
@@ -454,8 +461,21 @@ impl SessionInstance {
 	async fn update_cursor(&mut self, refs: &RoomRefs, session_handle: &SessionHandle) {
 		if let Some(tool_type) = &self.tool.tool_type {
 			match tool_type {
-				packet_client::ToolType::Brush => self.update_cursor_brush(refs, false).await,
-				packet_client::ToolType::SquareBrush => self.update_cursor_brush(refs, true).await,
+				packet_client::ToolType::Brush => {
+					self
+						.update_cursor_brush(refs, UpdateBrushType::NormalBrush)
+						.await;
+				}
+				packet_client::ToolType::SquareBrush => {
+					self
+						.update_cursor_brush(refs, UpdateBrushType::SquareBrush)
+						.await;
+				}
+				packet_client::ToolType::Eraser => {
+					self
+						.update_cursor_brush(refs, UpdateBrushType::Eraser)
+						.await;
+				}
 				packet_client::ToolType::Line => self.update_cursor_line(refs, session_handle).await,
 				packet_client::ToolType::SmoothBrush => self.update_cursor_smooth_brush(refs).await,
 				packet_client::ToolType::Spray => self.update_cursor_spray(refs).await,
@@ -581,7 +601,7 @@ impl SessionInstance {
 		}
 	}
 
-	async fn update_cursor_brush(&mut self, refs: &RoomRefs, square: bool) {
+	async fn update_cursor_brush(&mut self, refs: &RoomRefs, brush_type: UpdateBrushType) {
 		let (tool_size, iter, step) = {
 			let mut state = self.state();
 
@@ -604,15 +624,17 @@ impl SessionInstance {
 			(tool_size, iter, step)
 		};
 
+		let is_square = brush_type == UpdateBrushType::SquareBrush;
+
 		let mut brush_shapes = refs.brush_shapes_mtx.lock().await;
 		let mut pixels: Vec<GlobalPixelRGBA> = Vec::new();
-		let shape_filled = if square {
+		let shape_filled = if is_square {
 			brush_shapes.get_square_filled(tool_size)
 		} else {
 			brush_shapes.get_circle_filled(tool_size)
 		};
 
-		let shape_outline = if square {
+		let shape_outline = if is_square {
 			brush_shapes.get_square_outline(tool_size)
 		} else {
 			brush_shapes.get_circle_outline(tool_size)
@@ -624,7 +646,11 @@ impl SessionInstance {
 				continue;
 			}
 
-			let tool_color = self.tool.color.rgba(255);
+			let tool_color = if brush_type != UpdateBrushType::Eraser {
+				self.tool.color.rgba(255)
+			} else {
+				ColorRGBA::new(255, 255, 255, 0)
+			};
 
 			match tool_size {
 				1 => GlobalPixelRGBA::insert_to_vec(&mut pixels, line.pos.x, line.pos.y, tool_color),
@@ -1534,7 +1560,9 @@ impl SessionInstance {
 		match tool_type {
 			packet_client::ToolType::Fill => 0,
 			packet_client::ToolType::Line => self.tool.size.min(limits::TOOL_SIZE_LINE_MAX),
-			packet_client::ToolType::Brush => self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX),
+			packet_client::ToolType::Brush | packet_client::ToolType::Eraser => {
+				self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX)
+			}
 			packet_client::ToolType::SmoothBrush => {
 				self.tool.size.min(limits::TOOL_SIZE_SMOOTH_BRUSH_MAX)
 			}

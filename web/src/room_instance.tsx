@@ -8,7 +8,6 @@ import { lerp } from "./timestep";
 import tool from "./tool";
 import type { ToolboxGlobals } from "./tool_panel";
 import { RoomScreen, type RoomScreenGlobals, type RoomScreenRefs } from "./views/canvas/room_screen";
-import style from "./style.module.scss"
 import type { ConnectParams } from "./multipixel";
 import { globals } from ".";
 
@@ -212,7 +211,7 @@ export class RoomInstance {
 
 		state.client.socketSendCursorPos(smooth ? cursor.canvas_x_smooth : cursor.canvas_x, smooth ? cursor.canvas_y_smooth : cursor.canvas_y);
 
-		this.room_screen_globals.setMousePosText(<span className={style.cursor_pos} > {"X " + cursor.canvas_x} < br /> {"Y " + cursor.canvas_y} </span>);
+		this.room_screen_globals.setTextCursorPosition("X " + cursor.canvas_x + " Y " + cursor.canvas_y);
 
 		if (cursor.down_right) {
 			//Scroll

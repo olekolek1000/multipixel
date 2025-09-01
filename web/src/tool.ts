@@ -8,6 +8,7 @@ export namespace tool {
 		SmoothBrush = 5,
 		SquareBrush = 6,
 		Line = 7,
+		Eraser = 8,
 	}
 
 	export function supportsSmoothing(id: ToolID) {
@@ -17,6 +18,7 @@ export namespace tool {
 			case ToolID.SquareBrush:
 			case ToolID.Spray:
 			case ToolID.Blur:
+			case ToolID.Eraser:
 			case ToolID.Smudge: {
 				return true;
 			}

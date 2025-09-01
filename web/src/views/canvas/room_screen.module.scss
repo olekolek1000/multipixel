@@ -43,3 +43,17 @@
 	gap: 4px;
 	backdrop-filter: blur(16px);
 }
+
+.bottom_text {
+	@extend .mp_outset;
+	position: absolute;
+	bottom: 8px;
+	right: 8px;
+	display: flex;
+	flex-direction: column;
+	text-shadow: 1px 1px black;
+	font-size: 0.75em;
+	background-color: rgba(0, 0, 0, 0.5);
+	padding: 4px 8px;
+	border-radius: 4px;
+}
