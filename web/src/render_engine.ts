@@ -23,6 +23,17 @@ const text_fs_solid = `
 	}
 `;
 
+const text_fs_colored = `
+	precision highp float;
+	varying vec2 UV;
+
+	uniform sampler2D tex;
+	uniform vec4 COLOR;
+
+	void main() {
+		gl_FragColor = texture2D(tex, UV) * COLOR;
+	}
+`;
 
 function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 	const shader = gl.createShader(type);
@@ -43,26 +54,27 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 	return shader;
 }
 
-function initShaderProgram(gl: WebGL2RenderingContext, source_vs: string, source_fs: string) {
-	const vertexShader = loadShader(gl, gl.VERTEX_SHADER, source_vs);
-	const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, source_fs);
+function initShaderProgram(gl: WebGL2RenderingContext, source_vs: string, source_fs: string): WebGLProgram {
+	const vertex_shader = loadShader(gl, gl.VERTEX_SHADER, source_vs);
+	const fragment_shader = loadShader(gl, gl.FRAGMENT_SHADER, source_fs);
 
-	if (!vertexShader || !fragmentShader)
-		return null;
-
-	const shaderProgram = gl.createProgram();
-	if (!shaderProgram)
-		return null;
-
-	gl.attachShader(shaderProgram, vertexShader);
-	gl.attachShader(shaderProgram, fragmentShader);
-	gl.linkProgram(shaderProgram);
-	if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-		console.log("Failed to initialize shader program: " + gl.getProgramInfoLog(shaderProgram));
-		return null;
+	if (!vertex_shader || !fragment_shader) {
+		throw new Error("loadShader failed");
 	}
 
-	return shaderProgram;
+	const shader_program = gl.createProgram();
+	if (!shader_program) {
+		throw new Error("glCreateProgram failed");
+	}
+
+	gl.attachShader(shader_program, vertex_shader);
+	gl.attachShader(shader_program, fragment_shader);
+	gl.linkProgram(shader_program);
+	if (!gl.getProgramParameter(shader_program, gl.LINK_STATUS)) {
+		throw new Error("Failed to initialize shader program: " + gl.getProgramInfoLog(shader_program));
+	}
+
+	return shader_program;
 }
 
 class RObject {
@@ -113,20 +125,28 @@ function initBufferQuad(gl: WebGL2RenderingContext): RObject {
 }
 
 class Shader {
-	program: WebGLProgram | null;
-	uniform_p;
-	uniform_m;
+	program: WebGLProgram;
+	uniform_p: WebGLUniformLocation;
+	uniform_m: WebGLUniformLocation;
 
 	constructor(gl: WebGL2RenderingContext, source_vs: string, source_fs: string) {
 		this.program = initShaderProgram(gl, source_vs, source_fs);
-		if (!this.program)
-			return;
 		this.uniform_p = this.createUniform(gl, "P");
 		this.uniform_m = this.createUniform(gl, "M");
 	}
 
 	createUniform(gl: WebGL2RenderingContext, name: string) {
-		return gl.getUniformLocation(this.program!, name);
+		if (!this.program) {
+			throw new Error("Shader program not initialized");
+		}
+
+		const uniform = gl.getUniformLocation(this.program, name);
+
+		if (uniform === null) {
+			throw new Error("Shader uniform \"" + name + "\" not found");
+		}
+
+		return uniform;
 	}
 
 	bind(gl: WebGL2RenderingContext) {
@@ -139,6 +159,26 @@ class Shader {
 
 	setP(gl: WebGL2RenderingContext, p: any) {
 		gl.uniformMatrix4fv(this.uniform_p!, false, p);
+	}
+}
+
+class ShaderSolid extends Shader {
+	constructor(gl: WebGL2RenderingContext) {
+		super(gl, text_vs_standard, text_fs_solid);
+	}
+}
+
+class ShaderColored extends Shader {
+	uniform_color: WebGLUniformLocation;
+
+	constructor(gl: WebGL2RenderingContext) {
+		super(gl, text_vs_standard, text_fs_colored);
+		this.uniform_color = this.createUniform(gl, "COLOR");
+	}
+
+	setColor(gl: WebGL2RenderingContext, r: number, g: number, b: number, a: number) {
+		this.bind(gl);
+		gl.uniform4f(this.uniform_color, r, g, b, a);
 	}
 }
 
@@ -158,7 +198,8 @@ export class RenderEngine {
 	projection = glMatrix.mat4.create();
 	display_scale: number = 1.0;
 	buffer_quad: RObject;
-	shader_solid: Shader;
+	shader_solid: ShaderSolid;
+	shader_colored: ShaderColored;
 
 	constructor(params: RenderEngineParams) {
 		this.params = params;
@@ -177,7 +218,8 @@ export class RenderEngine {
 		this.gl = gl;
 
 		this.buffer_quad = initBufferQuad(this.gl);
-		this.shader_solid = new Shader(this.gl, text_vs_standard, text_fs_solid);
+		this.shader_solid = new ShaderSolid(this.gl);
+		this.shader_colored = new ShaderColored(this.gl);
 
 		this.gl.disable(this.gl.DEPTH_TEST);
 		this.gl.enable(this.gl.BLEND);
@@ -187,6 +229,15 @@ export class RenderEngine {
 	clear(r: number, g: number, b: number, a: number) {
 		this.gl.clearColor(r, g, b, a);
 		this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+	}
+
+	enableBlending(enabled: boolean) {
+		if (enabled) {
+			this.gl.enable(this.gl.BLEND);
+		}
+		else {
+			this.gl.disable(this.gl.BLEND);
+		}
 	}
 
 	viewportFullscreen() {

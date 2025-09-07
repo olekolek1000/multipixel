@@ -1,5 +1,6 @@
 import { User } from "./client";
-import { Texture } from "./render_engine";
+import { easings } from "./easings";
+import { RenderEngine, Texture } from "./render_engine";
 import { ConnectedInstanceState, PREVIEW_SYSTEM_LAYER_COUNT, type RoomInstance } from "./room_instance";
 import tool from "./tool";
 
@@ -27,6 +28,8 @@ class Chunk {
 	x: number; // X position
 	y: number; // Y position
 	tex: Texture | null = null;
+	tex_creation_time_millis: number = 0;
+	fading_in: boolean = false;
 	pixels: Uint8Array | null = null;
 
 	pixel_queue: Array<PixelQueueCell> = [];
@@ -38,6 +41,7 @@ class Chunk {
 
 	initTexture(gl: WebGL2RenderingContext) {
 		if (this.tex) return;//Already initialized
+
 		this.tex = new Texture();
 		this.tex.texture = gl.createTexture()!;
 		gl.bindTexture(gl.TEXTURE_2D, this.tex.texture);
@@ -49,6 +53,9 @@ class Chunk {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+		this.tex_creation_time_millis = (new Date()).getTime();
+		this.fading_in = true;
 	}
 
 	destructor(gl: WebGL2RenderingContext) {
@@ -106,10 +113,15 @@ class Chunk {
 	}
 
 	processPixels(gl: WebGL2RenderingContext) {
+		if (this.tex === null) {
+			return;
+		}
+
 		let count = this.pixel_queue.length;
 
-		if (count == 0)
+		if (count == 0) {
 			return false;
+		}
 
 		let data = this.pixels!;
 
@@ -127,6 +139,38 @@ class Chunk {
 		this.pixel_queue = [];
 
 		return true;
+	}
+
+	render(renderer: RenderEngine, cur_time_millis: number): boolean {
+		if (this.tex === null) {
+			return false;
+		}
+
+		const x = this.x * CHUNK_SIZE;
+		const y = this.y * CHUNK_SIZE;
+		const width = CHUNK_SIZE;
+		const height = CHUNK_SIZE;
+
+		if (this.fading_in) {
+			const lifetime = cur_time_millis - this.tex_creation_time_millis;
+			const duration = 500.0;
+			const alpha = easings.out_cubic(lifetime / duration);
+
+			renderer.shader_colored.setColor(renderer.gl, 1.0, 1.0, 1.0, alpha);
+			renderer.drawRect(renderer.shader_colored, this.tex, x, y, width, height);
+
+			if (lifetime > duration) {
+				this.fading_in = false;
+			}
+		}
+		else {
+			renderer.enableBlending(false);
+			renderer.drawRect(renderer.shader_solid, this.tex, x, y, width, height);
+			renderer.enableBlending(true);
+		}
+
+
+		return this.fading_in;
 	}
 }
 
@@ -343,28 +387,29 @@ export class ChunkMap {
 		let boundary = this.getChunkBoundaries();
 		let renderer = this.state.renderer;
 
-		this.iterChunksInBoundary(boundary, (chunk) => {
-			if (!chunk.tex) {
-				return;
-			}
+		let needs_redraw = false;
 
+		let cur_time_millis = (new Date()).getTime();
+
+		this.iterChunksInBoundary(boundary, (chunk) => {
 			chunk.processPixels(renderer.gl);
-			renderer.drawRect(
-				renderer.shader_solid,
-				chunk.tex,
-				chunk.x * CHUNK_SIZE,
-				chunk.y * CHUNK_SIZE,
-				CHUNK_SIZE, CHUNK_SIZE);
+			if (chunk.render(renderer, cur_time_millis)) {
+				needs_redraw = true;
+			}
 		});
+
+		if (needs_redraw) {
+			this.triggerRerender();
+		}
 	}
 
 	drawPreviews() {
 		let renderer = this.state.renderer;
 
-		//Reverse iterator
-		let iter_count = 0;
-		let render_count = 0;
+		let needs_redraw = false;
+		const cur_time_millis = (new Date()).getTime();
 
+		//Reverse iterator
 		for (let zoom = PREVIEW_SYSTEM_LAYER_COUNT; zoom >= 1; zoom--) {
 			let layer = this.instance.preview_system.getLayer(zoom);
 			if (!layer) continue;
@@ -372,23 +417,15 @@ export class ChunkMap {
 			const SIZE = CHUNK_SIZE * Math.pow(2, layer.zoom);
 
 			layer.iterPreviewsInBoundary(boundary, (preview) => {
-				iter_count += 1;
-				if (!preview.tex) {
-					return;
+				if (preview.render(renderer, SIZE, cur_time_millis)) {
+					needs_redraw = true;
 				}
-
-				render_count += 1;
-				//console.log("preview zoom", zoom, "x", preview.x, "y", preview.y);
-				renderer.drawRect(
-					renderer.shader_solid,
-					preview.tex,
-					preview.x * SIZE,
-					preview.y * SIZE,
-					SIZE, SIZE);
 			});
 		}
 
-		//console.log("iter count", iter_count, "render count", render_count);
+		if (needs_redraw) {
+			this.triggerRerender();
+		}
 	}
 
 	drawCursors() {

@@ -1,5 +1,6 @@
 import { CHUNK_SIZE, type PreviewBoundary } from "./chunk_map";
-import { Texture } from "./render_engine";
+import { easings } from "./easings";
+import { RenderEngine, Texture } from "./render_engine";
 import type { RoomInstance } from "./room_instance";
 
 export class Preview {
@@ -9,6 +10,8 @@ export class Preview {
 	remove_timeout: number = 0;
 
 	tex: Texture | null = null;
+	tex_creation_time_millis: number = 0;
+	fading_in: boolean = false;
 
 	constructor(gl: WebGL2RenderingContext, x: number, y: number) {
 		this.x = x;
@@ -30,6 +33,36 @@ export class Preview {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+		this.tex_creation_time_millis = (new Date()).getTime();
+		this.fading_in = true;
+	}
+
+	render(renderer: RenderEngine, size: number, cur_time_millis: number): boolean {
+		if (this.tex === null) {
+			return false;
+		}
+
+		const x = this.x * size;
+		const y = this.y * size;
+
+		if (this.fading_in) {
+			const lifetime = cur_time_millis - this.tex_creation_time_millis;
+			const duration = 500.0;
+			const alpha = easings.out_cubic(lifetime / duration);
+
+			renderer.shader_colored.setColor(renderer.gl, 1.0, 1.0, 1.0, alpha);
+			renderer.drawRect(renderer.shader_colored, this.tex, x, y, size, size);
+
+			if (lifetime > duration) {
+				this.fading_in = false;
+			}
+		}
+		else {
+			renderer.drawRect(renderer.shader_solid, this.tex, x, y, size, size);
+		}
+
+		return this.fading_in;
 	}
 
 	destructor(gl: WebGL2RenderingContext) {
