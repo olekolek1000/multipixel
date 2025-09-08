@@ -132,17 +132,17 @@ impl Compositor {
 
 				for y in 0..CHUNK_SIZE_PX {
 					for x in 0..CHUNK_SIZE_PX {
-						let offset_rgba = (y * (CHUNK_SIZE_PX * 4) + x * 4) as isize;
+						let offset_rgba = (y * (CHUNK_SIZE_PX * 4) + x * 4) as usize;
 
-						let out_red = out_rgba.offset(offset_rgba);
-						let out_green = out_rgba.offset(offset_rgba + 1);
-						let out_blue = out_rgba.offset(offset_rgba + 2);
-						let out_alpha = out_rgba.offset(offset_rgba + 3);
+						let out_red = out_rgba.add(offset_rgba);
+						let out_green = out_rgba.add(offset_rgba + 1);
+						let out_blue = out_rgba.add(offset_rgba + 2);
+						let out_alpha = out_rgba.add(offset_rgba + 3);
 
-						let layer_red = (layer_rgba.0)[(offset_rgba) as usize];
-						let layer_green = (layer_rgba.0)[(offset_rgba + 1) as usize];
-						let layer_blue = (layer_rgba.0)[(offset_rgba + 2) as usize];
-						let layer_alpha = (layer_rgba.0)[(offset_rgba + 3) as usize];
+						let layer_red = (layer_rgba.0)[offset_rgba];
+						let layer_green = (layer_rgba.0)[offset_rgba + 1];
+						let layer_blue = (layer_rgba.0)[offset_rgba + 2];
+						let layer_alpha = (layer_rgba.0)[offset_rgba + 3];
 
 						let blended = ColorRGBA::blend_gamma_corrected(
 							layer_alpha,

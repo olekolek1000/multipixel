@@ -1,4 +1,4 @@
-use glam::{IVec2, UVec2};
+use glam::{IVec2, U8Vec2};
 use num_enum::TryFromPrimitive;
 use rusqlite::params;
 use std::sync::Arc;
@@ -128,7 +128,7 @@ fn migrate_to_version_1(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 				let blue = rgb[offset + 2];
 
 				layer.set_pixel(
-					UVec2::new(x as u32, y as u32),
+					U8Vec2::new(x as u8, y as u8),
 					ColorRGBA {
 						r: red,
 						g: green,

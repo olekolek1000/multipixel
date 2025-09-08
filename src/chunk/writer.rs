@@ -66,29 +66,33 @@ impl ChunkWriterRGBA {
 		// Generate affected chunks list
 		for pixel in pixels {
 			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-			if Self::fetch_cell(&mut self.affected_chunks, chunk_pos).is_none() {
-				Self::cache_new_chunk(
-					chunk_cache,
-					chunk_system_mtx,
-					&mut self.affected_chunks,
-					chunk_pos,
-				)
-				.await;
+			if Self::fetch_cell(&mut self.affected_chunks, chunk_pos).is_some() {
+				continue;
 			}
+
+			Self::cache_new_chunk(
+				chunk_cache,
+				chunk_system_mtx,
+				&mut self.affected_chunks,
+				chunk_pos,
+			)
+			.await;
 		}
 
 		// Queue pixels to send
 		for pixel in pixels {
 			let chunk_pos = ChunkSystem::global_pixel_pos_to_chunk_pos(pixel.pos);
-			if let Some(cell) = Self::fetch_cell(&mut self.affected_chunks, chunk_pos) {
-				cell.queued_pixels.push((
-					ChunkPixelRGBA {
-						color: pixel.color,
-						pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
-					},
-					pixel.pos,
-				));
-			}
+			let Some(cell) = Self::fetch_cell(&mut self.affected_chunks, chunk_pos) else {
+				continue;
+			};
+
+			cell.queued_pixels.push((
+				ChunkPixelRGBA {
+					color: pixel.color,
+					pos: ChunkSystem::global_pixel_pos_to_local_pixel_pos(pixel.pos),
+				},
+				pixel.pos,
+			));
 		}
 	}
 }

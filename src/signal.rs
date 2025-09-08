@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use std::sync::{Arc, Mutex as SyncMutex};
+use parking_lot::Mutex as SyncMutex;
+use std::sync::Arc;
 
 use tokio::sync::Notify;
 
@@ -27,13 +28,13 @@ impl Signal {
 	}
 
 	pub fn notify(&self) {
-		let mut data = self.data.lock().unwrap();
+		let mut data = self.data.lock();
 		data.triggered = true;
 		data.notifier.notify_waiters();
 	}
 
 	pub fn check_triggered(&self) -> bool {
-		let mut data = self.data.lock().unwrap();
+		let mut data = self.data.lock();
 		if data.triggered {
 			data.triggered = false;
 			true

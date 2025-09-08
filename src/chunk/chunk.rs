@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock, Weak};
 
 use bytes::{BufMut, BytesMut};
 use glam::{IVec2, U8Vec2};
-use std::sync::Mutex as SyncMutex;
+use parking_lot::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -128,7 +128,7 @@ impl ChunkInstance {
 	}
 
 	fn set_main_modified(&mut self, modified: bool) {
-		*self.refs.main_modified.lock().unwrap() = modified;
+		*self.refs.main_modified.lock() = modified;
 		if modified {
 			// Invalidate compressed data
 			self.compressed_image_data = None;
@@ -251,7 +251,7 @@ impl ChunkInstance {
 
 		let mut packet_pixel_pack_plain: Option<packet_server::Packet> = None;
 
-		for session in self.refs.linked_sessions.lock().unwrap().iter() {
+		for session in self.refs.linked_sessions.lock().iter() {
 			if !self.compositor.has_session_composition(&session.handle) {
 				// mark that we will generate plain pixel pack for all users
 				// not using composition layers
@@ -260,7 +260,7 @@ impl ChunkInstance {
 			}
 		}
 
-		for session in self.refs.linked_sessions.lock().unwrap().iter() {
+		for session in self.refs.linked_sessions.lock().iter() {
 			if self.compositor.has_session_composition(&session.handle) {
 				// Send composited pixel pack exclusively for this client
 				let layers = self
@@ -300,16 +300,17 @@ impl ChunkInstance {
 	pub fn send_pixel_updates(&self, coords: &[U8Vec2]) {
 		debug_assert!(self.main_layer.read().is_some());
 
-		for session in self.refs.linked_sessions.lock().unwrap().iter() {
+		for session in self.refs.linked_sessions.lock().iter_mut() {
 			let layers = self
 				.compositor
 				.construct_layers_from_session(&session.handle);
 			let mut composited_pixels = Vec::<ChunkPixelRGBA>::with_capacity(coords.len());
 
 			for coord in coords {
-				let rgba = Compositor::calc_pixel(&self.main_layer, &layers, *coord);
+				let composited_pixel = Compositor::calc_pixel(&self.main_layer, &layers, *coord);
+
 				composited_pixels.push(ChunkPixelRGBA {
-					color: rgba,
+					color: composited_pixel,
 					pos: *coord,
 				});
 			}
@@ -324,7 +325,6 @@ impl ChunkInstance {
 			.refs
 			.linked_sessions
 			.lock()
-			.unwrap()
 			.iter()
 			.map(|session| (session.handle, session.queue_send.clone()))
 			.collect();
@@ -365,7 +365,7 @@ impl ChunkInstance {
 		session: &SessionInstanceWeak,
 		session_queue_send: EventQueue<packet_server::Packet>,
 	) {
-		let mut linked_sessions = self.refs.linked_sessions.lock().unwrap();
+		let mut linked_sessions = self.refs.linked_sessions.lock();
 
 		for s in linked_sessions.iter() {
 			if s.handle == *handle {
@@ -383,7 +383,7 @@ impl ChunkInstance {
 	pub fn unlink_session(&mut self, handle: &SessionHandle) {
 		let mut to_remove_idx: Option<usize> = None;
 
-		let mut linked_sessions = self.refs.linked_sessions.lock().unwrap();
+		let mut linked_sessions = self.refs.linked_sessions.lock();
 
 		for (idx, session) in linked_sessions.iter().enumerate() {
 			if session.handle == *handle {

@@ -1,4 +1,4 @@
-use glam::{U8Vec2, UVec2};
+use glam::U8Vec2;
 
 use crate::{
 	compression,
@@ -63,39 +63,52 @@ impl LayerRGBA {
 		let offset = (u32::from(chunk_pixel_pos.y) * CHUNK_SIZE_PX * 4
 			+ u32::from(chunk_pixel_pos.x) * 4) as usize;
 
-		ColorRGBA {
-			r: (data.0)[offset],
-			g: (data.0)[offset + 1],
-			b: (data.0)[offset + 2],
-			a: (data.0)[offset + 3],
+		let rgba = data.0.as_ptr();
+
+		unsafe {
+			ColorRGBA {
+				r: *rgba.add(offset),
+				g: *rgba.add(offset + 1),
+				b: *rgba.add(offset + 2),
+				a: *rgba.add(offset + 3),
+			}
 		}
 	}
 
 	/// Chunk needs to be allocated first!
-	#[allow(dead_code)]
-	pub fn set_pixel(&mut self, chunk_pixel_pos: UVec2, color: ColorRGBA) {
+	pub fn set_pixel(&mut self, chunk_pixel_pos: U8Vec2, color: ColorRGBA) {
 		debug_assert!(!self.data.0.is_empty());
 
 		let data = self.read_unchecked_mut();
-		let offset = (chunk_pixel_pos.y * (CHUNK_SIZE_PX * 4) + chunk_pixel_pos.x * 4) as usize;
+		let offset = (u32::from(chunk_pixel_pos.y) * (CHUNK_SIZE_PX * 4)
+			+ u32::from(chunk_pixel_pos.x) * 4) as usize;
 
-		data.0[offset] = color.r;
-		data.0[offset + 1] = color.g;
-		data.0[offset + 2] = color.b;
-		data.0[offset + 3] = color.a;
+		let rgba = data.0.as_mut_ptr();
+
+		unsafe {
+			*rgba.add(offset) = color.r;
+			*rgba.add(offset + 1) = color.g;
+			*rgba.add(offset + 2) = color.b;
+			*rgba.add(offset + 3) = color.a;
+		}
 	}
 
+	#[allow(dead_code)]
 	pub fn set_pixels(&mut self, pixels: &[ChunkPixelRGBA]) {
 		let data = self.read_unchecked_mut();
 
-		for pixel in pixels {
-			// Update pixel
-			let offset =
-				(u32::from(pixel.pos.y) * CHUNK_SIZE_PX * 4 + u32::from(pixel.pos.x) * 4) as usize;
-			(data.0)[offset] = pixel.color.r;
-			(data.0)[offset + 1] = pixel.color.g;
-			(data.0)[offset + 2] = pixel.color.b;
-			(data.0)[offset + 3] = pixel.color.a;
+		unsafe {
+			let rgba = data.0.as_mut_ptr();
+
+			for pixel in pixels {
+				// Update pixel
+				let offset =
+					(u32::from(pixel.pos.y) * CHUNK_SIZE_PX * 4 + u32::from(pixel.pos.x) * 4) as usize;
+				*rgba.add(offset) = pixel.color.r;
+				*rgba.add(offset + 1) = pixel.color.g;
+				*rgba.add(offset + 2) = pixel.color.b;
+				*rgba.add(offset + 3) = pixel.color.a;
+			}
 		}
 	}
 }

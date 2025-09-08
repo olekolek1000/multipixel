@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex as SyncMutex};
+use parking_lot::Mutex as SyncMutex;
+use std::sync::Arc;
 
 pub struct SerialGenerator {
 	serial: Arc<SyncMutex<u64>>,
@@ -12,7 +13,7 @@ impl SerialGenerator {
 	}
 
 	pub fn increment_get(&self) -> u64 {
-		let mut serial = self.serial.lock().unwrap();
+		let mut serial = self.serial.lock();
 		let cur = *serial;
 		*serial += 1;
 		cur

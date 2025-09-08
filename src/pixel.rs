@@ -18,7 +18,7 @@ impl ColorRGB {
 	}
 }
 
-#[derive(Default, Copy, Clone, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ColorRGBA {
 	pub r: u8,
 	pub g: u8,
@@ -61,7 +61,7 @@ impl ColorRGBA {
 	}
 }
 
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq, Eq, Hash)]
 pub struct GlobalPixelRGBA {
 	pub pos: IVec2,
 	pub color: ColorRGBA,

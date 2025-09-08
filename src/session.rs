@@ -17,9 +17,9 @@ use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter
 use binary_reader::BinaryReader;
 use futures_util::SinkExt;
 use glam::IVec2;
+use parking_lot::Mutex as SyncMutex;
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
-use std::sync::Mutex as SyncMutex;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 use std::{fmt, io};
@@ -250,14 +250,14 @@ impl SessionInstance {
 			if let Some(room_refs) = &session.room_refs {
 				let room_refs = room_refs.clone();
 
-				session.tick_tool_state(&room_refs).await;
-
 				if let Err(e) = session
 					.tick_boundary_check(&room_refs, session_handle, &session_mtx)
 					.await
 				{
 					session.handle_error(&e)?;
 				}
+
+				session.update_tool_state(&room_refs).await;
 
 				if ticks % 20 == 0 {
 					session.tick_chunks_cleanup(session_handle).await;
@@ -442,8 +442,8 @@ impl SessionInstance {
 		Ok(())
 	}
 
-	fn state(&self) -> std::sync::MutexGuard<SessionState> {
-		self.state.lock().unwrap()
+	fn state(&self) -> parking_lot::MutexGuard<SessionState> {
+		self.state.lock()
 	}
 
 	async fn set_tool_state(&mut self, refs: &RoomRefs, new_state: ToolState) {
@@ -451,8 +451,9 @@ impl SessionInstance {
 			ToolState::None => {}
 			ToolState::Line(state) => {
 				state.cleanup(refs);
-				let pixels = state.gen_global_pixel_vec_rgba(self.tool.color.rgba(255));
-				self.set_pixels_main(refs, &pixels, true).await;
+				let pixels_map = state.gen_global_pixel_vec_rgba(self.tool.color.rgba(255));
+				let pixels_vec = ToolStateLine::hashmap_to_vec(&pixels_map);
+				self.set_pixels_main(refs, &pixels_vec, true).await;
 			}
 		}
 		self.tool_state = new_state;
@@ -1231,7 +1232,7 @@ impl SessionInstance {
 		for other_session in other_sessions {
 			let other_session_id = other_session.handle.id();
 
-			let other_state = other_session.state.lock().unwrap();
+			let other_state = other_session.state.lock();
 
 			//Send user creation packet
 			self
@@ -1693,7 +1694,7 @@ impl SessionInstance {
 		}
 	}
 
-	pub async fn tick_tool_state(&mut self, refs: &RoomRefs) {
+	pub async fn update_tool_state(&mut self, refs: &RoomRefs) {
 		let cursor_pos = self.state().cursor.pos.clone();
 
 		let tool_size = self.get_tool_size();

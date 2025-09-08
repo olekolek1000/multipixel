@@ -58,13 +58,6 @@ impl ChunkCache {
 				continue;
 			}
 
-			let mut chunk = cell.chunk.lock().await;
-
-			let layer = chunk.compositor.get_or_alloc_mut(&layer_id);
-			if layer.layer.read().is_none() {
-				layer.layer.alloc_transparent_black();
-			}
-
 			let queued_pixels: Vec<ChunkPixelRGBA> = cell
 				.queued_pixels
 				.iter()
@@ -74,9 +67,26 @@ impl ChunkCache {
 				})
 				.collect();
 
-			layer.layer.set_pixels(&queued_pixels);
+			let mut chunk = cell.chunk.lock().await;
 
-			let pixel_updates: Vec<U8Vec2> = cell.queued_pixels.iter().map(|c| c.0.pos).collect();
+			let layer = chunk.compositor.get_or_alloc_mut(&layer_id);
+			if layer.layer.read().is_none() {
+				layer.layer.alloc_transparent_black();
+			}
+
+			let mut changed_pixels = Vec::<ChunkPixelRGBA>::new();
+
+			// set only changed pixels
+			for queued_pixel in &queued_pixels {
+				let current_pixel = layer.layer.get_pixel(queued_pixel.pos);
+
+				if current_pixel != queued_pixel.color {
+					layer.layer.set_pixel(queued_pixel.pos, queued_pixel.color);
+					changed_pixels.push(queued_pixel.clone());
+				}
+			}
+
+			let pixel_updates: Vec<U8Vec2> = changed_pixels.iter().map(|c| c.pos).collect();
 			chunk.allocate_image();
 			chunk.send_pixel_updates(&pixel_updates);
 		}

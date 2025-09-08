@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
-use std::{
-	collections::VecDeque,
-	sync::{Arc, Mutex as SyncMutex},
-};
+use std::{collections::VecDeque, sync::Arc};
+
+use parking_lot::Mutex as SyncMutex;
 
 use tokio::sync::{broadcast, Notify};
 
@@ -28,18 +27,18 @@ impl<DataType> EventQueue<DataType> {
 	}
 
 	pub fn send(&self, message: DataType) {
-		let mut data = self.data.lock().unwrap();
+		let mut data = self.data.lock();
 		data.queue.push_back(message);
 		data.notifier.notify_waiters();
 	}
 
 	pub fn read(&self) -> Option<DataType> {
-		let mut data = self.data.lock().unwrap();
+		let mut data = self.data.lock();
 		data.queue.pop_front()
 	}
 
 	pub fn read_all(&self) -> Vec<DataType> {
-		let mut data = self.data.lock().unwrap();
+		let mut data = self.data.lock();
 		data.queue.drain(..).collect()
 	}
 }

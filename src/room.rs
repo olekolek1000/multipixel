@@ -7,10 +7,10 @@ use crate::{
 	preview_system::{PreviewSystem, PreviewSystemMutex},
 	server::Server,
 	session::{SessionHandle, SessionInstanceWeak, SessionState},
-	tool::brush::BrushShapes,
+	tool::iter_brush::BrushShapes,
 };
+use parking_lot::Mutex as SyncMutex;
 use std::sync::Arc;
-use std::sync::Mutex as SyncMutex;
 use tokio::sync::{Mutex, Notify};
 
 #[derive(Clone)]
@@ -151,9 +151,7 @@ impl RoomInstance {
 					continue;
 				}
 
-				if *session_data.state.lock().unwrap().nick_name
-					== Self::gen_suitable_name(current, occupied_num)
-				{
+				if *session_data.state.lock().nick_name == Self::gen_suitable_name(current, occupied_num) {
 					occupied = true;
 					if let Some(num) = &mut occupied_num {
 						*num += 1;

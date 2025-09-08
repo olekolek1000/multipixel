@@ -1,4 +1,7 @@
-use std::{collections::HashSet, f32::consts::PI};
+use std::{
+	collections::{HashMap, HashSet},
+	f32::consts::PI,
+};
 
 use glam::IVec2;
 
@@ -7,8 +10,8 @@ use crate::{
 	pixel::{ColorRGB, ColorRGBA, GlobalPixelRGBA},
 	room::RoomRefs,
 	tool::{
-		brush::{BrushShape, ShapeType},
-		triangle::TriangleRasterizerIter,
+		iter_brush::{BrushShape, ShapeType},
+		iter_triangle::TriangleRasterizerIter,
 	},
 	util,
 };
@@ -33,11 +36,11 @@ impl ToolStateLine {
 		}
 	}
 
-	pub fn gen_global_pixel_vec_rgba(&self, color: ColorRGBA) -> Vec<GlobalPixelRGBA> {
+	pub fn gen_global_pixel_vec_rgba(&self, color: ColorRGBA) -> HashMap<IVec2, ColorRGBA> {
 		self
 			.affected_pixels
 			.iter()
-			.map(|pos| GlobalPixelRGBA { pos: *pos, color })
+			.map(|pos| (*pos, color))
 			.collect()
 	}
 
@@ -57,7 +60,9 @@ impl ToolStateLine {
 		self.write_line_iter(LineMoveIter::iterate(self.start_pos, target));
 	}
 
-	fn gen_pixels_thick(&mut self, target: IVec2, size: u8) {
+	fn gen_pixels_thick(&mut self, target: IVec2, mut size: u8) {
+		size = (size / 2) * 2; // make even
+
 		let angle = util::angle_ivec2(self.start_pos, target);
 
 		let step_raw = util::step_angle(angle + PI / 2.0);
@@ -104,6 +109,16 @@ impl ToolStateLine {
 		}
 	}
 
+	pub fn hashmap_to_vec(map: &HashMap<IVec2, ColorRGBA>) -> Vec<GlobalPixelRGBA> {
+		map
+			.iter()
+			.map(|p| GlobalPixelRGBA {
+				pos: *p.0,
+				color: *p.1,
+			})
+			.collect()
+	}
+
 	pub async fn process(
 		&mut self,
 		chunk_cache: &mut ChunkCache,
@@ -127,18 +142,26 @@ impl ToolStateLine {
 		self.target_prev = Some(target);
 
 		// Clear previous iteration with transparent pixels
-		let mut out_pixels = self.gen_global_pixel_vec_rgba(ColorRGBA::zero());
+		let mut out_pixels_map = self.gen_global_pixel_vec_rgba(ColorRGBA::zero());
+
 		self.affected_pixels.clear(); // generate line pixels from scratch
 
 		self.gen_pixels(target, size);
 
-		out_pixels.extend(self.affected_pixels.iter().map(|c| GlobalPixelRGBA {
-			color: color.rgba(255),
-			pos: *c,
-		}));
+		for affected_pixel_pos in &self.affected_pixels {
+			// insert or replace
+			out_pixels_map.insert(*affected_pixel_pos, color.rgba(255));
+		}
+
+		// convert set to vec
+		let out_pixels_vec = ToolStateLine::hashmap_to_vec(&out_pixels_map);
 
 		chunk_cache
-			.set_pixels_for_layer(&refs.chunk_system_mtx, self.layer_id.clone(), &out_pixels)
+			.set_pixels_for_layer(
+				&refs.chunk_system_mtx,
+				self.layer_id.clone(),
+				&out_pixels_vec,
+			)
 			.await;
 	}
 }

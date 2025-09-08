@@ -730,6 +730,7 @@ dependencies = [
  "lz4_flex",
  "num",
  "num_enum",
+ "parking_lot",
  "pretty_env_logger",
  "rusqlite",
  "serde",

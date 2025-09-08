@@ -3,7 +3,7 @@ use std::{
 	sync::{Arc, Weak},
 };
 
-use std::sync::Mutex as SyncMutex;
+use parking_lot::Mutex as SyncMutex;
 
 use glam::{IVec2, U8Vec2};
 use tokio::{
@@ -239,8 +239,8 @@ impl ChunkSystem {
 		let mut chunks_to_save: Vec<ChunkInstanceWeak> = Vec::new();
 		let mut chunks_to_free: Vec<IVec2> = Vec::new();
 		for (chunk_pos, cell) in &chunks {
-			if cell.refs.linked_sessions.lock().unwrap().is_empty() {
-				if *cell.refs.main_modified.lock().unwrap() {
+			if cell.refs.linked_sessions.lock().is_empty() {
+				if *cell.refs.main_modified.lock() {
 					chunks_to_save.push(cell.chunk.clone());
 				}
 				chunks_to_free.push(*chunk_pos);
@@ -306,7 +306,7 @@ impl ChunkSystem {
 		let mut to_autosave: Vec<ChunkCellWeak> = Vec::new();
 		for cell in self.chunks.values() {
 			// If modified
-			if *cell.refs.main_modified.lock().unwrap() {
+			if *cell.refs.main_modified.lock() {
 				to_autosave.push(ChunkCellWeak {
 					chunk: Arc::downgrade(&cell.chunk),
 					refs: cell.refs.clone(),
@@ -397,7 +397,7 @@ impl ChunkSystem {
 		while let Some(cell) = to_autosave.pop() {
 			if let Some(chunk) = cell.chunk.upgrade() {
 				let mut chunk = chunk.lock().await;
-				if !*cell.refs.main_modified.lock().unwrap() {
+				if !*cell.refs.main_modified.lock() {
 					continue;
 				}
 

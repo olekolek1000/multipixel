@@ -11,8 +11,7 @@ use crate::{
 	session::{self, SessionHandle, SessionInstance, SessionInstanceMutex, SessionState, SessionVec},
 };
 
-use std::sync::Mutex as SyncMutex;
-
+use parking_lot::Mutex as SyncMutex;
 pub struct Server {
 	cancel_token: CancellationToken,
 	pub sessions: SessionVec,
