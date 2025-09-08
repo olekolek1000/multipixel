@@ -2,7 +2,6 @@ import { User } from "./client";
 import { easings } from "./easings";
 import { RenderEngine, Texture } from "./render_engine";
 import { ConnectedInstanceState, PREVIEW_SYSTEM_LAYER_COUNT, type RoomInstance } from "./room_instance";
-import tool from "./tool";
 
 export const CHUNK_SIZE = 256;
 
@@ -470,10 +469,6 @@ export class ChunkMap {
 		const cursor = this.instance.cursor;
 		const renderer = this.state.renderer;
 		let brush_size = cursor.tool_size;
-
-		if (cursor.tool_id == tool.ToolID.Line) {
-			brush_size = 1;
-		}
 
 		renderer.drawRect(
 			renderer.shader_solid,

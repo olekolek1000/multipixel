@@ -11,7 +11,7 @@ use crate::pixel::{ColorRGB, ColorRGBA, GlobalPixelRGBA};
 use crate::room::{RoomInstanceMutex, RoomRefs};
 use crate::serial_generator::SerialGenerator;
 use crate::server::ServerMutex;
-use crate::tool::iter::LineMoveIter;
+use crate::tool::iter_line::LineMoveIter;
 use crate::tool::state::{ToolState, ToolStateLine};
 use crate::{gen_id, limits, packet_client, packet_server, util, ConnectionWriter};
 use binary_reader::BinaryReader;
@@ -64,7 +64,7 @@ struct FloodfillTask {
 }
 
 struct ToolData {
-	pub size: u8,
+	pub size_raw: u8,
 	pub flow: f32,
 	pub color: ColorRGB,
 	pub tool_type: Option<packet_client::ToolType>,
@@ -73,7 +73,7 @@ struct ToolData {
 impl Default for ToolData {
 	fn default() -> Self {
 		Self {
-			size: 1,
+			size_raw: 1,
 			flow: 0.5,
 			color: ColorRGB::default(),
 			tool_type: None,
@@ -646,10 +646,10 @@ impl SessionInstance {
 				continue;
 			}
 
-			let tool_color = if brush_type != UpdateBrushType::Eraser {
-				self.tool.color.rgba(255)
-			} else {
+			let tool_color = if brush_type == UpdateBrushType::Eraser {
 				ColorRGBA::new(255, 255, 255, 0)
+			} else {
+				self.tool.color.rgba(255)
 			};
 
 			match tool_size {
@@ -702,6 +702,7 @@ impl SessionInstance {
 		}
 
 		let ending_drawing = !cursor_down && matches!(self.tool_state, ToolState::Line(_));
+		let tool_size = self.get_tool_size();
 
 		if ending_drawing {
 			// render for the last time
@@ -712,6 +713,7 @@ impl SessionInstance {
 						refs,
 						cursor_pos.to_vec(),
 						self.tool.color,
+						tool_size,
 					)
 					.await;
 			}
@@ -1548,7 +1550,7 @@ impl SessionInstance {
 
 	fn process_command_tool_size(&mut self, reader: &mut BinaryReader) -> anyhow::Result<()> {
 		let size = reader.read_u8()?;
-		self.tool.size = size;
+		self.tool.size_raw = size;
 		Ok(())
 	}
 
@@ -1559,19 +1561,21 @@ impl SessionInstance {
 
 		match tool_type {
 			packet_client::ToolType::Fill => 0,
-			packet_client::ToolType::Line => self.tool.size.min(limits::TOOL_SIZE_LINE_MAX),
+			packet_client::ToolType::Line => self.tool.size_raw.clamp(1, limits::TOOL_SIZE_LINE_MAX),
 			packet_client::ToolType::Brush | packet_client::ToolType::Eraser => {
-				self.tool.size.min(limits::TOOL_SIZE_BRUSH_MAX)
+				self.tool.size_raw.clamp(1, limits::TOOL_SIZE_BRUSH_MAX)
 			}
-			packet_client::ToolType::SmoothBrush => {
-				self.tool.size.min(limits::TOOL_SIZE_SMOOTH_BRUSH_MAX)
-			}
-			packet_client::ToolType::SquareBrush => {
-				self.tool.size.min(limits::TOOL_SIZE_SQUARE_BRUSH_MAX)
-			}
-			packet_client::ToolType::Spray => self.tool.size.min(limits::TOOL_SIZE_SPRAY_MAX),
-			packet_client::ToolType::Blur => self.tool.size.min(limits::TOOL_SIZE_BLUR_MAX),
-			packet_client::ToolType::Smudge => self.tool.size.min(limits::TOOL_SIZE_SMUDGE_MAX),
+			packet_client::ToolType::SmoothBrush => self
+				.tool
+				.size_raw
+				.clamp(1, limits::TOOL_SIZE_SMOOTH_BRUSH_MAX),
+			packet_client::ToolType::SquareBrush => self
+				.tool
+				.size_raw
+				.clamp(1, limits::TOOL_SIZE_SQUARE_BRUSH_MAX),
+			packet_client::ToolType::Spray => self.tool.size_raw.clamp(1, limits::TOOL_SIZE_SPRAY_MAX),
+			packet_client::ToolType::Blur => self.tool.size_raw.clamp(1, limits::TOOL_SIZE_BLUR_MAX),
+			packet_client::ToolType::Smudge => self.tool.size_raw.clamp(1, limits::TOOL_SIZE_SMUDGE_MAX),
 		}
 	}
 
@@ -1692,6 +1696,8 @@ impl SessionInstance {
 	pub async fn tick_tool_state(&mut self, refs: &RoomRefs) {
 		let cursor_pos = self.state().cursor.pos.clone();
 
+		let tool_size = self.get_tool_size();
+
 		match &mut self.tool_state {
 			ToolState::None => {}
 			ToolState::Line(state) => {
@@ -1701,6 +1707,7 @@ impl SessionInstance {
 						refs,
 						cursor_pos.to_vec(),
 						self.tool.color,
+						tool_size,
 					)
 					.await;
 			}

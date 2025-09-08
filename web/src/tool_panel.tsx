@@ -359,7 +359,7 @@ function ToolFlow({ globals }: { globals: ToolboxGlobals }) {
 	}} />
 }
 
-function ToolList({ children }: { children: ReactNode[] }) {
+function ToolList({ children }: { children: ReactNode }) {
 	return <div className={style_toolbox.tool_settings_parent}>
 		{children}
 	</div>
@@ -406,6 +406,12 @@ export function ToolPanel({ globals }: { globals: ToolboxGlobals }) {
 				<ToolSize max={32} globals={globals} />
 				<ToolSmoothing globals={globals} />
 			</ToolList>
+			break;
+		}
+		case ToolType.line: {
+			tool_settings = <ToolList>
+				<ToolSize max={32} globals={globals} />
+			</ToolList>;
 			break;
 		}
 		case ToolType.spray:
